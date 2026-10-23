@@ -1,0 +1,72 @@
+{
+  "scope": "Live Steam URL-to-offer API proof; purchase redirects are for human navigation only.",
+  "startedAt": "2026-10-26T16:34:26.469Z",
+  "runtime": "v24.22.1",
+  "userAgent": "PriceTracker-COP4331C/0.1 (+https://github.com/aluciencozy/price-tracker)",
+  "paidRequests": false,
+  "apiKeyUsed": false,
+  "requests": [
+    {
+      "url": "https://www.cheapshark.com/api/1.0/games?steamAppID=620",
+      "receivedAt": "2026-10-26T16:34:26.768Z",
+      "status": 200,
+      "responseDate": "Mon, 26 Oct 2026 16:34:26 GMT",
+      "retryAfter": null
+    },
+    {
+      "url": "https://www.cheapshark.com/api/1.0/games?id=36",
+      "receivedAt": "2026-10-26T16:34:31.928Z",
+      "status": 200,
+      "responseDate": "Mon, 26 Oct 2026 16:34:31 GMT",
+      "retryAfter": null
+    },
+    {
+      "url": "https://www.cheapshark.com/api/1.0/games?steamAppID=220",
+      "receivedAt": "2026-10-26T16:34:37.545Z",
+      "status": 200,
+      "responseDate": "Mon, 26 Oct 2026 16:34:37 GMT",
+      "retryAfter": null
+    },
+    {
+      "url": "https://www.cheapshark.com/api/1.0/games?id=59",
+      "receivedAt": "2026-10-26T16:34:42.828Z",
+      "status": 200,
+      "responseDate": "Mon, 26 Oct 2026 16:34:42 GMT",
+      "retryAfter": null
+    }
+  ],
+  "games": [
+    {
+      "steamUrl": "https://store.steampowered.com/app/620/",
+      "title": "Portal 2",
+      "steamAppId": "620",
+      "cheapSharkGameId": "36",
+      "storeId": "1",
+      "currency": "USD",
+      "currentPrice": "9.99",
+      "priceMinor": 999,
+      "retailPrice": "9.99",
+      "allStoreCheapest": "9.99",
+      "historicalLow": "0.99",
+      "purchaseUrl": "https://www.cheapshark.com/redirect?dealID=rwQ2JCEr5NOySyBsAj6fyPuZg4qMlh9w67U%2BmM6b2VE%3D",
+      "purchaseRedirectProbed": false
+    },
+    {
+      "steamUrl": "https://store.steampowered.com/app/220/",
+      "title": "Half-Life 2",
+      "steamAppId": "220",
+      "cheapSharkGameId": "59",
+      "storeId": "1",
+      "currency": "USD",
+      "currentPrice": "9.99",
+      "priceMinor": 999,
+      "retailPrice": "9.99",
+      "allStoreCheapest": "9.99",
+      "historicalLow": "0.99",
+      "purchaseUrl": "https://www.cheapshark.com/redirect?dealID=Vz5eZMF1sKvs02I4cuEgrGnmM1r%2BkWHig0YMa0lJ0vM%3D",
+      "purchaseRedirectProbed": false
+    }
+  ],
+  "passed": true,
+  "finishedAt": "2026-10-26T16:34:42.829Z"
+}

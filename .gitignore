@@ -1,0 +1,23 @@
+# Local assignment; do not publish.
+/[[]8.1] Large Project.pdf
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea/
+.vscode/
+# Flutter / Android
+.dart_tool/
+.flutter-plugins-dependencies
+.packages
+build/
+android/local.properties
+android/.gradle/
+android/key.properties
+*.jks
+*.keystore
