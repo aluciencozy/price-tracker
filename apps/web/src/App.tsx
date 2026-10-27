@@ -96,27 +96,7 @@ export default function App() {
 
       <Header />
 
-      <GameSearch query={query} onSearch={searchGame} />
-
-      {filteredGames.map(game => (
-        <GameCard
-          key={game.appId}
-          game={game}
-          isTracked={trackedIds.includes(game.appId)}
-          onToggleTrack={toggleGame}
-          onViewDetails={openGameDetails}
-        />
-      ))}
-
-
-
-      <Watchlist games={trackedGames} onRemove={toggleGame} />
-
-      {selectedGame && (
-        <GameDetails game={selectedGame} onClose={closeGameDetails} />
-      )}
-
-      <section className="max-w-2xl py-16 sm:py-24" aria-labelledby="intro">
+      <section className="max-w-2xl py-10 sm:py-14" aria-labelledby="intro">
         <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-300">
           One API. Web + Android.
         </p>
@@ -133,6 +113,35 @@ export default function App() {
           and alerts are not implemented yet.
         </p>
       </section>
+
+      <section className="mb-8" aria-labelledby="browse-games">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Explore the interface</p>
+            <h2 id="browse-games" className="mt-2 text-2xl font-semibold text-white">Browse games</h2>
+          </div>
+          <span className="rounded-full border border-slate-600 px-3 py-1 text-xs font-medium text-slate-300">Sample data · USD</span>
+        </div>
+        <p className="mb-5 text-sm leading-relaxed text-slate-400">These example prices are not live. Your selections last only until you refresh.</p>
+        <GameSearch query={query} onSearch={searchGame} />
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          {filteredGames.map(game => (
+            <GameCard
+              key={game.appId}
+              game={game}
+              isTracked={trackedIds.includes(game.appId)}
+              onToggleTrack={toggleGame}
+              onViewDetails={openGameDetails}
+            />
+          ))}
+        </div>
+        {filteredGames.length === 0 && (
+          <p className="mt-6 rounded-xl border border-dashed border-slate-700 p-6 text-center text-slate-400">No example games match “{query}”. Try another name.</p>
+        )}
+      </section>
+
+      <Watchlist games={trackedGames} onRemove={toggleGame} />
+      {selectedGame && <GameDetails game={selectedGame} onClose={closeGameDetails} />}
 
       <section
         className="rounded-2xl border border-slate-700 bg-slate-900/80 p-6 sm:p-8"

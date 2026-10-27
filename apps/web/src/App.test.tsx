@@ -46,7 +46,7 @@ describe('starter connection check', () => {
 
     expect(await screen.findByText(/Could not reach the API/)).toBeInTheDocument();
     expect(screen.queryByText('API is online')).not.toBeInTheDocument();
-    expect(screen.getByRole('button')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Check API' })).toBeEnabled();
   });
 
   it('rejects invalid health contracts and non-success responses', async () => {
