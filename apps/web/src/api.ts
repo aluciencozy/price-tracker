@@ -1,11 +1,7 @@
 export type Health = {
   status: 'ok';
   service: 'price-tracker-api';
-  database:
-    | 'not_configured'
-    | 'connecting'
-    | 'connected'
-    | 'disconnected';
+  database: 'not_configured' | 'connecting' | 'connected' | 'disconnected';
 };
 
 export async function getHealth(): Promise<Health> {
@@ -23,15 +19,17 @@ export async function getHealth(): Promise<Health> {
 
   // A successful HTTP response may still be a proxy page or an unexpected payload.
   if (
-    typeof data !== 'object'
-    || data === null
-    || !('status' in data)
-    || data.status !== 'ok'
-    || !('service' in data)
-    || data.service !== 'price-tracker-api'
-    || !('database' in data)
-    || typeof data.database !== 'string'
-    || !['not_configured', 'connecting', 'connected', 'disconnected'].includes(data.database)
+    typeof data !== 'object' ||
+    data === null ||
+    !('status' in data) ||
+    data.status !== 'ok' ||
+    !('service' in data) ||
+    data.service !== 'price-tracker-api' ||
+    !('database' in data) ||
+    typeof data.database !== 'string' ||
+    !['not_configured', 'connecting', 'connected', 'disconnected'].includes(
+      data.database,
+    )
   ) {
     throw new Error('Unexpected API health response.');
   }

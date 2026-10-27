@@ -1,52 +1,151 @@
-import type { SteamGame } from "../types/SteamGame";
+import type { SteamGame } from '../types/SteamGame';
+import type { UiState } from '../types/Navigation';
+import GameSearch from './GameSearch';
+import { Btn, LoadingRows } from './Ui';
 
 type WatchlistProps = {
-    games: SteamGame[];
-    onRemove: (appId: number) => void;
+  games: SteamGame[];
+  onRemove: (appId: number) => void;
+  onViewDetails: (game: SteamGame) => void;
+  onEdit: (game: SteamGame) => void;
+  onAdd: () => void;
+  targets: Record<number, number>;
+  query: string;
+  onSearch: (input: string) => void;
+  previewState: UiState;
 };
 
-function Watchlist({ games, onRemove }: WatchlistProps) {
-    return (
-        <section className="mb-8 rounded-2xl border border-slate-700 bg-slate-900/80 p-6 sm:p-8" aria-labelledby="watchlist-title">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 id="watchlist-title" className="text-xl font-semibold text-white">My Watchlist</h2>
-                <span className="rounded-full border border-slate-600 px-3 py-1 text-xs font-medium text-slate-300">{games.length} {games.length === 1 ? 'game' : 'games'}</span>
-            </div>
-            <p className="mt-2 text-sm text-slate-400">Session preview · selections are not saved.</p>
-            {games.length === 0 ? (
-                <div className="mt-6 rounded-xl border border-dashed border-slate-700 p-6 text-center text-slate-400">
-                    <p className="font-medium text-slate-200">You aren't tracking any games yet.</p>
-                    <p className="mt-2 text-sm">Choose Track Game above to try the watchlist.</p>
-                </div>
-            ) : (
-                <div className="mt-6 overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <caption className="sr-only">Selected example games and sample USD prices</caption>
-                        <thead className="border-b border-slate-700 text-xs uppercase tracking-wider text-slate-400">
-                            <tr>
-                                <th scope="col" className="py-3 pr-6">Game</th>
-                                <th scope="col" className="py-3 pr-6">Price (USD)</th>
-                                <th scope="col" className="py-3 pr-6">Discount</th>
-                                <th scope="col" className="py-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                            {games.map(game => (
-                                <tr key={game.appId}>
-                                    <th scope="row" className="py-4 pr-6 font-medium text-white">{game.name}</th>
-                                    <td className="whitespace-nowrap py-4 pr-6">${game.currentPrice.toFixed(2)}</td>
-                                    <td className="py-4 pr-6">{game.discountPercent}%</td>
-                                    <td className="py-4 text-right">
-                                        <button type="button" className="inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-300 border border-slate-600 bg-slate-950/40 text-slate-200 hover:border-slate-400 hover:bg-slate-800" aria-label={`Remove ${game.name} from watchlist`} onClick={() => onRemove(game.appId)}>Remove</button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </section>
-    );
+export default function Watchlist({
+  games,
+  onRemove,
+  onViewDetails,
+  onEdit,
+  onAdd,
+  targets,
+  query,
+  onSearch,
+  previewState,
+}: WatchlistProps) {
+  return (
+    <section
+      className="rounded-xl border border-slate-700 bg-slate-900/80 p-4 shadow-sm sm:p-6"
+      aria-labelledby="watchlist-title"
+    >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 id="watchlist-title" className="text-xl font-bold text-white">
+          My Watchlist
+        </h2>
+        <span className="text-sm text-slate-400">
+          {games.length} {games.length === 1 ? 'game' : 'games'} shown
+        </span>
+      </div>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="w-full max-w-sm">
+          <GameSearch query={query} onSearch={onSearch} />
+        </div>
+        <Btn onClick={onAdd}>+ Add tracker</Btn>
+      </div>
+      {previewState === 'loading' ? (
+        <LoadingRows />
+      ) : games.length === 0 || previewState === 'empty' ? (
+        <div className="rounded-lg border border-dashed border-slate-600 p-8 text-center text-slate-400">
+          <p className="mb-3">
+            {query
+              ? 'No tracked games match your search.'
+              : "You aren't tracking any games yet."}
+          </p>
+          <Btn onClick={onAdd}>Add your first tracker</Btn>
+          <p className="mt-3 text-sm">
+            Or choose Track Game from the example catalog below.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px] text-left text-sm">
+            <caption className="sr-only">
+              Selected example games and sample USD prices
+            </caption>
+            <thead className="bg-slate-800 text-slate-300">
+              <tr>
+                {[
+                  'Steam game',
+                  'Current offer',
+                  'Target',
+                  'Status',
+                  'Actions',
+                ].map((label) => (
+                  <th key={label} scope="col" className="p-3">
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {games.map((game) => (
+                <tr key={game.appId} className="border-b border-slate-700">
+                  <th scope="row" className="p-3 font-semibold">
+                    {game.name}
+                    <div className="text-xs font-normal text-slate-400">
+                      App {game.appId} · Example base game
+                    </div>
+                  </th>
+                  <td className="p-3">
+                    {previewState === 'unavailable' ||
+                    game.currentPrice === null
+                      ? 'Price unavailable'
+                      : `$${game.currentPrice.toFixed(2)}`}
+                  </td>
+                  <td className="p-3">
+                    {targets[game.appId] === undefined
+                      ? 'Not set'
+                      : `$${((targets[game.appId] ?? 0) / 100).toFixed(2)}`}
+                  </td>
+                  <td className="p-3">
+                    {previewState === 'unavailable' ||
+                    game.currentPrice === null
+                      ? 'Steam offer missing'
+                      : targets[game.appId] === undefined
+                        ? 'Set a target'
+                        : Math.round(game.currentPrice * 100) <=
+                            (targets[game.appId] ?? 0)
+                          ? 'Target reached (sample)'
+                          : 'Waiting for drop (sample)'}
+                  </td>
+                  <td className="p-3">
+                    <div className="flex gap-3">
+                      <button
+                        className="text-teal-300 underline"
+                        aria-label={`Details for ${game.name}`}
+                        onClick={() => onViewDetails(game)}
+                      >
+                        Details
+                      </button>
+                      <button
+                        className="text-teal-300 underline"
+                        aria-label={`Edit ${game.name}`}
+                        onClick={() => onEdit(game)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="text-rose-300 underline"
+                        aria-label={`Remove ${game.name} from watchlist`}
+                        onClick={() => onRemove(game.appId)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-4 text-xs text-slate-400">
+        Session preview · example prices are not live; selections and targets
+        are not saved.
+      </p>
+    </section>
+  );
 }
-
-export default Watchlist;

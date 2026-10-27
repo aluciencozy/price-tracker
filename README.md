@@ -60,6 +60,21 @@ npm run dev:web
 
 Open **http://127.0.0.1:5173**. Click **Check API** to test the connection to the API at **http://127.0.0.1:4000**. Vite proxies `/api` during development.
 
+The web UI has [reviewable SVG wireframes](docs/wireframes/README.md) for the home page, watchlist, add/edit tracker, game details, notification preferences, account screens, and preview states. The existing sample game cards and search are available on the watchlist screen. Sample selections, USD targets, and preferences stay in React memory and reset on refresh; account forms do not create sessions or send email. The developer preview selector shows loading, empty, validation, expired-session, unavailable-offer, and unsupported-link examples. Price history stays empty until the API supplies observations.
+
+The app opens on a responsive home page with an introduction, a three-step guide, and buttons to the tracker form and watchlist. Use **Home** or the Price Tracker logo to return without clearing your current preview selections. Daily checks and alerts described on the home page are planned features.
+
+To review Issue #5's Steam examples:
+
+- Open **Watchlist**, then **View Details** for Portal 2 or Half-Life 2. Their USD prices and CheapShark purchase links are recorded snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. The deal links may have changed or expired. Purchase links are for human navigation only; the app never fetches them.
+- Search for **Stardew Valley** to see a missing-offer fixture. Its price and purchase action are unavailable. This does not claim the real game is unavailable on Steam.
+- Select **unsupported-dlc**, **unsupported-bundle**, or **unsupported-edition** under **Developer preview state** to review each explanation. These simulate rejection states; the API must validate actual game types and editions.
+- Portal, Hollow Knight, and Hades use illustrative prices without purchase links. Other stores' offers are never used as a Steam fallback.
+
+`npm run test --workspace @price-tracker/web` checks purchase routing, deal-ID encoding, offer identity, missing offers, and unsupported previews with offline fixtures. It makes no live provider calls and does not verify that a recorded deal still works upstream.
+
+Open **Development tools · API connection** below the page content to use **Check API**. This checks health only; it does not fetch prices.
+
 The starter works without environment files or a database account. For custom settings, copy the examples:
 
 ```sh

@@ -1,1 +1,7 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #5eead4;
+  outline-offset: 4px;
+}
