@@ -120,6 +120,17 @@ describe('bounded JSON HTTP transport', () => {
     expect(bodyCancelled).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('does not accept a valid JSON prefix when abort cancels an unfinished body', async () => {
+    vi.useFakeTimers();
+    const response = new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"id":"preview"}')); },
+    }), { headers: { 'Content-Type': 'application/json' } });
+    const { request } = setup([response], { timeoutMs: 25 });
+    const pending = request('POST', '/product-previews', 201, (v) => v);
+    const assertion = expect(pending).rejects.toMatchObject({ kind: 'timeout' });
+    await vi.advanceTimersByTimeAsync(25);
+    await assertion;
+  });
   it('bounds a stalled fetch and distinguishes caller abort from timeout', async () => {
     vi.useFakeTimers();
     const { request, fetch } = setup([], { timeoutMs: 25 });

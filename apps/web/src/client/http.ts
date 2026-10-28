@@ -51,7 +51,10 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 async function readJson(response: Response, signal: AbortSignal): Promise<unknown> {
-  if (response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') throw new Error('Not JSON.');
+  if (response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+    void response.body?.cancel().catch(() => {});
+    throw new Error('Not JSON.');
+  }
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Missing body.');
   const decoder = new TextDecoder();
@@ -98,10 +101,12 @@ export function createHttp(options: HttpOptions) {
         headers: { Accept: 'application/json', ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       });
+      if (controller.signal.aborted) throw cancelled();
       if (response.status === 401) options.onUnauthorized?.();
       if (response.status === 204 && expectedStatus === 204) return parse(undefined);
       try {
         const value = await readJson(response, controller.signal);
+        if (controller.signal.aborted) throw cancelled();
         if (!response.ok) {
           const detail = errorDetail(value);
           const header = retryAfter(response.headers.get('Retry-After'));
