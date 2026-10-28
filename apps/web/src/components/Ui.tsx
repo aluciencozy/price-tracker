@@ -13,6 +13,9 @@ import {
   EmptyTitle,
 } from './ui/empty';
 import { Skeleton } from './ui/skeleton';
+import { RequestError } from './RequestError';
+import { useRetryWait } from '../data/useRetryWait';
+import { useApiMode } from '../data/mode';
 
 export function Status({
   children,
@@ -41,28 +44,26 @@ export function LoadError({
   error: unknown;
   retry?: () => void;
 }) {
+  const api = useApiMode();
+  const wait = useRetryWait(error);
   return (
     <Status
       error
       title={
         error instanceof RepositoryError && error.code === 'expired'
-          ? 'Session expired (preview)'
+          ? api ? 'Session expired' : 'Session expired (preview)'
           : 'Could not load this view'
       }
     >
-      <p>
-        {error instanceof Error
-          ? error.message
-          : 'Something went wrong. Try again.'}
-      </p>
+      <RequestError error={error} />
       <div className="flex flex-wrap gap-2">
         {error instanceof RepositoryError && error.code === 'expired' ? (
           <Button asChild variant="outline">
             <Link to="/login">Sign in again</Link>
           </Button>
         ) : retry ? (
-          <Button variant="outline" onClick={retry}>
-            Try again
+          <Button variant="outline" disabled={wait > 0} onClick={retry}>
+            {wait ? `Retry in ${wait}s` : 'Try again'}
           </Button>
         ) : null}
         <Button asChild variant="ghost">

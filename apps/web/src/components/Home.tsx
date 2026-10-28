@@ -2,7 +2,9 @@ import { Link } from 'react-router-dom';
 import { Bell, Link2, SlidersHorizontal } from 'lucide-react';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
+import { useApiMode } from '../data/mode';
 export default function Home() {
+  const api = useApiMode();
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
@@ -19,14 +21,14 @@ export default function Home() {
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">
-            <Link to="/watchlist">Try sample</Link>
+            <Link to="/watchlist">{api ? 'Open watchlist' : 'Try sample'}</Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link to="/register">Preview account setup</Link>
+            <Link to="/register">{api ? 'Create account' : 'Preview account setup'}</Link>
           </Button>
         </div>
         <p className="hero-note">
-          No sign-up needed for the sample. Nothing is saved.
+          {api ? 'Sign in with a verified account. Saved games use the shared API.' : 'No sign-up needed for the sample. Nothing is saved.'}
         </p>
       </section>
       <section className="landing-example" aria-label="Example tracker">
@@ -88,8 +90,7 @@ export default function Home() {
             <Bell aria-hidden="true" />
             <h3>Hear when it qualifies</h3>
             <p>
-              Planned daily checks, email, and opted-in Android push. Not
-              connected in this sample.
+              {api ? 'The server checks daily. Email and opted-in Android push depend on configured services; saving a target does not prove delivery.' : 'Planned daily checks, email, and opted-in Android push. Not connected in this sample.'}
             </p>
           </article>
         </div>

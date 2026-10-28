@@ -8,15 +8,17 @@ import { Button } from './ui/button';
 import { Field, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { EmptyState, LoadError, LoadingRows } from './Ui';
+import { useApiMode } from '../data/mode';
 export default function Watchlist({
   repository,
 }: {
   repository: TrackerRepository;
 }) {
-  const load = useCallback(() => repository.list(), [repository]);
-  const { data: items, loading, error, retry } = useAsync(load);
+  const api = useApiMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') ?? '';
+  const load = useCallback(() => repository.list(api ? query : undefined), [repository, api, query]);
+  const { data: items, loading, error, retry } = useAsync(load);
   function setQuery(value: string) {
     setSearchParams(value ? { q: value } : {}, { replace: true });
   }
@@ -68,7 +70,7 @@ export default function Watchlist({
           </div>
           {!items?.length ? (
             <EmptyState
-              title="Make room for your next game"
+              title={query ? 'No saved games match' : 'Make room for your next game'}
               description="Add a Steam link, choose your target, and keep it on your list."
             >
               <Button asChild>
@@ -92,8 +94,7 @@ export default function Watchlist({
                 ))}
               </ul>
               <p className="list-footnote">
-                Stale October 26, 2026 snapshots via CheapShark. Sample targets
-                and preferences only; no alerts are sent.
+                {api ? 'Steam US/USD offers via CheapShark. Last successful observations are retained after failed checks. Preferences do not prove alert delivery.' : 'Stale October 26, 2026 snapshots via CheapShark. Sample targets and preferences only; no alerts are sent.'}
               </p>
             </>
           )}
