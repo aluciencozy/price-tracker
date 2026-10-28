@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Pencil, Trash2 } from 'lucide-react';
 import type { TrackedItem, TrackerRepository } from '../data/types';
@@ -67,6 +67,16 @@ export default function GameDetails({
 }) {
   const { product } = item;
   const navigate = useNavigate();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    document.title = `${product.title} / Price Tracker sample`;
+  }, [product.title]);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -76,15 +86,16 @@ export default function GameDetails({
     setDeleteError('');
     try {
       await repository.remove(item.id);
-      navigate('/watchlist');
+      if (mounted.current) navigate('/watchlist');
     } catch (error) {
-      setDeleteError(
-        error instanceof Error
-          ? error.message
-          : 'Removal failed. Nothing changed. Try again.',
-      );
+      if (mounted.current)
+        setDeleteError(
+          error instanceof Error
+            ? error.message
+            : 'Removal failed. Nothing changed. Try again.',
+        );
     } finally {
-      setDeleting(false);
+      if (mounted.current) setDeleting(false);
     }
   }
   return (

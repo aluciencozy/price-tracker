@@ -135,6 +135,55 @@ describe('sample navigation, watchlist and CRUD', () => {
       screen.getByRole('heading', { name: 'Half-Life 2' }),
     ).toBeInTheDocument();
   });
+  it('names each watchlist row’s alert channels and states accessibly', async () => {
+    open('/watchlist');
+    const list = await screen.findByRole('list', { name: 'Saved games' });
+    const rows = within(list).getAllByRole('listitem');
+    expect(
+      within(rows[0]!).getByRole('group', {
+        name: 'Email on, Android push off',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(rows[1]!).getByRole('group', {
+        name: 'Email on, Android push on',
+      }),
+    ).toBeInTheDocument();
+  });
+  it.each([
+    ['/watchlist/tracker-portal-2', 'Portal 2'],
+    ['/watchlist/tracker-portal-2/edit', 'Make it your price.'],
+  ])(
+    'updates the document title after %s finishes loading',
+    async (path, heading) => {
+      const repo = createSampleRepository();
+      const original = repo.get;
+      let finish!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      vi.spyOn(repo, 'get').mockImplementation(async (id) => {
+        await pending;
+        return original(id);
+      });
+      window.history.replaceState(null, '', path);
+      render(<App repository={repo} />);
+      expect(
+        screen.getByRole('status', { name: 'Loading games' }),
+      ).toBeInTheDocument();
+      expect(document.title).toBe('Price Tracker / Price Tracker sample');
+      await act(async () => {
+        finish();
+        await pending;
+      });
+      expect(
+        await screen.findByRole('heading', { name: heading, level: 1 }),
+      ).toBeInTheDocument();
+      expect(document.title).toBe(`${heading} / Price Tracker sample`);
+      fireEvent.click(screen.getByRole('link', { name: 'Account' }));
+      expect(document.title).toBe('Your space. / Price Tracker sample');
+    },
+  );
   it('loads details from a direct URL and handles browser back navigation', async () => {
     open('/watchlist');
     await screen.findByRole('list', { name: 'Saved games' });
@@ -320,6 +369,51 @@ describe('history and useful preview states', () => {
     expect(location.pathname).toBe('/account');
     expect(await repo.list()).toHaveLength(1);
   });
+  it.each(['success', 'failure'])(
+    'does not let an unmounted removal’s %s affect a later screen',
+    async (outcome) => {
+      const repo = createSampleRepository();
+      const original = repo.remove;
+      let finish!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const remove = vi.spyOn(repo, 'remove').mockImplementation(async (id) => {
+        await pending;
+        if (outcome === 'failure') throw new Error('Deferred removal failed.');
+        await original(id);
+      });
+      window.history.replaceState(null, '', '/watchlist');
+      render(<App repository={repo} />);
+      await screen.findByRole('list', { name: 'Saved games' });
+      fireEvent.click(
+        screen.getByRole('link', { name: 'Details for Portal 2' }),
+      );
+      await screen.findByRole('heading', { name: 'Portal 2', level: 1 });
+      fireEvent.click(screen.getByRole('button', { name: 'Remove game' }));
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Remove from watchlist' }),
+      );
+      expect(remove).toHaveBeenCalledOnce();
+      expect(screen.getByRole('button', { name: 'Removing…' })).toBeDisabled();
+      await act(async () => {
+        window.history.back();
+      });
+      await screen.findByRole('list', { name: 'Saved games' });
+      fireEvent.click(screen.getByRole('link', { name: 'Account' }));
+      await act(async () => {
+        finish();
+        await pending;
+      });
+      expect(location.pathname).toBe('/account');
+      expect(
+        screen.getByRole('heading', { name: 'Your space.', level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(await repo.list()).toHaveLength(outcome === 'success' ? 1 : 2);
+    },
+  );
   it('keeps the confirmation and tracker intact after a failed removal', async () => {
     const repo = createSampleRepository();
     window.history.replaceState(null, '', '/watchlist/tracker-portal-2');

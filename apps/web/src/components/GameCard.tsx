@@ -48,6 +48,7 @@ export default function GameCard({ item }: { item: TrackedItem }) {
       <div className="row-end">
         <div
           className="channel-summary"
+          role="group"
           aria-label={`Email ${item.alerts.email ? 'on' : 'off'}, Android push ${item.alerts.push ? 'on' : 'off'}`}
         >
           <Mail aria-hidden="true" />
