@@ -9,6 +9,7 @@ import {
   FieldSet,
 } from './ui/field';
 import { Input } from './ui/input';
+import { useApiMode } from '../data/mode';
 export default function PreferencesFields({
   target,
   onTarget,
@@ -26,6 +27,7 @@ export default function PreferencesFields({
   onAlerts: (value: Alerts) => void;
   invalid?: boolean;
 }) {
+  const api = useApiMode();
   return (
     <FieldGroup>
       <Field data-invalid={invalid}>
@@ -46,7 +48,9 @@ export default function PreferencesFields({
       <FieldSet>
         <FieldLegend variant="label">Alerts for this game</FieldLegend>
         <FieldDescription>
-          Sample preferences only. Email and Android push are not connected.
+          {api
+            ? 'Saved preferences only. Email and Android push require configured services; this does not confirm delivery.'
+            : 'Sample preferences only. Email and Android push are not connected.'}
         </FieldDescription>
         <FieldGroup className="gap-3">
           <Field orientation="horizontal">
@@ -72,8 +76,9 @@ export default function PreferencesFields({
           </Field>
         </FieldGroup>
         <FieldDescription id="push-help">
-          Needs an opted-in, registered Android device. No device is connected
-          here. This is not browser push.
+          {api
+            ? 'Needs an opted-in, registered Android device. Device readiness is not checked here. This is not browser push.'
+            : 'Needs an opted-in, registered Android device. No device is connected here. This is not browser push.'}
         </FieldDescription>
       </FieldSet>
       <Field orientation="horizontal">

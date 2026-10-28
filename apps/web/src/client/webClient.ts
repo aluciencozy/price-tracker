@@ -192,7 +192,11 @@ export class WebClient {
     this.clearSession();
   }
   preview(url: string, options: RequestOptions = {}): Promise<dto.Preview> {
-    return this.mutate('POST', '/product-previews', 201, input(() => ({ url: dto.text(url) })), dto.preview, options);
+    return this.mutate('POST', '/product-previews', 201, input(() => ({ url: dto.text(url) })), (value) => {
+      const preview = dto.preview(value);
+      if (preview.product.currentPrice === null) throw new Error('Preview has no qualifying retained Steam offer.');
+      return preview;
+    }, options);
   }
   listTrackedItems(query: WatchlistQuery = {}, options: RequestOptions = {}): Promise<dto.TrackedItems> {
     return this.read(`/tracked-items${queryString(query)}`, dto.trackedItems, options);

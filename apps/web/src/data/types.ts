@@ -62,8 +62,10 @@ export type Observation = {
 };
 // Presentation metadata is separate from the strict HTTP History body.
 export type PriceHistory = {
-  illustrative: boolean; items: Observation[];
-  window?: { from: string; to: string }; retainedFrom?: string;
+  illustrative: boolean;
+  items: Observation[];
+  window?: { from: string; to: string };
+  retainedFrom?: string;
 };
 export interface TrackerRepository {
   list(query?: string): Promise<TrackedItem[]>;
@@ -90,7 +92,8 @@ export class RepositoryError extends Error {
     public resourceId?: string,
     public details?: {
       fields?: { path: string; code: string; message: string }[];
-      retryAfterSeconds?: number | null; requestId?: string;
+      retryAfterSeconds?: number | null;
+      requestId?: string;
     },
   ) {
     super(message);

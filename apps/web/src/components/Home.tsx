@@ -21,14 +21,20 @@ export default function Home() {
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">
-            <Link to="/watchlist">{api ? 'Open watchlist' : 'Try sample'}</Link>
+            <Link to="/watchlist">
+              {api ? 'Open watchlist' : 'Try sample'}
+            </Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link to="/register">{api ? 'Create account' : 'Preview account setup'}</Link>
+            <Link to="/register">
+              {api ? 'Create account' : 'Preview account setup'}
+            </Link>
           </Button>
         </div>
         <p className="hero-note">
-          {api ? 'Sign in with a verified account. Saved games use the shared API.' : 'No sign-up needed for the sample. Nothing is saved.'}
+          {api
+            ? 'Sign in with a verified account. Saved games use the shared API.'
+            : 'No sign-up needed for the sample. Nothing is saved.'}
         </p>
       </section>
       <section className="landing-example" aria-label="Example tracker">
@@ -90,7 +96,9 @@ export default function Home() {
             <Bell aria-hidden="true" />
             <h3>Hear when it qualifies</h3>
             <p>
-              {api ? 'The server checks daily. Email and opted-in Android push depend on configured services; saving a target does not prove delivery.' : 'Planned daily checks, email, and opted-in Android push. Not connected in this sample.'}
+              {api
+                ? 'The server checks daily. Email and opted-in Android push depend on configured services; saving a target does not prove delivery.'
+                : 'Planned daily checks, email, and opted-in Android push. Not connected in this sample.'}
             </p>
           </article>
         </div>

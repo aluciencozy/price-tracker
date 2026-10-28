@@ -71,10 +71,10 @@ export function formatMoney(value: Money | null) {
     ? 'Price unavailable'
     : usd.format(value.amountMinor / 100);
 }
-export function trackerStatus(item: TrackedItem) {
+export function trackerStatus(item: TrackedItem, sample = true) {
   if (!item.enabled) return 'Paused';
   if (!item.product.currentPrice) return 'Steam offer missing';
   return item.product.currentPrice.amountMinor <= item.targetPrice.amountMinor
-    ? 'At your target (sample)'
-    : 'Above your target (sample)';
+    ? `At your target${sample ? ' (sample)' : ''}`
+    : `Above your target${sample ? ' (sample)' : ''}`;
 }

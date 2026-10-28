@@ -87,6 +87,7 @@ export function createHttp(options: HttpOptions) {
     throw new ClientError('invalid-input', 'Request timeout must be between 1 and 30000 ms.');
   }
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+  let notBefore = 0;
   async function attempt<T>(method: string, path: string, expectedStatus: number, parse: (value: unknown) => T, options: HttpRequestOptions): Promise<T> {
     const controller = new AbortController();
     let timedOut = false;
@@ -133,6 +134,12 @@ export function createHttp(options: HttpOptions) {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, expectedStatus: number,
     parse: (value: unknown) => T, options: HttpRequestOptions = {},
   ): Promise<T> {
+    if (options.signal?.aborted) throw cancelled();
+    if (Date.now() < notBefore) {
+      throw new ClientError('http', 'The API asked us to wait before another request.', {
+        status: 429, code: 'RATE_LIMITED', retryAfterSeconds: Math.min(Number.MAX_SAFE_INTEGER, Math.ceil((notBefore - Date.now()) / 1000)),
+      });
+    }
     for (let retry = 0; ; retry++) {
       try { return await attempt(method, path, expectedStatus, parse, options); }
       catch (error) {
@@ -140,6 +147,9 @@ export function createHttp(options: HttpOptions) {
         const transient = error.kind === 'network' || error.kind === 'timeout' ||
           (error.kind === 'http' && [429, 503].includes(error.details.status ?? 0));
         const minimumWait = error.details.retryAfterSeconds ?? 0;
+        if (error.kind === 'http' && [429, 503].includes(error.details.status ?? 0)) {
+          notBefore = Math.max(notBefore, Date.now() + minimumWait * 1000);
+        }
         // Long server waits go back to the UI; never clamp and retry too early.
         if (method !== 'GET' || retry >= 2 || !transient || minimumWait >= 30) throw error;
         await wait(Math.max(250 * 2 ** retry, minimumWait * 1000) + Math.floor(Math.random() * 250), options.signal);

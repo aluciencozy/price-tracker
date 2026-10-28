@@ -12,6 +12,17 @@ function setup(responses: Response[] = [], options: HttpOptions = {}) {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('bounded JSON HTTP transport', () => {
+  it('honors a server wait across requests without carrying private details between routes', async () => {
+    vi.useFakeTimers();
+    const { request, fetch } = setup([json(error('RATE_LIMITED', 60), 429), json({ items: [], page })]);
+    await expect(request('GET', '/tracked-items', 200, trackedItems)).rejects.toMatchObject({ kind: 'http', details: { retryAfterSeconds: 60 } });
+    await expect(request('POST', '/product-previews', 201, (v) => v)).rejects.toMatchObject({
+      message: 'The API asked us to wait before another request.', details: { code: 'RATE_LIMITED', retryAfterSeconds: 60 },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await request('GET', '/tracked-items', 200, trackedItems)).toEqual({ items: [], page });
+  });
   it.each([
     { ...error('UNKNOWN_RATE_LIMIT', 1), status: 429 },
     { ...error('SESSION_EXPIRED', 1), status: 429 },

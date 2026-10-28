@@ -4,11 +4,17 @@ import type { Product, TrackedItem } from '../data/types';
 import { formatMoney, trackerStatus } from '../data/validation';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { useApiMode } from '../data/mode';
 export function GameArt({ product }: { product: Product }) {
   return (
     <img
       className="game-art"
-      src={product.imageUrl || '/art/fallback.svg'}
+      src={
+        product.imageUrl &&
+        /^\/art\/(620\.jpg|220\.jpg|fallback\.svg)$/.test(product.imageUrl)
+          ? product.imageUrl
+          : '/art/fallback.svg'
+      }
       alt=""
       loading="lazy"
       width="120"
@@ -21,6 +27,7 @@ export function GameArt({ product }: { product: Product }) {
   );
 }
 export default function GameCard({ item }: { item: TrackedItem }) {
+  const api = useApiMode();
   return (
     <li className="game-row">
       <div className="game-identity">
@@ -31,7 +38,7 @@ export default function GameCard({ item }: { item: TrackedItem }) {
           </Link>
           <p>Steam / US / USD</p>
           <div className="row-status">
-            <Badge variant="secondary">{trackerStatus(item)}</Badge>
+            <Badge variant="secondary">{trackerStatus(item, !api)}</Badge>
           </div>
         </div>
       </div>

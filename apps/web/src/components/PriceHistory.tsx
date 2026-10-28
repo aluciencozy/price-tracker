@@ -1,6 +1,7 @@
 import type { Money, PriceHistory as History } from '../data/types';
 import { formatMoney } from '../data/validation';
 import { EmptyState, LoadError, LoadingRows } from './Ui';
+import { useApiMode } from '../data/mode';
 
 export default function PriceHistory({
   history,
@@ -15,6 +16,7 @@ export default function PriceHistory({
   error?: unknown;
   retry?: () => void;
 }) {
+  const api = useApiMode();
   const points = history?.items ?? [];
   const maximum =
     Math.max(
@@ -32,10 +34,16 @@ export default function PriceHistory({
         <span>USD / Steam</span>
       </div>
       <p className="history-disclosure">
-        {history?.illustrative !== false
+        {!api && history?.illustrative !== false
           ? 'Illustrative sample history. These multi-day values are invented for this chart, not recorded Steam observations or an all-store historical low.'
           : 'Successful observations of this Steam offer via CheapShark.'}
       </p>
+      {api && history?.window ? (
+        <p>
+          Observation window: {history.window.from} to {history.window.to}{' '}
+          (end exclusive). Retained from {history.retainedFrom}.
+        </p>
+      ) : null}
       {loading ? (
         <LoadingRows />
       ) : error ? (
@@ -50,7 +58,9 @@ export default function PriceHistory({
           <div className="chart-legend">
             <span>
               <i className="price-key" aria-hidden="true" />
-              {history?.illustrative ? 'Illustrative price' : 'Observed price'}
+              {history?.illustrative
+                ? 'Illustrative price'
+                : 'Observed price'}
             </span>
             <span>
               <i className="target-key" aria-hidden="true" />
@@ -71,12 +81,15 @@ export default function PriceHistory({
               aria-describedby="chart-description"
             >
               <title id="chart-title">
-                {history?.illustrative ? 'Illustrative sample' : 'Steam'} price
-                chart
+                {history?.illustrative ? 'Illustrative sample' : 'Steam'}{' '}
+                price chart
               </title>
               <desc id="chart-description">
-                Daily USD values with your target shown as a dashed line. Dates
-                and values are in the data table below.
+                {api
+                  ? 'Successful local USD observations'
+                  : 'Daily illustrative USD values'}{' '}
+                with your target shown as a dashed line. Dates and values are
+                in the data table below.
               </desc>
               {[0, maximum / 2, maximum].map((value) => (
                 <g key={value}>
@@ -151,7 +164,11 @@ export default function PriceHistory({
                 <tbody>
                   {points.map((point) => (
                     <tr key={point.id}>
-                      <th scope="row">{point.observedAt.slice(0, 10)}</th>
+                      <th scope="row">
+                        {api
+                          ? point.observedAt
+                          : point.observedAt.slice(0, 10)}
+                      </th>
                       <td>{formatMoney(point.price)}</td>
                       <td>{formatMoney(target)}</td>
                     </tr>

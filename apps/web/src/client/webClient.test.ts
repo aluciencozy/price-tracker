@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientError, type HttpOptions } from './http';
 import { WebClient } from './webClient';
-import { accepted, create, csrf, error, history, item, json, key, login, page, product, token, user } from './testFixtures';
+import { accepted, create, csrf, error, history, item, json, key, login, page, product, token, unavailableProduct, user } from './testFixtures';
 
 function setup(responses: Response[] = [], options: HttpOptions = {}) {
   const fetch = vi.fn<typeof globalThis.fetch>();
@@ -25,6 +25,10 @@ function deferred<T>() {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('narrow owned-resource client', () => {
+  it('rejects a successful preview without a qualifying retained Steam observation', async () => {
+    const { client } = setup([json(csrf()), json({ id: 'preview_example', expiresAt: csrf().expiresAt, product: unavailableProduct }, 201)]);
+    await expect(client.preview(product.canonicalSteamUrl)).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
   it('does no I/O on construction; sample mode can remain completely untouched', () => {
     const { client, fetch } = setup();
     expect(client.getSession().status).toBe('unknown');

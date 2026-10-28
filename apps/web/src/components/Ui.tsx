@@ -51,7 +51,9 @@ export function LoadError({
       error
       title={
         error instanceof RepositoryError && error.code === 'expired'
-          ? api ? 'Session expired' : 'Session expired (preview)'
+          ? api
+            ? 'Session expired'
+            : 'Session expired (preview)'
           : 'Could not load this view'
       }
     >

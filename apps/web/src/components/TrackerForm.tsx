@@ -110,9 +110,13 @@ export default function TrackerForm({
       if (mounted.current)
         navigate(`/watchlist/${saved.id}`, {
           state: {
-            notice: api ? (item ? 'Tracker updated. A target edit is not a price drop and creates no history.' : 'Game saved. Alert preferences are not proof of delivery.') : item
-              ? 'Sample tracker updated. A target edit is not a price drop; price and history are unchanged.'
-              : 'Game saved to your sample watchlist. No alerts were sent.',
+            notice: api
+              ? item
+                ? 'Tracker updated. A target edit is not a price drop and creates no history.'
+                : 'Game saved. Alert preferences are not proof of delivery.'
+              : item
+                ? 'Sample tracker updated. A target edit is not a price drop; price and history are unchanged.'
+                : 'Game saved to your sample watchlist. No alerts were sent.',
           },
         });
     } catch (error) {
@@ -176,7 +180,9 @@ export default function TrackerForm({
                       aria-describedby="url-help"
                     />
                     <FieldDescription id="url-help">
-                      {api ? 'Only supported Steam base-game links. The submitted URL is parsed, never fetched; the API validates the exact offer.' : 'Parsed locally; never fetched. This sample recognizes Portal 2 and Half-Life 2.'}
+                      {api
+                        ? 'Only supported Steam base-game links. The submitted URL is parsed, never fetched; the API validates the exact offer.'
+                        : 'Parsed locally; never fetched. This sample recognizes Portal 2 and Half-Life 2.'}
                     </FieldDescription>
                   </Field>
                   <div className="flex flex-wrap gap-2">
@@ -219,13 +225,17 @@ export default function TrackerForm({
                       <h2>{product.title}</h2>
                       <p>Steam / US / USD</p>
                       <Badge variant="secondary">
-                        {api ? 'Validated base-game offer' : 'Base game / sample match'}
+                        {api
+                          ? 'Validated base-game offer'
+                          : 'Base game / sample match'}
                       </Badge>
                     </div>
                     <strong>{formatMoney(product.currentPrice)}</strong>
                   </div>
                   <p className="form-recorded">
-                    {api ? `${product.freshness} Steam offer via CheapShark. Last successful observation: ${product.observedAt ?? 'none'}. Not a checkout quote.` : 'Stale October 26, 2026 snapshot via CheapShark. Not a live quote.'}
+                    {api
+                      ? `${product.freshness} Steam offer via CheapShark. Last successful observation: ${product.observedAt ?? 'none'}. Not a checkout quote.`
+                      : 'Stale October 26, 2026 snapshot via CheapShark. Not a live quote.'}
                   </p>
                   {!item ? (
                     <Button
@@ -301,20 +311,24 @@ export default function TrackerForm({
               </Status>
             </div>
           ) : null}
-          {wait ? <p role="status">Retry available in {wait} seconds.</p> : null}
+          {wait ? (
+            <p role="status">Retry available in {wait} seconds.</p>
+          ) : null}
         </section>
         <aside className="form-aside">
           <h2>One exact offer.</h2>
           <p>
-            Steam base games, in US dollars. No bundles, DLC, subscriptions, or
-            guessed editions.
+            Steam base games, in US dollars. No bundles, DLC, subscriptions,
+            or guessed editions.
           </p>
           <p>
             The planned daily checks compare your chosen Steam offer with your
             target. A failed check keeps the last successful price.
           </p>
           <p>
-            {api ? 'Changes save to your private account. Scheduled checks and alerts require the configured backend; this form does not trigger a price check.' : 'Sample changes stay in memory and reset on refresh. Nothing is sent or scheduled.'}
+            {api
+              ? 'Changes save to your private account. Scheduled checks and alerts require the configured backend; this form does not trigger a price check.'
+              : 'Sample changes stay in memory and reset on refresh. Nothing is sent or scheduled.'}
           </p>
         </aside>
       </div>

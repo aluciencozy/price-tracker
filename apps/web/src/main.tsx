@@ -9,7 +9,8 @@ import './styles.css';
 import { captureEmailLink, createRuntime } from './client/runtime';
 
 const runtime = createRuntime();
-const emailLink = runtime.mode === 'api' ? captureEmailLink() : undefined;
+const handoff = captureEmailLink();
+const emailLink = runtime.mode === 'api' ? handoff : undefined;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
