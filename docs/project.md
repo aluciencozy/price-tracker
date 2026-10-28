@@ -85,13 +85,14 @@ Game/store offers are shared across users, but watchlists and notification setti
 
 ## API boundaries
 
-Use `/api` as the common prefix. Only health/readiness endpoints are implemented in the starter; business endpoints below are planned. The team should agree on an OpenAPI contract early, then keep it synced with SwaggerHub.
+Use `/api` as the common prefix. Only health/readiness endpoints are implemented in the starter; business endpoints below are planned. The [proposed shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors. It awaits team review and actual SwaggerHub publication; it does not implement these routes.
 
 Planned groups:
 
-- `/api/auth`: register, verify email, login, logout, forgot/reset password, current user.
+- `/api/auth/web` and `/api/auth/mobile`: register, verify/resend email, login, logout, forgot/reset password, current user; web adds CSRF bootstrap.
+- `/api/product-previews`: owned, authenticated, bounded Steam URL preview.
 - `/api/tracked-items`: authenticated list/create/update/delete.
-- `/api/products/:id/history`: history available only through an authorized tracked item.
+- `/api/tracked-items/:id/history`: history available only through an owned tracked item; no public product-history route.
 - `/api/devices`: register/remove the signed-in user's push device.
 - `/api/admin/price-checks`: admin-only manual check and status.
 
