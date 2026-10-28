@@ -32,6 +32,10 @@ class SessionController extends ChangeNotifier {
   bool get revocationUnconfirmed => _revocationUnconfirmed;
   User? get user => _user;
   String? get sessionId => _sessionId;
+
+  /// Verified active credentials for native integrations, never for rendering.
+  /// A captured snapshot may only clean up resources belonging to that session.
+  Session? get activeSession => _user == null ? null : _credentials;
   // Only automatic expiry errors use this property; explicit actions throw.
   ApiFailure? _expiryFailure;
   ApiFailure? get expiryFailure => _expiryFailure;
