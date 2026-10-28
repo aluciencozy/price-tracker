@@ -20,16 +20,20 @@ class SessionController extends ChangeNotifier {
   final SessionStore store;
   final DateTime Function() _now;
   User? _user;
+  Session? _credentials;
   String? _sessionId;
   Timer? _expiry;
   Future<void>? _clearing;
   bool _busy = false;
+  bool _disposed = false;
   User? get user => _user;
   String? get sessionId => _sessionId;
   // Only automatic expiry errors use this property; explicit actions throw.
-  ApiFailure? expiryFailure;
+  ApiFailure? _expiryFailure;
+  ApiFailure? get expiryFailure => _expiryFailure;
 
   Future<void> restore() => _exclusive(() async {
+    if (_user != null) return;
     String? saved;
     try {
       saved = await store.read();
@@ -48,6 +52,7 @@ class SessionController extends ChangeNotifier {
       await _clear();
       throw const ApiFailure('SESSION_EXPIRED', 'Please sign in again.');
     }
+    _credentials = session;
     api.setSession(session);
     try {
       final user = await api.me();
@@ -59,13 +64,13 @@ class SessionController extends ChangeNotifier {
     } catch (_) {
       // Network failure retains the secure record for a retry, but startup
       // does not authorize private screens until /me succeeds. A 401 clears it.
-      _dropMemory();
+      _dropMemory(keepCredentials: true);
       rethrow;
     }
   });
 
   Future<void> login(String email, String password) => _exclusive(() async {
-    if (_user != null) {
+    if (_credentials != null) {
       throw const ApiFailure(
         'ALREADY_SIGNED_IN',
         'Sign out before switching accounts.',
@@ -83,6 +88,7 @@ class SessionController extends ChangeNotifier {
       await _clear();
       throw const ApiFailure('SESSION_EXPIRED', 'Please sign in again.');
     }
+    if (_disposed) return;
     api.setSession(session);
     _accept(session, session.user);
   });
@@ -90,36 +96,67 @@ class SessionController extends ChangeNotifier {
   Future<void> logout() => _exclusive(() async {
     // Capture the token for revocation, then clear disk and memory immediately.
     // Offline revocation still fails honestly after local sign-out completes.
+    // Startup may have retained a validated credential after an offline /me.
+    // It may revoke that session, but never authorizes private screens itself.
+    if (_credentials != null) api.setSession(_credentials);
     await Future.wait([api.logout(), _clear()]);
   });
 
   void _accept(Session session, User user) {
+    if (_disposed) return;
     _user = user;
+    _credentials = session;
     _sessionId = session.sessionId;
-    expiryFailure = null;
+    _expiryFailure = null;
     _expiry?.cancel();
     _expiry = Timer(session.expiresAt.difference(_now()), () async {
+      _expiryFailure = const ApiFailure(
+        'SESSION_EXPIRED',
+        'Please sign in again.',
+      );
       try {
         await _clear();
       } on ApiFailure catch (error) {
-        expiryFailure = error;
-        notifyListeners();
+        _expiryFailure = error;
+        _notify();
       }
     });
-    notifyListeners();
+    _notify();
   }
 
-  void _dropMemory() {
+  void _dropMemory({bool keepCredentials = false}) {
     _expiry?.cancel();
     api.setSession(null);
     _user = null;
     _sessionId = null;
-    notifyListeners();
+    if (!keepCredentials) _credentials = null;
+    _notify();
   }
 
-  Future<void> _clear() => _clearing ??= _clearStored().whenComplete(() {
-    _clearing = null;
-  });
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _clear() {
+    final pending = _clearing;
+    if (pending != null) return pending;
+    final completion = Completer<void>();
+    // Register deletion before notifying listeners: a reentrant login must wait
+    // for this old account's secure record to be removed before writing its own.
+    _clearing = completion.future;
+    () async {
+      try {
+        await _clearStored();
+        completion.complete();
+      } catch (error, stack) {
+        completion.completeError(error, stack);
+      } finally {
+        _clearing = null;
+      }
+    }();
+    return completion.future;
+  }
+
   Future<void> _clearStored() async {
     _dropMemory();
     try {
@@ -133,6 +170,7 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _exclusive(Future<void> Function() action) async {
+    if (_disposed) throw StateError('SessionController is disposed.');
     if (_busy) {
       throw const ApiFailure('BUSY', 'An account request is in progress.');
     }
@@ -148,6 +186,7 @@ class SessionController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _expiry?.cancel();
     api.onUnauthorized = null;
     api.setSession(null);

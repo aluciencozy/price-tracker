@@ -9,7 +9,7 @@ void requireKeys(Json json, List<String> keys) {
 }
 
 String jsonString(Object? value, [int max = 8192]) =>
-    value is String && value.isNotEmpty && value.length <= max
+    value is String && value.isNotEmpty && value.runes.length <= max
     ? value
     : invalidJson();
 String? nullableString(Object? value, [int max = 8192]) =>

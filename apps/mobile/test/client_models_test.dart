@@ -4,6 +4,13 @@ import 'package:price_tracker/client/models.dart';
 import 'client_fixtures.dart';
 
 void main() {
+  test('contract string limits count Unicode characters, not UTF16 units', () {
+    expect(User.fromJson(userJson()..['name'] = '🎮' * 100).name, '🎮' * 100);
+    expect(
+      () => User.fromJson(userJson()..['name'] = '🎮' * 101),
+      throwsFormatException,
+    );
+  });
   test('parses contract user, complete session, tracker and history', () {
     expect(Session.fromJson(sessionJson()).toJson(), sessionJson());
     final tracker = TrackedItem.fromJson(trackerJson());

@@ -438,6 +438,24 @@ void main() {
     },
   );
 
+  test(
+    'unknown error codes and malformed error fields cannot leak raw bodies',
+    () async {
+      for (final error in [
+        errorJson('SECRET_BODY'),
+        errorJson('VALIDATION_ERROR')
+          ..['error'] = {'code': 'VALIDATION_ERROR', 'message': 'SECRET_BODY'},
+      ]) {
+        final api = apiFor((_) async => jsonResponse(error, 500));
+        await expectLater(api.list(), throwsA(failure('INVALID_RESPONSE')));
+      }
+      expect(
+        const ApiFailure('OFFLINE', 'secret').toString(),
+        isNot(contains('secret')),
+      );
+    },
+  );
+
   test('origin validation follows HealthApi syntax with secure credential transport', () {
     final client = MockClient((_) async => http.Response('', 204));
     addTearDown(client.close);

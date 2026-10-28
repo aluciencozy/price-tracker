@@ -9,7 +9,11 @@ abstract interface class SessionStore {
 /// Encrypted platform storage, not plaintext preferences or a token file.
 class SecureSessionStore implements SessionStore {
   SecureSessionStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(resetOnError: false),
+          );
   final FlutterSecureStorage _storage;
   static const _key = 'price_tracker.mobile_session.v1';
   @override

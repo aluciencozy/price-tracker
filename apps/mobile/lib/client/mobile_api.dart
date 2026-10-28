@@ -13,7 +13,18 @@ class FieldError {
       code = jsonString(json['code']),
       message = jsonString(json['message'], 300) {
     requireKeys(json, ['path', 'code', 'message']);
-    if (!path.startsWith('/')) invalidJson();
+    if (!path.startsWith('/') ||
+        ![
+          'required',
+          'unknown_field',
+          'invalid_type',
+          'out_of_range',
+          'invalid_format',
+          'unsupported',
+          'invalid_value',
+        ].contains(code)) {
+      invalidJson();
+    }
   }
   final String path, code, message;
 }
@@ -192,6 +203,39 @@ class MobileApi {
         'retryAfterSeconds',
         'resourceId',
       ]);
+      if (!{
+        'MALFORMED_REQUEST',
+        'AUTH_AMBIGUOUS',
+        'TOKEN_INVALID',
+        'AUTH_REQUIRED',
+        'INVALID_CREDENTIALS',
+        'SESSION_EXPIRED',
+        'SESSION_REVOKED',
+        'EMAIL_UNVERIFIED',
+        'CSRF_INVALID',
+        'ORIGIN_DENIED',
+        'ADMIN_REQUIRED',
+        'NOT_FOUND',
+        'DUPLICATE_TRACKED_ITEM',
+        'IDEMPOTENCY_CONFLICT',
+        'DEVICE_CONFLICT',
+        'PREVIEW_EXPIRED',
+        'VALIDATION_ERROR',
+        'INVALID_CURSOR',
+        'UNSUPPORTED_URL',
+        'UNSUPPORTED_PRODUCT',
+        'AMBIGUOUS_PRODUCT',
+        'STEAM_OFFER_UNAVAILABLE',
+        'RATE_LIMITED',
+        'PROVIDER_RATE_LIMITED',
+        'SERVICE_UNAVAILABLE',
+        'PROVIDER_UNAVAILABLE',
+        'PAYLOAD_TOO_LARGE',
+        'UNSUPPORTED_MEDIA_TYPE',
+        'INTERNAL_ERROR',
+      }.contains(error['code'])) {
+        invalidJson();
+      }
       final retry = error['retryAfterSeconds'] == null
           ? null
           : jsonInteger(error['retryAfterSeconds']);

@@ -195,6 +195,7 @@ void main() {
     await tester.pump(const Duration(days: 7));
     expect(controller.user, isNull);
     expect(store.value, isNull);
+    expect(controller.expiryFailure!.code, 'SESSION_EXPIRED');
   });
 
   test(
@@ -272,7 +273,7 @@ void main() {
     },
   );
 
-  test('new login waits for revoked-account secure deletion', () async {
+  test('reentrant login waits for revoked-account secure deletion', () async {
     var revoked = false;
     setup(
       (request) async => revoked && !request.url.path.endsWith('/login')
@@ -281,15 +282,105 @@ void main() {
     );
     await controller.login('a@example.test', 'fixture');
     store.clearing = Completer<void>();
+    Future<void>? login;
+    controller.addListener(() {
+      if (controller.user == null) {
+        login ??= controller.login('a@example.test', 'fixture');
+      }
+    });
     revoked = true;
     final old = expectLater(api.list(), throwsA(failure('SESSION_REVOKED')));
     await Future<void>.delayed(Duration.zero);
     expect(controller.user, isNull);
-    final login = controller.login('a@example.test', 'fixture');
+    expect(login, isNotNull);
     store.clearing!.complete();
     await old;
-    await login;
+    await login!;
     expect(controller.user, isNotNull);
     expect(store.value, isNotNull);
+  });
+
+  test(
+    'offline startup credentials can still be revoked on explicit logout',
+    () async {
+      var revocations = 0;
+      setup((request) async {
+        if (request.url.path.endsWith('/me')) {
+          throw http.ClientException('offline');
+        }
+        expect(request.url.path, '/api/auth/mobile/logout');
+        expect(
+          request.headers['Authorization'],
+          'Bearer illustrative-not-a-signed-jwt',
+        );
+        revocations++;
+        return http.Response('', 204);
+      });
+      store.value = jsonEncode(sessionJson());
+      await expectLater(controller.restore(), throwsA(failure('OFFLINE')));
+      await expectLater(
+        controller.login('different@example.test', 'fixture'),
+        throwsA(failure('ALREADY_SIGNED_IN')),
+      );
+      await controller.logout();
+      expect(revocations, 1);
+      expect(store.value, isNull);
+    },
+  );
+
+  test(
+    'repeated restore cannot turn an active account into an offline logout',
+    () async {
+      var calls = 0;
+      setup((request) async {
+        calls++;
+        return loginResponse(request);
+      });
+      await controller.login('a@example.test', 'fixture');
+      await controller.restore();
+      expect(calls, 1);
+      expect(controller.user, isNotNull);
+    },
+  );
+
+  testWidgets(
+    'idle expiry reports a failed secure deletion without keeping private data',
+    (tester) async {
+      setup(loginResponse);
+      await controller.login('a@example.test', 'fixture');
+      store.failClear = true;
+      clock = now.add(const Duration(days: 7));
+      await tester.pump(const Duration(days: 7));
+      expect(controller.user, isNull);
+      expect(store.value, isNotNull);
+      expect(controller.expiryFailure!.code, 'STORAGE');
+    },
+  );
+
+  test('a login finishing after disposal cannot republish a user or transport token', () async {
+    final pending = Completer<http.Response>();
+    final client = MockClient((_) => pending.future);
+    addTearDown(client.close);
+    final api = MobileApi(
+      client: client,
+      baseUrl: 'https://api.example.test',
+      now: () => now,
+    );
+    final controller = SessionController(
+      api: api,
+      store: MemorySessionStore(),
+      now: () => now,
+    );
+    var notifications = 0;
+    controller.addListener(() {
+      notifications++;
+    });
+    final login = controller.login('a@example.test', 'fixture');
+    controller.dispose();
+    pending.complete(http.Response(jsonEncode(sessionJson()), 200));
+    await login;
+    expect(notifications, 0);
+    expect(controller.user, isNull);
+    await expectLater(api.me(), throwsA(failure('AUTH_REQUIRED')));
   });
 }
