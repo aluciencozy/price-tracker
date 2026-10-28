@@ -47,6 +47,10 @@ class Product {
     this.freshness = 'stale',
     this.lastError,
     this.lastAttemptAt,
+    this.staleAt,
+    this.nextCheckAt,
+    this.retailPrice,
+    this.attribution = 'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.',
   });
   final String id;
   final String providerGameId;
@@ -56,6 +60,9 @@ class Product {
   final DateTime? observedAt;
   final DateTime? providerChangedAt;
   final DateTime? lastAttemptAt;
+  final DateTime? staleAt, nextCheckAt;
+  final Money? retailPrice;
+  final String attribution;
   final String? lastError;
   final String freshness;
   final Uri? purchaseUrl;
@@ -117,11 +124,33 @@ class Observation {
 }
 
 class RepositoryException implements Exception {
-  const RepositoryException(this.message, {this.expired = false});
+  const RepositoryException(
+    this.message, {
+    this.expired = false,
+    this.code,
+    this.retryAfterSeconds,
+    this.resourceId,
+  });
   final String message;
   final bool expired;
+  final String? code, resourceId;
+  final int? retryAfterSeconds;
   @override
   String toString() => message;
+}
+
+abstract interface class PagedTrackerRepository implements TrackerRepository {
+  bool get hasMore;
+  Future<List<Tracker>> loadMore();
+}
+
+class HistoryMetadata {
+  const HistoryMetadata(this.from, this.to, this.retainedFrom);
+  final DateTime from, to, retainedFrom;
+}
+
+abstract interface class HistoryMetadataRepository {
+  HistoryMetadata? historyMetadataFor(String id);
 }
 
 abstract interface class TrackerRepository {

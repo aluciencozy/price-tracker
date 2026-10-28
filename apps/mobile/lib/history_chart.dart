@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import 'tracker_repository.dart';
 
 class IllustrativeHistoryChart extends StatelessWidget {
-  const IllustrativeHistoryChart({super.key, required this.observations});
+  const IllustrativeHistoryChart({
+    super.key,
+    required this.observations,
+    this.illustrative = true,
+  });
 
   final List<Observation> observations;
+  final bool illustrative;
 
   @override
   Widget build(BuildContext context) {
@@ -34,8 +39,8 @@ class IllustrativeHistoryChart extends StatelessWidget {
         Semantics(
           image: true,
           label:
-              'Illustrative sample history chart. Invented values, not recorded Steam history. '
-              '${ordered.length} sample ${ordered.length == 1 ? 'point' : 'points'}. From ${day(first)} at ${first.price.formatted} USD '
+              '${illustrative ? 'Illustrative sample history chart. Invented values, not recorded Steam history.' : 'Recorded price observation chart.'} '
+              '${ordered.length} ${illustrative ? 'sample ' : ''}${ordered.length == 1 ? 'point' : 'points'}. From ${day(first)} at ${first.price.formatted} USD '
               'to ${day(last)} at ${last.price.formatted} USD. Dated values listed below.',
           child: SizedBox(
             width: double.infinity,

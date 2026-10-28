@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
+import 'app_scope.dart';
 import 'diagnostic.dart';
 import 'history_chart.dart';
 import 'sample_repository.dart';
+import 'request_feedback.dart';
 import 'tracker_repository.dart';
 
 const sampleNotice = 'Sample mode • Changes reset on restart';
@@ -38,7 +42,12 @@ class SamplePage extends StatelessWidget {
                   horizontal: 20,
                   vertical: 12,
                 ),
-                child: const Text(sampleNotice, style: TextStyle(fontSize: 12)),
+                child: Text(
+                  TrackerAppScope.isSample(context)
+                      ? sampleNotice
+                      : 'API mode • Private account data',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
               Expanded(child: child),
             ],
@@ -111,8 +120,10 @@ class WatchlistScreen extends StatefulWidget {
   State<WatchlistScreen> createState() => _WatchlistScreenState();
 }
 
-class _WatchlistScreenState extends State<WatchlistScreen> {
+class _WatchlistScreenState extends State<WatchlistScreen>
+    with RequestCooldown<WatchlistScreen> {
   final _search = TextEditingController();
+  Timer? _searchTimer;
   late Future<List<Tracker>> _items;
   @override
   void initState() {
@@ -121,14 +132,24 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   }
 
   void _reload() {
-    _items = widget.repository.list(search: _search.text);
+    _items = _fetch(() => widget.repository.list(search: _search.text));
     // Cached failures can complete before FutureBuilder subscribes next frame.
     _items.ignore();
+  }
+
+  Future<List<Tracker>> _fetch(Future<List<Tracker>> Function() load) async {
+    try {
+      return await load();
+    } catch (error) {
+      if (mounted) setState(() => coolDown(error));
+      rethrow;
+    }
   }
 
   @override
   void dispose() {
     _search.dispose();
+    _searchTimer?.cancel();
     super.dispose();
   }
 
@@ -142,11 +163,15 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
 
   Widget _results(AsyncSnapshot<List<Tracker>> snapshot) {
     if (snapshot.connectionState != ConnectionState.done) {
-      return const Column(
+      return Column(
         children: [
-          LinearProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Loading sample watchlist…'),
+          const LinearProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            TrackerAppScope.isSample(context)
+                ? 'Loading sample watchlist…'
+                : 'Loading watchlist…',
+          ),
         ],
       );
     }
@@ -156,8 +181,12 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         children: [
           ErrorMessage(snapshot.error.toString()),
           TextButton(
-            onPressed: () => setState(_reload),
-            child: const Text('Try again'),
+            onPressed: retrySeconds > 0 ? null : () => setState(_reload),
+            child: Text(
+              retrySeconds > 0
+                  ? 'Try again in $retrySeconds seconds'
+                  : 'Try again',
+            ),
           ),
           if (snapshot.error is RepositoryException &&
               (snapshot.error as RepositoryException).expired)
@@ -233,8 +262,12 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                               const SizedBox(height: 8),
                               Text(
                                 item.enabled
-                                    ? 'Tracking • Dated sample'
-                                    : 'Paused • Dated sample',
+                                    ? (TrackerAppScope.isSample(context)
+                                          ? 'Tracking • Dated sample'
+                                          : 'Tracking • ${item.product.freshness}')
+                                    : (TrackerAppScope.isSample(context)
+                                          ? 'Paused • Dated sample'
+                                          : 'Paused'),
                                 style: TextStyle(
                                   color: Theme.of(context)
                                       .colorScheme
@@ -281,21 +314,49 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
             style: Theme.of(context).textTheme.headlineMedium
                 ?.copyWith(fontWeight: FontWeight.w600),
           ),
-          const Text(
-            'Steam base games, US / USD. These dated examples are not live quotes.',
+          Text(
+            TrackerAppScope.isSample(context)
+                ? 'Steam base games, US / USD. These dated examples are not live quotes.'
+                : 'Your saved Steam base games • US / USD.',
           ),
           TextField(
             controller: _search,
-            onChanged: (_) => setState(_reload),
+            onChanged: (_) {
+              _searchTimer?.cancel();
+              if (TrackerAppScope.isSample(context)) {
+                setState(_reload);
+              } else {
+                _searchTimer = Timer(const Duration(milliseconds: 350), () {
+                  if (mounted) setState(_reload);
+                });
+              }
+            },
             decoration: const InputDecoration(
               labelText: 'Search saved games',
               prefixIcon: Icon(Icons.search),
             ),
           ),
           _results(snapshot),
-          const Text(
-            'Prices via CheapShark. Not affiliated with Steam. No price checks or alerts run in sample mode.',
-            style: TextStyle(fontSize: 12),
+          if (snapshot.connectionState == ConnectionState.done &&
+              !snapshot.hasError &&
+              widget.repository is PagedTrackerRepository &&
+              (widget.repository as PagedTrackerRepository).hasMore)
+            TextButton(
+              onPressed: retrySeconds > 0
+                  ? null
+                  : () => setState(() {
+                      _items = _fetch(
+                        (widget.repository as PagedTrackerRepository).loadMore,
+                      );
+                      _items.ignore();
+                    }),
+              child: const Text('Load more games'),
+            ),
+          Text(
+            TrackerAppScope.isSample(context)
+                ? 'Prices via CheapShark. Not affiliated with Steam. No price checks or alerts run in sample mode.'
+                : 'Prices via CheapShark. Not affiliated with Steam. Failed checks retain the last successful price; daily checks run on the server when configured.',
+            style: const TextStyle(fontSize: 12),
           ),
         ],
       ),
@@ -311,7 +372,8 @@ class TrackerEditor extends StatefulWidget {
   State<TrackerEditor> createState() => _TrackerEditorState();
 }
 
-class _TrackerEditorState extends State<TrackerEditor> {
+class _TrackerEditorState extends State<TrackerEditor>
+    with RequestCooldown<TrackerEditor> {
   final _url = TextEditingController();
   final _target = TextEditingController();
   ProductPreview? _preview;
@@ -349,7 +411,10 @@ class _TrackerEditorState extends State<TrackerEditor> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = error.toString());
+        setState(() {
+          _error = requestMessage(error);
+          coolDown(error);
+        });
       }
     } finally {
       if (mounted) {
@@ -390,8 +455,9 @@ class _TrackerEditorState extends State<TrackerEditor> {
         setState(
           () => _error = error is FormatException
               ? error.message
-              : error.toString(),
+              : requestMessage(error),
         );
+        coolDown(error);
       }
     } finally {
       if (mounted) {
@@ -414,8 +480,10 @@ class _TrackerEditorState extends State<TrackerEditor> {
                 'Start with a Steam link.',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              const Text(
-                'Local sample preview only. Supports Portal 2 and Half-Life 2; submitted links are never fetched.',
+              Text(
+                TrackerAppScope.isSample(context)
+                    ? 'Local sample preview only. Supports Portal 2 and Half-Life 2; submitted links are never fetched.'
+                    : 'Preview an exact supported Steam base-game offer through the API. Unknown editions, DLC and bundles are unsupported. Submitted links are never fetched directly.',
               ),
               TextField(
                 controller: _url,
@@ -446,7 +514,7 @@ class _TrackerEditorState extends State<TrackerEditor> {
                 ],
               ),
               FilledButton(
-                onPressed: _busy ? null : _lookup,
+                onPressed: _busy || retrySeconds > 0 ? null : _lookup,
                 child: const Text('Preview game'),
               ),
             ] else ...[
@@ -471,9 +539,14 @@ class _TrackerEditorState extends State<TrackerEditor> {
                   ),
                 ],
               ),
-              const Text(
-                'October 26, 2026 source proof via CheapShark. Not a current quote.',
+              Text(
+                TrackerAppScope.isSample(context)
+                    ? 'October 26, 2026 source proof via CheapShark. Not a current quote.'
+                    : '${product.attribution}\nLast successful observation: ${dateLabel(product.observedAt)}\nFreshness: ${product.freshness}',
               ),
+              if (!TrackerAppScope.isSample(context) &&
+                  product.lastError != null)
+                ErrorMessage(product.lastError!),
               if (widget.tracker == null)
                 TextButton(
                   onPressed: _busy
@@ -507,7 +580,11 @@ class _TrackerEditorState extends State<TrackerEditor> {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Email preference'),
-                subtitle: const Text('Sample only. No email is sent.'),
+                subtitle: Text(
+                  TrackerAppScope.isSample(context)
+                      ? 'Sample only. No email is sent.'
+                      : 'Save this tracker’s email alert preference.',
+                ),
                 value: _email,
                 onChanged: _busy
                     ? null
@@ -528,7 +605,7 @@ class _TrackerEditorState extends State<TrackerEditor> {
                 'Changing a target does not change a game’s price or history, or demonstrate an actual price drop.',
               ),
               FilledButton(
-                onPressed: _busy ? null : _save,
+                onPressed: _busy || retrySeconds > 0 ? null : _save,
                 child: Text(
                   widget.tracker == null ? 'Save tracker' : 'Save changes',
                 ),
@@ -540,6 +617,7 @@ class _TrackerEditorState extends State<TrackerEditor> {
                 child: const LinearProgressIndicator(),
               ),
             if (_error != null) ErrorMessage(_error!),
+            if (retrySeconds > 0) Text('Try again in $retrySeconds seconds.'),
             TextButton(
               onPressed: _busy ? null : () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
@@ -563,7 +641,8 @@ class DetailScreen extends StatefulWidget {
   State<DetailScreen> createState() => _DetailScreenState();
 }
 
-class _DetailScreenState extends State<DetailScreen> {
+class _DetailScreenState extends State<DetailScreen>
+    with RequestCooldown<DetailScreen> {
   late Future<(Tracker, List<Observation>)> _detail;
   bool _busy = false;
   String? _error;
@@ -579,17 +658,25 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<(Tracker, List<Observation>)> _load() async {
-    final item = await widget.repository.get(widget.trackerId);
-    return (item, await widget.repository.history(widget.trackerId));
+    try {
+      final item = await widget.repository.get(widget.trackerId);
+      return (item, await widget.repository.history(widget.trackerId));
+    } catch (error) {
+      if (mounted) setState(() => coolDown(error));
+      rethrow;
+    }
   }
 
   Future<void> _remove() async {
     final confirmed = await showDialog<bool>(
       context: context,
+      useRootNavigator: false,
       builder: (context) => AlertDialog(
         title: const Text('Remove tracker?'),
-        content: const Text(
-          'This removes the saved target and preferences from this sample watchlist.',
+        content: Text(
+          TrackerAppScope.isSample(context)
+              ? 'This removes the saved target and preferences from this sample watchlist.'
+              : 'This removes your saved tracker, target and preferences. It does not remove the shared game metadata.',
         ),
         actions: [
           TextButton(
@@ -617,7 +704,10 @@ class _DetailScreenState extends State<DetailScreen> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = error.toString());
+        setState(() {
+          _error = requestMessage(error);
+          coolDown(error);
+        });
       }
     } finally {
       if (mounted) {
@@ -633,15 +723,22 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     await showDialog<void>(
       context: context,
+      useRootNavigator: false,
       builder: (context) => AlertDialog(
-        title: const Text('Dated purchase link'),
+        title: Text(
+          TrackerAppScope.isSample(context)
+              ? 'Dated purchase link'
+              : 'CheapShark purchase link',
+        ),
         scrollable: true,
         content: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'CheapShark redirect from October 26, 2026. It may have expired. Copy it into your browser for human navigation; this app never requests it.',
+            Text(
+              TrackerAppScope.isSample(context)
+                  ? 'CheapShark redirect from October 26, 2026. It may have expired. Copy it into your browser for human navigation; this app never requests it.'
+                  : 'Last observed: ${dateLabel(product.observedAt)}. This ${product.freshness} offer may have changed or expired. Copy the CheapShark redirect into your browser for human navigation; this app never requests it.',
             ),
             const SizedBox(height: 16),
             SelectableText(url.toString()),
@@ -682,8 +779,12 @@ class _DetailScreenState extends State<DetailScreen> {
               children: [
                 ErrorMessage(snapshot.error.toString()),
                 TextButton(
-                  onPressed: () => setState(_reload),
-                  child: const Text('Try again'),
+                  onPressed: retrySeconds > 0 ? null : () => setState(_reload),
+                  child: Text(
+                    retrySeconds > 0
+                        ? 'Try again in $retrySeconds seconds'
+                        : 'Try again',
+                  ),
                 ),
               ],
             );
@@ -712,16 +813,22 @@ class _DetailScreenState extends State<DetailScreen> {
               Text(
                 'Target ${item.targetPrice.formatted} USD • ${item.enabled ? 'Tracking' : 'Paused'}',
               ),
-              const Text(
-                'Dated sample, not a live quote. Daily checks are planned, not running here.',
+              Text(
+                TrackerAppScope.isSample(context)
+                    ? 'Dated sample, not a live quote. Daily checks are planned, not running here.'
+                    : 'Last successful Steam offer. Daily checks are server-side; the app does not trigger provider checks.',
               ),
               if (product.lastError != null) ErrorMessage(product.lastError!),
               Text(
-                'Steam • US / USD\nSource: ${product.source}\nLast successful observation: ${dateLabel(product.observedAt)}\nProvider change: ${dateLabel(product.providerChangedAt)}\nLast failed attempt: ${dateLabel(product.lastAttemptAt)}\nFreshness: ${product.freshness}',
+                'Steam • US / USD\nSource: ${product.source}\nLast successful observation: ${dateLabel(product.observedAt)}\nProvider change: ${dateLabel(product.providerChangedAt)}\n${TrackerAppScope.isSample(context) ? 'Last failed attempt' : 'Last attempt'}: ${dateLabel(product.lastAttemptAt)}\nFreshness: ${product.freshness}',
               ),
               const Text(
                 'Not affiliated with Steam. No cheapest-across-stores substitution.',
               ),
+              if (!TrackerAppScope.isSample(context))
+                Text(
+                  '${product.attribution}\nStale after: ${dateLabel(product.staleAt)}\nNext server check estimate: ${dateLabel(product.nextCheckAt)}',
+                ),
               if (product.purchaseUrl != null &&
                   product.price != null &&
                   isSafePurchaseUrl(product.purchaseUrl!))
@@ -732,13 +839,27 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               const Divider(),
               Text(
-                'Illustrative sample history',
+                TrackerAppScope.isSample(context)
+                    ? 'Illustrative sample history'
+                    : 'Recorded price observations',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              const Text(
-                'Invented multi-day values for layout only. Not recorded Steam history or a claim of a sale.',
+              Text(
+                TrackerAppScope.isSample(context)
+                    ? 'Invented multi-day values for layout only. Not recorded Steam history or a claim of a sale.'
+                    : 'Successful local observations of this exact Steam offer, not a provider historical-low series.',
               ),
-              IllustrativeHistoryChart(observations: history),
+              if (widget.repository
+                  case final HistoryMetadataRepository repository)
+                if (repository.historyMetadataFor(widget.trackerId)
+                    case final HistoryMetadata metadata)
+                  Text(
+                    'Window: ${dateLabel(metadata.from)} to ${dateLabel(metadata.to)} (end exclusive)\nRetained from: ${dateLabel(metadata.retainedFrom)}',
+                  ),
+              IllustrativeHistoryChart(
+                observations: history,
+                illustrative: TrackerAppScope.isSample(context),
+              ),
               for (final entry in history)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
@@ -752,7 +873,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Text(
-                'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\nDevice unavailable. No emails or notifications are sent.',
+                'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\n${TrackerAppScope.isSample(context) ? 'Device unavailable. No emails or notifications are sent.' : 'Push device not connected. A saved preference does not enable delivery.'}',
               ),
               FilledButton(
                 onPressed: _busy
@@ -773,11 +894,12 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: const Text('Edit target and preferences'),
               ),
               OutlinedButton(
-                onPressed: _busy ? null : _remove,
+                onPressed: _busy || retrySeconds > 0 ? null : _remove,
                 child: const Text('Remove tracker'),
               ),
               if (_busy) const LinearProgressIndicator(),
               if (_error != null) ErrorMessage(_error!),
+              if (retrySeconds > 0) Text('Try again in $retrySeconds seconds.'),
             ],
           );
         },
@@ -797,82 +919,91 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   String _account = 'Sample account';
   @override
-  Widget build(BuildContext context) => SamplePage(
-    title: 'Account and settings',
-    child: PageList(
-      children: [
-        Text(_account, style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
-          'demo@example.test\nNo real account, session, security, email, or push service is connected.',
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute<void>(builder: (_) => const AuthPreview())),
-          child: const Text('Preview account flows'),
-        ),
-        TextButton(
-          onPressed: () {
-            if (widget.repository
-                case final SampleTrackerRepository repository) {
-              repository.reset(empty: true);
-            }
-            setState(() => _account = 'Sample signed out');
-          },
-          child: const Text('Preview sign out (clears sample watchlist)'),
-        ),
-        const Divider(),
-        Text('Android push', style: Theme.of(context).textTheme.titleLarge),
-        const Text(
-          'Device unavailable in this sample. Preferences are visual only. No permission request, Firebase connection, token registration, or delivery is implemented.',
-        ),
-        if (widget.repository case final SampleTrackerRepository repository)
+  Widget build(BuildContext context) {
+    final scope = TrackerAppScope.maybeOf(context);
+    if (scope != null && !scope.sample && scope.accountBuilder != null) {
+      return scope.accountBuilder!(context);
+    }
+    return SamplePage(
+      title: 'Account and settings',
+      child: PageList(
+        children: [
+          Text(_account, style: Theme.of(context).textTheme.headlineSmall),
+          const Text(
+            'demo@example.test\nNo real account, session, security, email, or push service is connected.',
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const AuthPreview()),
+            ),
+            child: const Text('Preview account flows'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (widget.repository
+                  case final SampleTrackerRepository repository) {
+                repository.reset(empty: true);
+              }
+              setState(() => _account = 'Sample signed out');
+            },
+            child: const Text('Preview sign out (clears sample watchlist)'),
+          ),
+          const Divider(),
+          Text('Android push', style: Theme.of(context).textTheme.titleLarge),
+          const Text(
+            'Device unavailable in this sample. Preferences are visual only. No permission request, Firebase connection, token registration, or delivery is implemented.',
+          ),
+          if (widget.repository case final SampleTrackerRepository repository)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('Sample developer scenarios'),
+              subtitle: const Text('Secondary previews; not price checks'),
+              children: [
+                for (final scenario in SampleScenario.values)
+                  ListTile(
+                    title: Text(switch (scenario) {
+                      SampleScenario.normal => 'Normal / reset sample',
+                      SampleScenario.empty => 'Empty watchlist',
+                      SampleScenario.offline => 'Offline / save failure',
+                      SampleScenario.expired => 'Expired session',
+                      SampleScenario.stale =>
+                        'Failed check / keep last success',
+                      SampleScenario.missingOffer => 'Missing Steam offer',
+                    }),
+                    onTap: () {
+                      if (scenario == SampleScenario.normal ||
+                          scenario == SampleScenario.empty) {
+                        repository.reset(
+                          empty: scenario == SampleScenario.empty,
+                        );
+                      }
+                      repository.scenario = scenario;
+                      Navigator.of(context).pop();
+                    },
+                  ),
+              ],
+            ),
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: const Text('Sample developer scenarios'),
-            subtitle: const Text('Secondary previews; not price checks'),
+            title: const Text('API diagnostic'),
             children: [
-              for (final scenario in SampleScenario.values)
-                ListTile(
-                  title: Text(switch (scenario) {
-                    SampleScenario.normal => 'Normal / reset sample',
-                    SampleScenario.empty => 'Empty watchlist',
-                    SampleScenario.offline => 'Offline / save failure',
-                    SampleScenario.expired => 'Expired session',
-                    SampleScenario.stale => 'Failed check / keep last success',
-                    SampleScenario.missingOffer => 'Missing Steam offer',
-                  }),
-                  onTap: () {
-                    if (scenario == SampleScenario.normal ||
-                        scenario == SampleScenario.empty) {
-                      repository.reset(empty: scenario == SampleScenario.empty);
-                    }
-                    repository.scenario = scenario;
-                    Navigator.of(context).pop();
-                  },
+              const Text(
+                'Explicit health request only; not a price fetch or sample save.',
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => StarterScreen(api: widget.api),
+                  ),
                 ),
+                child: const Text('Open API diagnostic'),
+              ),
             ],
           ),
-        ExpansionTile(
-          tilePadding: EdgeInsets.zero,
-          title: const Text('API diagnostic'),
-          children: [
-            const Text(
-              'Explicit health request only; not a price fetch or sample save.',
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => StarterScreen(api: widget.api),
-                ),
-              ),
-              child: const Text('Open API diagnostic'),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class AuthPreview extends StatefulWidget {
