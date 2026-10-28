@@ -30,6 +30,66 @@ void main() {
   http.Response response(Object value, [int status = 200]) =>
       http.Response(jsonEncode(value), status);
 
+  http.Response strictList(http.Request request, {String? nextCursor}) {
+    final query = request.url.queryParameters;
+    // Contract q is optional, but when present it must have minLength 1.
+    if (query.containsKey('q') && query['q']!.isEmpty) {
+      return response(errorJson('VALIDATION_ERROR'), 422);
+    }
+    return response(
+      pageJson()..['page'] = {'limit': 20, 'nextCursor': nextCursor},
+    );
+  }
+
+  test(
+    'initial unfiltered list omits q under strict contract validation',
+    () async {
+      final queries = <Map<String, String>>[];
+      final repo = repository((request) async {
+        queries.add(request.url.queryParameters);
+        return strictList(request);
+      });
+      expect((await repo.list()).single.id, 'tracker_example');
+      expect(queries.single, {'limit': '20'});
+    },
+  );
+
+  test(
+    'clearing a title search omits q instead of sending an empty filter',
+    () async {
+      final queries = <Map<String, String>>[];
+      final repo = repository((request) async {
+        queries.add(request.url.queryParameters);
+        return strictList(request);
+      });
+      await repo.list(search: ' Portal ');
+      expect((await repo.list(search: '   ')).single.id, 'tracker_example');
+      expect(queries, [
+        {'limit': '20', 'q': 'Portal'},
+        {'limit': '20'},
+      ]);
+    },
+  );
+
+  test('unfiltered pagination also omits q on every page', () async {
+    final queries = <Map<String, String>>[];
+    final repo = repository((request) async {
+      final query = request.url.queryParameters;
+      queries.add(query);
+      return strictList(
+        request,
+        nextCursor: query.containsKey('cursor') ? null : 'page_two',
+      );
+    });
+    await repo.list();
+    await repo.loadMore();
+    expect(queries, [
+      {'limit': '20'},
+      {'limit': '20', 'cursor': 'page_two'},
+    ]);
+    expect(repo.hasMore, isFalse);
+  });
+
   test(
     'adapter maps nullable/free/stale metadata without sample substitution',
     () async {

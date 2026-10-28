@@ -44,7 +44,8 @@ sample fallback. Changing mode requires restarting with new build configuration.
 - `HttpTrackerRepository` implements the design's `TrackerRepository`,
   `PagedTrackerRepository` and `HistoryMetadataRepository`. It maps wire DTOs to
   UI values, stores create-intent UUIDs across uncertain retries, passes private
-  title search as `q`, and exposes `hasMore`/`loadMore` for watchlist pages. History
+  title search as `q` (omitted for a blank/cleared filter, including later pages),
+  and exposes `hasMore`/`loadMore` for watchlist pages. History
   repeats the returned window across pages, exposes the retention boundary, and
   never imports illustrative sample observations. Its bounded loop reports an
   error rather than silently truncating unexpectedly large history.
@@ -81,6 +82,9 @@ An expiry timer clears idle sessions. Requests check expiry both before sending
 and before accepting private responses; responses from an older session are
 rejected. App resume calls `checkSession()` against `/me`; a network error retains
 the signed-in session and shows an error, while 401/expiry clears private state.
+That read-only check never holds the account-action lock: sign-out clears private
+routes/credentials immediately even while `/me` is pending. Late checks from the
+old session cannot restore data or overwrite the next account.
 
 Logout hides private state and deletes the secure record immediately while
 attempting bodyless server revocation with the captured Bearer token, including
@@ -173,6 +177,6 @@ The focused session review regressions pass, including disposed delayed login A
 versus newer account B sharing storage, disposed delayed restore, and a successful
 local cleanup retry after server logout 204/storage deletion failure. Full-check
 results: `dart format --output=none --set-exit-if-changed lib test` passed,
-`flutter analyze` found no issues, and all **98 Flutter tests passed**, including
+`flutter analyze` found no issues, and all **103 Flutter tests passed**, including
 the preserved sample/design tests. No Node files changed; Node checks were not
 run for this Flutter-only change. No live API/provider requests were used.

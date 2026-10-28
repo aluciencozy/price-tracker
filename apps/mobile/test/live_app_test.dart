@@ -114,12 +114,28 @@ void main() {
   testWidgets(
     'invalid API origin shows configuration error, never sample fallback',
     (tester) async {
-      await tester.pumpWidget(
-        const PriceTrackerApp(config: AppConfig.api('http://evil.example')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Invalid configuration'), findsOneWidget);
-      expect(find.text(sampleNotice), findsNothing);
+      for (final origin in ['http://evil.example', 'https://[']) {
+        final storage = MemorySessionStore()..failRead = true;
+        var calls = 0;
+        final client = MockClient((_) async {
+          calls++;
+          throw StateError('unexpected network');
+        });
+        addTearDown(client.close);
+        await tester.pumpWidget(
+          PriceTrackerApp(
+            key: ValueKey(origin),
+            config: AppConfig.api(origin),
+            client: client,
+            sessionStore: storage,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Invalid configuration'), findsOneWidget);
+        expect(find.text(sampleNotice), findsNothing);
+        expect(tester.takeException(), isNull);
+        expect(calls, 0);
+      }
     },
   );
 
@@ -545,6 +561,53 @@ void main() {
       expect(find.text('CheapShark purchase link'), findsNothing);
       expect(find.text('Game details'), findsNothing);
       expect(submit, findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'sign out clears private state and credentials while resume me is still pending',
+    (tester) async {
+      final resumedMe = Completer<http.Response>();
+      final logout = Completer<http.Response>();
+      final store = MemorySessionStore();
+      var meCalls = 0, logoutCalls = 0;
+      await start(
+        tester,
+        (request) async {
+          if (request.url.path.endsWith('/me')) {
+            meCalls++;
+            return meCalls == 1 ? response(userJson()) : resumedMe.future;
+          }
+          if (request.url.path.endsWith('/logout')) {
+            logoutCalls++;
+            return logout.future;
+          }
+          return response(pageJson());
+        },
+        store: store,
+        signedIn: true,
+      );
+      await tap(tester, find.byTooltip('Account and settings'));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(meCalls, 2);
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign out'));
+      await tester.pump();
+      expect(resumedMe.isCompleted, isFalse);
+      expect(logoutCalls, 1);
+      expect(store.value, isNull);
+      expect(find.text('Account and settings'), findsNothing);
+      expect(find.text('Portal 2'), findsNothing);
+      expect(submit, findsOneWidget);
+      logout.complete(http.Response('', 204));
+      await tester.pumpAndSettle();
+      resumedMe.complete(response(userJson()));
+      await tester.pumpAndSettle();
+      expect(find.text('Signed out.'), findsOneWidget);
+      expect(store.value, isNull);
+      expect(find.text('Watchlist'), findsNothing);
+      expect(tester.takeException(), isNull);
     },
   );
 

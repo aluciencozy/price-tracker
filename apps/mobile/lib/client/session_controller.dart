@@ -131,17 +131,33 @@ class SessionController extends ChangeNotifier {
     await Future.wait([revoke(), _clear()]);
   });
 
-  Future<void> checkSession() => _exclusive(() async {
-    if (_user == null) return;
-    final user = await api.me();
-    if (_disposed) return;
-    if (user.id != _user?.id) {
-      await _clear();
-      throw const ApiFailure('INVALID_SESSION', 'Please sign in again.');
+  Future<void> checkSession() async {
+    if (_disposed || _busy || _user == null) return;
+    final credentials = _credentials;
+    // A read-only resume check must not block sign-out. MobileApi rejects old
+    // transport generations; this identity guard also discards stale errors.
+    try {
+      final user = await api.me();
+      if (_disposed || !identical(credentials, _credentials)) return;
+      if (user.id != _user?.id) {
+        await _clear();
+        throw const ApiFailure('INVALID_SESSION', 'Please sign in again.');
+      }
+      _user = user;
+      _notify();
+    } catch (error) {
+      if (_disposed || !identical(credentials, _credentials)) {
+        // Failed secure deletion still needs an explicit cleanup error.
+        if (error is ApiFailure &&
+            error.code == 'STORAGE' &&
+            _cleanupRequired) {
+          rethrow;
+        }
+        return;
+      }
+      rethrow;
     }
-    _user = user;
-    _notify();
-  });
+  }
 
   void _accept(Session session, User user) {
     if (_disposed) return;
