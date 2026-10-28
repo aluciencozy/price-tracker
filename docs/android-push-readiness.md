@@ -7,9 +7,15 @@ from Flutter design and other client/API wiring. It supports parts of
 [#25](https://github.com/aluciencozy/price-tracker/issues/25); it does not complete
 those issues or [#18](https://github.com/aluciencozy/price-tracker/issues/18).
 
-Only `apps/mobile/lib/push/`, offline tests, and this document are added. No
-existing screens, main, health API, dependencies, Android configuration, Firebase
-project, plugins, or cloud services change. Nothing starts automatically.
+The push module, its tests, and this document are the feature. The final
+integration adds small hooks in `main.dart` and `live_session_host.dart`, plus a
+read-only `SessionController.activeSession` getter for native integrations. It adds
+no dependency, health API change, Android configuration, Firebase project, plugin,
+or cloud service. Nothing registers a device in sample mode or before a signed-in
+API session exists. A previously granted permission/token may synchronize
+automatically after sign-in; Android permission is requested only by the explicit
+user action. Sample mode mounts no push controls and performs no push storage or
+network work.
 
 ## Device integration
 
@@ -40,9 +46,10 @@ timestamps must be valid dates ending in `Z`; invalid normalized dates are rejec
 
 `HttpDeviceEndpoint` uses the installed `http.Client`, a five-second total deadline,
 and no redirect following. HTTPS is required except local HTTP on localhost,
-127.0.0.1, or 10.0.2.2. Its caller owns the client. Inject one stable, locally stored
-random installation UUID; do not generate one per request or use a hardware ID.
-No UUID generator or persistence dependency is added here.
+127.0.0.1, or 10.0.2.2. Its caller owns the client. `SecurePushStorage` generates
+one random v4 installation UUID, persists it in platform-backed secure storage, and
+reuses it for every request. It is never derived from a hardware ID or regenerated
+per request.
 
 The auth owner supplies `PushSession(id, bearerToken)` through `readSession`.
 Session snapshots let cleanup use the old owner rather than the newly signed-in
@@ -65,12 +72,13 @@ The HTTP adapter honors positive delta-seconds `Retry-After` on 429/5xx by block
 subsequent requests until the wait elapses; it never automatically retries a write.
 `retryAfterSeconds` is a failure-time hint for UI, not a live countdown.
 
-Device bindings are not persisted in this module. Restart requires POST again;
-the backend contract must atomically upsert token/installation, deactivate previous
-session eligibility on rebind, and revoke bindings on logout/reset/expiry. Offline
-logout clears local context but cannot claim server revocation. There is no cleanup
-outbox, scheduler, fake backend, or automatic replay. Server ownership, rebind, and
-invalid-token handling remain integration requirements.
+Only the installation UUID and bounded foreground alert keys are persisted. Device
+bindings themselves are not; restart requires POST again. The backend contract must
+atomically upsert token/installation, deactivate previous session eligibility on
+rebind, and revoke bindings on logout/reset/expiry. Offline logout clears local
+context but cannot claim server revocation. There is no cleanup outbox, scheduler,
+fake backend, or automatic replay. Server ownership, rebind, and invalid-token
+handling remain integration requirements.
 
 ## Safe event boundary
 
@@ -95,14 +103,15 @@ current state or show a generic notice; fetch authorized tracker details first i
 displaying private game/price information. Accepted means the callback ran, not
 verified Android notification presentation or delivery.
 
-Supply a real `PushEventStore` before wiring events. Its claim must atomically
-insert a missing key and evict oldest keys to retain at most the supplied capacity
-(default 512, max 1024) **in total**. Persist only keys, not payloads or tokens, in
-the API branch's platform-backed secure storage. A read/write pair is not atomic
-across isolates; serialize operations and test the eventual implementation. There
-is deliberately no pretend-durable default. Test storage is explicitly in memory.
-Clear local keys using `store.clear()` on logout; failure must not undo logout or
-allow old-session display. Background/pending-event handling is not implemented.
+`SecurePushStorage` is the production `PushEventStore`. Its claim atomically inserts
+a missing key in one serialized secure-storage transaction and evicts oldest keys to
+retain at most the supplied capacity (default 512, max 1024) **in total**. It
+persists only keys, not payloads or tokens. Reads and writes are serialized within
+the foreground isolate; they are not atomic across isolates, so a future background
+handler must route claims through the same owner. Corrupt or oversized data fails
+closed. Test storage is explicitly in memory. Clear local keys using
+`store.clear()` on logout; failure must not undo logout or allow old-session display.
+Background/pending-event handling is not implemented.
 
 Storage failure fails closed. Bounded eviction, clearing/reinstall, and process
 failure can lose dedupe protection. A claim precedes the callback, so a crash/UI
@@ -121,21 +130,46 @@ Map 404 to null and 401 to
 tracker/product reaches `openTracker`. Handle deleted/foreign, expired-session,
 offline, and mismatched results with a safe current screen—not payload navigation.
 
+## Application wiring
+
+`PushSessionIntegration` mounts inside the API-mode session host. A signed-in
+session creates a `PushIntegrationController`; sample mode and signed-out states do
+not. Sign-out or account switch clears local registration context and alert keys
+immediately, attempts removal with the captured old token, and never restores
+old-account UI from a late response. Session changes are serialized with device
+registration.
+
+`PushAccountStatus` is added to the account screen beside the existing account
+status. It distinguishes unconfigured, signed out, denied, missing token, offline,
+registered, and error, and offers an explicit permission/retry action only when a
+gateway could act. The default `UnconfiguredPushGateway` always reports that no
+FCM provider or permission/token source is installed; the UI says so instead of
+showing fake permission or delivery. A saved tracker push preference remains
+separate from permission, device registration, and delivery.
+
+`PushEventDispatcher` is the future FCM boundary. `foreground`, `tap`, and
+`tokenChanged` delegate to the session-scoped controller and fail closed when no
+controller is mounted. No listener, background isolate, or pending/cold-start queue
+is installed. `PushTrackerNavigation` sits inside the session-keyed navigator and
+opens only a tracker returned by the authorized read; deleted, foreign, expired,
+offline, and mismatched results show a current-screen notice.
+
+`SecurePushStorage` persists only the installation UUID and bounded
+`(sessionId, eventId)` keys. Operations are serialized in this isolate, and corrupt
+or oversized data fails closed. Logout and account changes clear the keys; a failed
+clear blocks foreground display and stays retryable. Future background handlers must
+coordinate with this owner rather than race independent secure-storage writes.
+
 ## Remaining hooks and proof
 
-1. Parent merges completed Flutter API/design work before adding UI hooks here.
-   Connect status/revocation and explicit permission/retry actions to settings;
-   sample mode stays unconfigured and never registers sample devices.
-2. Adapt secure auth sessions, stable persisted installation UUID, token changes,
-   logout/account switching, authorized tracker reads, and safe native navigation.
-3. Implement/test the bounded persistent event store using the API branch's secure
-   storage. Keep old-session filtering even when clearing storage fails.
-4. Separately approve/configure free FCM and implement the real Android permission,
-   token, notification-channel and foreground gateway. Background, cold-start/tap,
-   and cross-isolate lifecycle handling still need implementation; no plugin is
-   installed or configured here.
-5. Record real Android foreground/background/tap, permission allowed/denied, token
-   rotation, logout/account switch, duplicate-event and restart evidence against
+1. Separately approve and configure free FCM, then implement the real Android
+   permission, token, notification-channel, and foreground gateway. Wire the
+   gateway to `PushEventDispatcher`; no plugin or cloud project is installed here.
+2. Implement background, cold-start, and tap lifecycle handling, including
+   cross-isolate coordination for the persistent event store.
+3. Verify device rebind/rotation and revocation against the real owned endpoints.
+4. Record real Android foreground/background/tap, permission allowed/denied, token
+   rotation, logout/account switch, duplicate-event, and restart evidence against
    actual owned endpoints. Use real Steam prices with target changes, not a
    fabricated discount. Leave #17/#18/#22/#25 open until their full criteria pass.
 
@@ -152,8 +186,9 @@ flutter test
 
 Offline tests cover exact device serialization, strict responses, safe origins,
 timeouts/throttling, permission/status states, rotation, logout races and uncertain
-cleanup; strict events, recipient isolation, dedupe/eviction/storage failure, and
-authorized tap reads.
+cleanup; strict events, recipient isolation, dedupe/eviction/storage failure,
+persisted installation UUID, authorized tap reads, application status, account
+switches, and session-clearing navigation.
 
 **October 28, 2026 — Linux, Flutter 3.47.7 / Dart 3.13.5:** dependency resolution
 passed without lockfile changes; format check passed (10 files, no changes),
@@ -165,7 +200,12 @@ missing-device rotation regression failed before the fixes. Afterward,
 `flutter test test/push --reporter expanded` passed **56 tests**, the full suite
 passed **60 tests**, analysis reported no issues, and format/diff checks passed.
 
-**Unverified:** secure-store persistence, live endpoint ownership/rebinding,
-Android builds/appearance, real permission/token acquisition, foreground/background/
-tap FCM delivery, and deployed cross-client delivery/security. No Android visual
-tests or browser review are part of this initial build.
+**Application integration, same toolchain:** after merging the finished Flutter
+API/design work, formatting and analysis were clean and the full suite passed
+**181 tests**, including the push integration and durable-storage tests.
+
+**Unverified:** platform-backed secure storage on a real Android device, live
+endpoint ownership/rebinding, Android builds/appearance, real permission/token
+acquisition, foreground/background/tap FCM delivery, background/restart lifecycle,
+and deployed cross-client delivery/security. No Android visual tests or browser
+review are part of this initial build.
