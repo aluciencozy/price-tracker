@@ -77,6 +77,10 @@ describe('narrow owned-resource client', () => {
     await expect(client.getTrackedItem(item.id)).rejects.toMatchObject({ kind: 'invalid-response' });
     await expect(client.getHistory(item.id)).rejects.toMatchObject({ kind: 'invalid-response' });
   });
+  it('rejects a PATCH response for another tracker', async () => {
+    const { client } = setup([json(csrf()), json({ ...item, id: 'other_tracker' })]);
+    await expect(client.updateTrackedItem(item.id, { enabled: false })).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
   it('rejects unsafe or authoritative input before any request', () => {
     const { client, fetch } = setup();
     expect(() => client.listTrackedItems({ limit: 101 })).toThrow(ClientError);
@@ -94,6 +98,44 @@ describe('narrow owned-resource client', () => {
 });
 
 describe('persistent browser sessions', () => {
+  it('reserves the login context before an older /me 401 arrives during login POST', async () => {
+    const me = deferred<Response>(), loggingIn = deferred<Response>();
+    const { client, fetch } = setup();
+    fetch.mockReturnValueOnce(me.promise).mockResolvedValueOnce(json(csrf())).mockReturnValueOnce(loggingIn.promise).mockResolvedValueOnce(json(csrf()));
+    const restoring = client.restoreSession();
+    const restoreAssertion = expect(restoring).rejects.toMatchObject({ kind: 'aborted' });
+    const signingIn = client.login({ email: user.email, password: 'password' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    me.resolve(json(error('AUTH_REQUIRED'), 401));
+    await restoreAssertion;
+    expect(client.getSession().status).toBe('unknown');
+    loggingIn.resolve(json(login));
+    await signingIn;
+    expect(client.getSession().status).toBe('authenticated');
+  });
+  it.each([409, 422, 503])('discards old-account failed outcomes including private duplicate IDs: %s', async (status) => {
+    const late = deferred<Response>();
+    const { client, fetch } = setup([json(user), json(csrf())]);
+    await client.restoreSession();
+    fetch.mockReturnValueOnce(late.promise).mockResolvedValueOnce(json(csrf())).mockResolvedValueOnce(json({ ...login, user: { ...user, id: 'user_B' } })).mockResolvedValueOnce(json(csrf()));
+    const creating = client.createTrackedItem(create, key);
+    const assertion = expect(creating).rejects.toMatchObject({ kind: 'aborted', details: {} });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await client.login({ email: user.email, password: 'password' });
+    const detail = error(status === 409 ? 'DUPLICATE_TRACKED_ITEM' : status === 422 ? 'VALIDATION_ERROR' : 'SERVICE_UNAVAILABLE').error;
+    late.resolve(json({ error: { ...detail, resourceId: status === 409 ? 'private_tracker_A' : null } }, status));
+    await assertion;
+    expect(client.getSession().user?.id).toBe('user_B');
+  });
+  it('validates inputs before reserving a login context and keeps the prior snapshot on failure', async () => {
+    const { client, fetch } = setup([json(user), json(csrf()), json(error('EMAIL_UNVERIFIED'), 403)]);
+    await client.restoreSession();
+    const previous = client.getSession();
+    await expect(client.login({ email: '', password: 'password' })).rejects.toMatchObject({ kind: 'invalid-input' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(client.login({ email: user.email, password: 'password' })).rejects.toMatchObject({ details: { code: 'EMAIL_UNVERIFIED' } });
+    expect(client.getSession()).toBe(previous);
+  });
   it('restores /me, logs in without JWT/storage, rotates CSRF, then logs out bodylessly', async () => {
     const storage = vi.spyOn(Storage.prototype, 'setItem');
     const cookie = vi.spyOn(document, 'cookie', 'set');
@@ -142,7 +184,7 @@ describe('persistent browser sessions', () => {
     expect(client.getSession().status).toBe('anonymous');
   });
   it('does not turn unverified/invalid login responses into sessions or accept native JWT JSON', async () => {
-    const { client } = setup([json(csrf()), json({ ...login, user: { ...user, emailVerified: false } }), json({ ...login, accessToken: 'native-only' })]);
+    const { client } = setup([json(csrf()), json({ ...login, user: { ...user, emailVerified: false } }), json(csrf()), json({ ...login, accessToken: 'native-only' })]);
     for (let i = 0; i < 2; i++) {
       await expect(client.login({ email: user.email, password: 'password' })).rejects.toMatchObject({ kind: 'invalid-response' });
       expect(client.getSession().status).toBe('unknown');

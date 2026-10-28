@@ -14,6 +14,13 @@ function input<T>(parse: () => T): T {
   catch { throw new ClientError('invalid-input', 'Invalid request values.'); }
 }
 function idPath(id: string): string { return input(() => encodeURIComponent(dto.id(id))); }
+function ownedTracker(id: string) {
+  return (value: unknown) => {
+    const item = dto.trackedItem(value);
+    if (item.id !== id) throw new Error('Mismatched tracker.');
+    return item;
+  };
+}
 function queryString(value: WatchlistQuery | HistoryQuery, history = false): string {
   return input(() => {
     const query = dto.object(value, history ? ['limit', 'cursor', 'from', 'to'] : ['limit', 'cursor', 'q']);
@@ -79,11 +86,15 @@ export class WebClient {
     parse: (value: unknown) => T, options: RequestOptions & { body?: unknown; headers?: Record<string, string> } = {},
   ): Promise<T> {
     const context = this.context;
+    let failureContext = context;
     try {
       return await this.request(method, path, status, parse, {
-        ...options, onUnauthorized: () => { if (context === this.context) this.clearSession(); },
+        ...options, onUnauthorized: () => {
+          if (context === this.context) { this.clearSession(); failureContext = this.context; }
+        },
       });
     } catch (error) {
+      this.assertContext(failureContext);
       if (context === this.context && error instanceof ClientError && error.details.code === 'CSRF_INVALID') this.csrf = undefined;
       throw error;
     }
@@ -142,8 +153,9 @@ export class WebClient {
     }
   }
   async login(values: { email: string; password: string }, options: RequestOptions = {}): Promise<dto.WebLogin> {
-    const context = this.context;
     const body = input(() => credentials(values));
+    this.resetContext();
+    const context = this.context;
     const result = await this.mutate('POST', '/auth/web/login', 200, body, dto.webLogin, options);
     this.assertContext(context);
     this.resetContext();
@@ -186,11 +198,7 @@ export class WebClient {
     return this.read(`/tracked-items${queryString(query)}`, dto.trackedItems, options);
   }
   getTrackedItem(id: string, options: RequestOptions = {}): Promise<dto.TrackedItem> {
-    return this.read(`/tracked-items/${idPath(id)}`, (value) => {
-      const item = dto.trackedItem(value);
-      if (item.id !== id) throw new Error('Mismatched tracker.');
-      return item;
-    }, options);
+    return this.read(`/tracked-items/${idPath(id)}`, ownedTracker(id), options);
   }
   createTrackedItem(values: dto.CreateTracker, idempotencyKey: string, options: RequestOptions = {}): Promise<dto.TrackedItem> {
     const body = input(() => {
@@ -211,7 +219,7 @@ export class WebClient {
       if (!Object.keys(result).length) throw new Error('No changes.');
       return result;
     });
-    return this.mutate('PATCH', `/tracked-items/${idPath(id)}`, 200, body, dto.trackedItem, options);
+    return this.mutate('PATCH', `/tracked-items/${idPath(id)}`, 200, body, ownedTracker(id), options);
   }
   deleteTrackedItem(id: string, options: RequestOptions = {}): Promise<void> {
     return this.mutate('DELETE', `/tracked-items/${idPath(id)}`, 204, undefined, () => undefined, options);

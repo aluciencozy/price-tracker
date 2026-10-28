@@ -202,17 +202,28 @@ export function accepted(value: unknown): Accepted {
   const data = object(value, ['message']);
   return { message: oneOf(data.message, ['If eligible, you will receive an email with next steps.']) };
 }
-export function errorDetail(value: unknown): ErrorDetail {
+const statusCodes: Record<number, readonly string[]> = {
+  400: ['MALFORMED_REQUEST', 'TOKEN_INVALID', 'AUTH_AMBIGUOUS'],
+  401: ['AUTH_REQUIRED', 'INVALID_CREDENTIALS', 'SESSION_EXPIRED', 'SESSION_REVOKED'],
+  403: ['EMAIL_UNVERIFIED', 'CSRF_INVALID', 'ORIGIN_DENIED', 'ADMIN_REQUIRED'],
+  404: ['NOT_FOUND'], 409: ['DUPLICATE_TRACKED_ITEM', 'IDEMPOTENCY_CONFLICT', 'DEVICE_CONFLICT'],
+  410: ['PREVIEW_EXPIRED'], 413: ['PAYLOAD_TOO_LARGE'], 415: ['UNSUPPORTED_MEDIA_TYPE'],
+  422: ['VALIDATION_ERROR', 'INVALID_CURSOR', 'UNSUPPORTED_URL', 'UNSUPPORTED_PRODUCT', 'AMBIGUOUS_PRODUCT', 'STEAM_OFFER_UNAVAILABLE'],
+  429: ['RATE_LIMITED', 'PROVIDER_RATE_LIMITED'], 500: ['INTERNAL_ERROR'], 503: ['SERVICE_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'],
+};
+export function errorDetail(value: unknown, status: number): ErrorDetail {
   const data = object(object(value, ['error']).error, ['code', 'message', 'fields', 'requestId', 'retryAfterSeconds', 'resourceId']);
   if (!Array.isArray(data.fields) || data.fields.length > 50) throw new Error('Unexpected errors.');
+  if (status === 429 && data.retryAfterSeconds === null) throw new Error('Missing rate-limit wait.');
+  if (data.resourceId !== null && data.code !== 'DUPLICATE_TRACKED_ITEM') throw new Error('Unexpected private resource ID.');
   return {
-    code: text(data.code, 100), message: text(data.message, 500), requestId: id(data.requestId),
+    code: oneOf(data.code, statusCodes[status] ?? []), message: text(data.message, 500), requestId: id(data.requestId),
     retryAfterSeconds: nullable(data.retryAfterSeconds, (v) => integer(v, 1, Number.MAX_SAFE_INTEGER)), resourceId: nullable(data.resourceId, id),
     fields: data.fields.map((value) => {
       const field = object(value, ['path', 'code', 'message']);
       const path = text(field.path, 300);
       if (!path.startsWith('/')) throw new Error('Expected JSON pointer.');
-      return { path, code: text(field.code, 100), message: text(field.message, 300) };
+      return { path, code: oneOf(field.code, ['required', 'unknown_field', 'invalid_type', 'out_of_range', 'invalid_format', 'unsupported', 'invalid_value']), message: text(field.message, 300) };
     }),
   };
 }

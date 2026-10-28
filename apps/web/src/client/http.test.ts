@@ -12,6 +12,17 @@ function setup(responses: Response[] = [], options: HttpOptions = {}) {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('bounded JSON HTTP transport', () => {
+  it.each([
+    { ...error('UNKNOWN_RATE_LIMIT', 1), status: 429 },
+    { ...error('SESSION_EXPIRED', 1), status: 429 },
+    { ...error('RATE_LIMITED', 1), status: 401 },
+    { ...error('RATE_LIMITED'), status: 429 },
+    { error: { ...error('RATE_LIMITED', 1).error, fields: [{ path: '/query/limit', code: 'unknown', message: 'Invalid.' }] }, status: 429 },
+  ])('rejects invalid contract error codes before retrying %#', async ({ status, ...body }) => {
+    const { request, fetch } = setup([json(body, status)]);
+    await expect(request('GET', '/tracked-items', 200, trackedItems)).rejects.toMatchObject({ kind: 'invalid-response', details: { status } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('uses credentials, explicit JSON, no auth/origin spoofing, and refuses redirect following', async () => {
     const { request, fetch } = setup([json({ items: [], page })]);
     expect(fetch).not.toHaveBeenCalled();
@@ -65,8 +76,8 @@ describe('bounded JSON HTTP transport', () => {
     ['Infinity', null], ['9007199254740992', null], ['tomorrow', null],
   ])('parses Retry-After safely: %s', async (header, expected) => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-28T12:00:00Z'));
-    const { request, fetch } = setup([json(error('RATE_LIMITED'), 429, { 'Retry-After': header! })]);
-    await expect(request('POST', '/product-previews', 201, (v) => v)).rejects.toMatchObject({ details: { status: 429, retryAfterSeconds: expected } });
+    const { request, fetch } = setup([json(error('SERVICE_UNAVAILABLE'), 503, { 'Retry-After': header! })]);
+    await expect(request('POST', '/product-previews', 201, (v) => v)).rejects.toMatchObject({ details: { status: 503, retryAfterSeconds: expected } });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });

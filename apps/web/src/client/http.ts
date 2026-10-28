@@ -108,7 +108,7 @@ export function createHttp(options: HttpOptions) {
         const value = await readJson(response, controller.signal);
         if (controller.signal.aborted) throw cancelled();
         if (!response.ok) {
-          const detail = errorDetail(value);
+          const detail = errorDetail(value, response.status);
           const header = retryAfter(response.headers.get('Retry-After'));
           const retryAfterSeconds = header === undefined ? detail.retryAfterSeconds : Math.max(header, detail.retryAfterSeconds ?? 0);
           throw new ClientError('http', detail.message, { ...detail, retryAfterSeconds, status: response.status });
