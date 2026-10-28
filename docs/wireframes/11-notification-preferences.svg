@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" role="img" aria-labelledby="title description">
+<title id="title">Notification preferences — Price Tracker web wireframe</title>
+<desc id="description">Layout sketch of the frontend preview. Sample prices; no live accounts or alerts.</desc>
+<g font-family="Arial, Helvetica, sans-serif">
+<rect x="1" y="1" width="998" height="758" rx="6" fill="#f5f7f9" stroke="#a5adb6"/>
+<text x="28" y="34" font-size="13" fill="#667380">PRICE TRACKER / WEB WIREFRAME</text>
+<text x="28" y="69" font-size="26" fill="#253342">Notification preferences</text>
+<rect x="24" y="90" width="952" height="54" rx="6" fill="#fff" stroke="#a5adb6"/>
+<text x="42" y="123" font-size="18" fill="#253342">Price Tracker</text>
+<text x="240" y="123" font-size="14" fill="#253342">Home   |   Watchlist   |   Add tracker   |   Notifications   |   Sign in</text>
+<text x="28" y="171" font-size="14" fill="#667380">Frontend preview • example prices • changes reset on refresh</text>
+<text x="48" y="223" font-size="28" fill="#253342">Notification preferences</text><rect x="48" y="250" width="900" height="330" rx="6" fill="#fff" stroke="#a5adb6"/><text x="72" y="288" font-size="16" fill="#253342">Preview preferences only. No notifications are delivered.</text><rect x="72" y="322" width="22" height="22" rx="6" fill="#fff" stroke="#a5adb6"/><text x="110" y="339" font-size="17" fill="#253342">In-app notifications</text><rect x="72" y="375" width="22" height="22" rx="6" fill="#fff" stroke="#a5adb6"/><text x="110" y="392" font-size="17" fill="#253342">Email notifications (mock preference)</text><rect x="72" y="439" width="265" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="86" y="465" font-size="14" fill="#253342">Save preferences (mock)</text><text x="72" y="523" font-size="15" fill="#253342">After saving: preferences updated locally; no server save or email delivery.</text>
+<text x="28" y="711" font-size="13" fill="#667380">Development tools: API connection (health only)</text>
+<text x="28" y="736" font-size="13" fill="#667380">PC base games • Steam offers • US / USD • Planned price source: CheapShark</text>
+</g>
+</svg>

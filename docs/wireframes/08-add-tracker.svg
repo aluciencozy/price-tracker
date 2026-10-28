@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" role="img" aria-labelledby="title description">
+<title id="title">Add tracker — Price Tracker web wireframe</title>
+<desc id="description">Layout sketch of the frontend preview. Sample prices; no live accounts or alerts.</desc>
+<g font-family="Arial, Helvetica, sans-serif">
+<rect x="1" y="1" width="998" height="758" rx="6" fill="#f5f7f9" stroke="#a5adb6"/>
+<text x="28" y="34" font-size="13" fill="#667380">PRICE TRACKER / WEB WIREFRAME</text>
+<text x="28" y="69" font-size="26" fill="#253342">Add tracker</text>
+<rect x="24" y="90" width="952" height="54" rx="6" fill="#fff" stroke="#a5adb6"/>
+<text x="42" y="123" font-size="18" fill="#253342">Price Tracker</text>
+<text x="240" y="123" font-size="14" fill="#253342">Home   |   Watchlist   |   Add tracker   |   Notifications   |   Sign in</text>
+<text x="28" y="171" font-size="14" fill="#667380">Frontend preview • example prices • changes reset on refresh</text>
+<text x="48" y="223" font-size="28" fill="#253342">Add tracker</text><rect x="48" y="250" width="560" height="350" rx="6" fill="#fff" stroke="#a5adb6"/><text x="70" y="282" font-size="21" fill="#253342">Add a Steam game</text><text x="70" y="320" font-size="14" fill="#253342">Steam base-game URL or app ID</text><rect x="70" y="332" width="510" height="42" rx="6" fill="#f8fafb" stroke="#a5adb6"/><text x="82" y="359" font-size="15" fill="#667380">https://store.steampowered.com/app/&lt;id&gt;/</text><text x="70" y="405" font-size="14" fill="#253342">Target price (USD)</text><rect x="70" y="417" width="510" height="42" rx="6" fill="#f8fafb" stroke="#a5adb6"/><text x="82" y="444" font-size="15" fill="#667380"></text><rect x="70" y="495" width="240" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="84" y="521" font-size="14" fill="#253342">Save tracker (mock)</text><rect x="325" y="495" width="130" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="339" y="521" font-size="14" fill="#253342">Cancel</text><rect x="630" y="250" width="318" height="350" rx="6" fill="#fff" stroke="#a5adb6"/><text x="650" y="285" font-size="15" fill="#253342">Supported scope</text><text x="650" y="310" font-size="15" fill="#253342">Steam base games • US / USD</text><text x="650" y="335" font-size="15" fill="#253342">Choose from the sample catalog.</text><text x="650" y="360" font-size="15" fill="#253342">DLC, bundles, and unverified</text><text x="650" y="385" font-size="15" fill="#253342">editions are unsupported.</text><text x="650" y="410" font-size="15" fill="#253342">Live support requires the API.</text><rect x="650" y="485" width="210" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="664" y="511" font-size="14" fill="#253342">Try Portal 2</text>
+<text x="28" y="711" font-size="13" fill="#667380">Development tools: API connection (health only)</text>
+<text x="28" y="736" font-size="13" fill="#667380">PC base games • Steam offers • US / USD • Planned price source: CheapShark</text>
+</g>
+</svg>

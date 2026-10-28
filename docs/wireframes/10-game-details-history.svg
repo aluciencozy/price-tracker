@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" role="img" aria-labelledby="title description">
+<title id="title">Game details &amp; history — Price Tracker web wireframe</title>
+<desc id="description">Layout sketch of the frontend preview. Sample prices; no live accounts or alerts.</desc>
+<g font-family="Arial, Helvetica, sans-serif">
+<rect x="1" y="1" width="998" height="758" rx="6" fill="#f5f7f9" stroke="#a5adb6"/>
+<text x="28" y="34" font-size="13" fill="#667380">PRICE TRACKER / WEB WIREFRAME</text>
+<text x="28" y="69" font-size="26" fill="#253342">Game details &amp; history</text>
+<rect x="24" y="90" width="952" height="54" rx="6" fill="#fff" stroke="#a5adb6"/>
+<text x="42" y="123" font-size="18" fill="#253342">Price Tracker</text>
+<text x="240" y="123" font-size="14" fill="#253342">Home   |   Watchlist   |   Add tracker   |   Notifications   |   Sign in</text>
+<text x="28" y="171" font-size="14" fill="#667380">Frontend preview • example prices • changes reset on refresh</text>
+<text x="48" y="223" font-size="28" fill="#253342">Game details &amp; history</text><rect x="48" y="250" width="590" height="370" rx="6" fill="#fff" stroke="#a5adb6"/><text x="70" y="286" font-size="24" fill="#253342">Portal 2</text><text x="70" y="316" font-size="15" fill="#253342">Steam app 620 • Base game • USD</text><text x="70" y="362" font-size="19" fill="#253342">Recorded price: $9.99 USD</text><text x="70" y="394" font-size="19" fill="#253342">Your target: $8.00</text><text x="70" y="432" font-size="14" fill="#253342">Open Steam deal via CheapShark • Snapshot: 2026-10-26</text><text x="70" y="477" font-size="20" fill="#253342">Price history</text><rect x="70" y="493" width="546" height="99" rx="6" fill="#f8fafb" stroke="#a5adb6"/><text x="87" y="530" font-size="15" fill="#253342">No observed price history yet.</text><text x="87" y="555" font-size="15" fill="#253342">Successful API checks will supply the chart.</text><rect x="660" y="250" width="288" height="370" rx="6" fill="#fff" stroke="#a5adb6"/><text x="680" y="286" font-size="21" fill="#253342">Actions</text><rect x="680" y="310" width="245" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="694" y="336" font-size="14" fill="#253342">Edit target</text><rect x="680" y="363" width="245" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="694" y="389" font-size="14" fill="#253342">Back to watchlist</text><text x="680" y="438" font-size="13" fill="#253342">Purchase link behavior:</text><text x="680" y="463" font-size="13" fill="#253342">Open Steam deal via CheapShark</text><text x="680" y="488" font-size="13" fill="#253342">/redirect?dealID=&lt;Steam deal ID&gt;</text><text x="680" y="513" font-size="13" fill="#253342">Recorded deal may have expired.</text><text x="680" y="538" font-size="13" fill="#253342">No offer or ID: unavailable.</text>
+<text x="28" y="711" font-size="13" fill="#667380">Development tools: API connection (health only)</text>
+<text x="28" y="736" font-size="13" fill="#667380">PC base games • Steam offers • US / USD • Planned price source: CheapShark</text>
+</g>
+</svg>

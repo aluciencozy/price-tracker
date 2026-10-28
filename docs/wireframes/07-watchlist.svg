@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" role="img" aria-labelledby="title description">
+<title id="title">Watchlist — Price Tracker web wireframe</title>
+<desc id="description">Layout sketch of the frontend preview. Sample prices; no live accounts or alerts.</desc>
+<g font-family="Arial, Helvetica, sans-serif">
+<rect x="1" y="1" width="998" height="758" rx="6" fill="#f5f7f9" stroke="#a5adb6"/>
+<text x="28" y="34" font-size="13" fill="#667380">PRICE TRACKER / WEB WIREFRAME</text>
+<text x="28" y="69" font-size="26" fill="#253342">Watchlist</text>
+<rect x="24" y="90" width="952" height="54" rx="6" fill="#fff" stroke="#a5adb6"/>
+<text x="42" y="123" font-size="18" fill="#253342">Price Tracker</text>
+<text x="240" y="123" font-size="14" fill="#253342">Home   |   Watchlist   |   Add tracker   |   Notifications   |   Sign in</text>
+<text x="28" y="171" font-size="14" fill="#667380">Frontend preview • example prices • changes reset on refresh</text>
+<text x="48" y="223" font-size="28" fill="#253342">Your watchlist</text><text x="48" y="252" font-size="14" fill="#667380">Developer preview: normal / loading / empty / errors</text><text x="48" y="289" font-size="14" fill="#253342">Search watchlist &amp; examples</text><rect x="48" y="301" width="390" height="42" rx="6" fill="#f8fafb" stroke="#a5adb6"/><text x="60" y="328" font-size="15" fill="#667380">Search by game name...</text><rect x="735" y="299" width="210" height="40" rx="6" fill="#e5ecee" stroke="#a5adb6"/><text x="749" y="325" font-size="14" fill="#253342">+ Add tracker</text><rect x="48" y="371" width="900" height="170" rx="6" fill="#fff" stroke="#a5adb6"/><text x="65" y="401" font-size="15" fill="#253342">Steam game                 Current USD       Target USD       Status                  Actions</text><text x="65" y="445" font-size="14" fill="#253342">Portal 2                       $10.00                $8.00                 Waiting (sample)    Details | Edit | Remove</text><text x="65" y="486" font-size="14" fill="#253342">Hollow Knight             $9.00                  $10.00               Reached (sample)   Details | Edit | Remove</text><text x="48" y="579" font-size="20" fill="#253342">Browse games — example catalog</text><text x="48" y="612" font-size="15" fill="#253342">Portal 2 | Portal | Half-Life 2 | Hollow Knight | Stardew Valley | Hades</text><text x="48" y="640" font-size="15" fill="#253342">Each game: sample USD price • View Details • Track Game</text>
+<text x="28" y="711" font-size="13" fill="#667380">Development tools: API connection (health only)</text>
+<text x="28" y="736" font-size="13" fill="#667380">PC base games • Steam offers • US / USD • Planned price source: CheapShark</text>
+</g>
+</svg>
