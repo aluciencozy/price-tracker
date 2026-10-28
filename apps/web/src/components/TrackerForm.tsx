@@ -58,6 +58,10 @@ export default function TrackerForm({
 }) {
   const navigate = useNavigate();
   const api = useApiMode();
+  const heading = item ? 'Make it your price.' : 'Add your next game.';
+  useEffect(() => {
+    document.title = `${heading} / Price Tracker${api ? '' : ' sample'}`;
+  }, [heading, api]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -127,9 +131,7 @@ export default function TrackerForm({
       </Button>
       <div className="page-heading">
         <div>
-          <h1 tabIndex={-1}>
-            {item ? 'Make it your price.' : 'Add your next game.'}
-          </h1>
+          <h1 tabIndex={-1}>{heading}</h1>
           <p>
             {item
               ? 'One game. Your target and preferences.'
