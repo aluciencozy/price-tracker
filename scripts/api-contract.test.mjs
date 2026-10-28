@@ -80,6 +80,90 @@ test('every route has a complete successful exchange and valid auth/header/param
   }
 });
 
+test('all operations declare status-specific infrastructure errors and CSRF origin denial', () => {
+  for (const { operation } of operations) {
+    const statuses = [[500, 'INTERNAL_ERROR']];
+    if (operation.requestBody) statuses.push([413, 'PAYLOAD_TOO_LARGE'], [415, 'UNSUPPORTED_MEDIA_TYPE']);
+    for (const [status, code] of statuses) {
+      const response = resolve(operation.responses[status]);
+      assert.ok(response, `${operation.operationId} missing ${status}`);
+      const schema = response.content['application/json'].schema;
+      validate(schema, error(code, 'Illustrative failure.'));
+      assert.equal(validatorFor(schema)(error('NOT_FOUND', 'Wrong status code.')), false);
+      assert.equal(validatorFor(schema)({ ...error(code, 'Failure.'), debug: 'must not leak' }), false);
+    }
+  }
+  const denial = resolve(contract.paths['/api/auth/web/csrf'].get.responses['403']);
+  assert.ok(denial, 'CSRF bootstrap must document denied origins');
+  validate(denial.content['application/json'].schema, error('ORIGIN_DENIED', 'Origin is not allowed.'));
+});
+
+test('JSON request examples include Content-Type and cookie-free CSRF bootstrap establishes context', () => {
+  for (const example of exchanges.filter(({ request }) => request !== undefined)) {
+    assert.equal(example.headers['Content-Type'], 'application/json', `${example.method} ${example.path}`);
+    const operation = contract.paths[example.path][example.method];
+    assert.ok(resolve(operation.requestBody).content[example.headers['Content-Type']]);
+  }
+  const bootstrap = exchanges.find(({ path, status, headers }) => path === '/api/auth/web/csrf' && status === 200 && !headers.Cookie);
+  const cookie = bootstrap.responseHeaders?.['Set-Cookie'];
+  assert.ok(cookie, 'pre-login bootstrap must set its binding cookie');
+  const [binding, ...attributes] = cookie.split('; ');
+  const flags = new Set(attributes);
+  for (const attribute of ['Path=/', 'Max-Age=1800', 'HttpOnly', 'Secure', 'SameSite=Lax']) assert.ok(flags.has(attribute));
+  assert.ok(!attributes.some((attribute) => attribute.startsWith('Domain=')));
+  for (const account of exchanges.filter(({ path, status, headers }) => path.startsWith('/api/auth/web/') && status < 300 && headers.Cookie?.startsWith('__Host-price_tracker_prelogin='))) {
+    assert.equal(account.headers.Cookie, binding);
+    assert.equal(account.headers['X-CSRF-Token'], bootstrap.response.csrfToken);
+  }
+});
+
+test('each web account form has pre-login and session-bound CSRF examples', () => {
+  const bootstrap = exchanges.find(({ path, status, headers }) => path === '/api/auth/web/csrf' && status === 200 && headers.Cookie);
+  assert.ok(bootstrap, 'existing sessions need a bootstrap example');
+  const accountForms = operations.filter(({ path, operation }) => path.startsWith('/api/auth/web/') && operation.requestBody);
+  assert.equal(accountForms.length, 6);
+  for (const { path } of accountForms) {
+    const examples = exchanges.filter((example) => example.path === path && example.status < 300);
+    assert.ok(examples.some(({ headers }) => headers.Cookie.startsWith('__Host-price_tracker_prelogin=')), `${path} missing pre-login example`);
+    const currentSession = examples.find(({ headers }) => headers.Cookie === bootstrap.headers.Cookie);
+    assert.ok(currentSession, `${path} missing current-session example`);
+    assert.equal(currentSession.headers['X-CSRF-Token'], bootstrap.response.csrfToken);
+  }
+});
+
+test('successful running polls accept Retry-After without an error body', () => {
+  const poll = exchanges.find(({ path, status, response }) => path === '/api/admin/price-checks/{id}' && status === 200 && response.status === 'running');
+  assert.ok(poll, 'running response regression fixture is required');
+  const response = contract.paths[poll.path].get.responses['200'];
+  validate(response.content['application/json'].schema, poll.response);
+  assert.equal(poll.response.error, undefined);
+  const schema = response.headers['Retry-After'].schema;
+  validate(schema, poll.responseHeaders['Retry-After']);
+  assert.equal(validatorFor(schema)(4), false);
+  assert.equal(validatorFor(schema)('5'), false);
+});
+
+test('price-check states require consistent timestamps and successful/partial counts', () => {
+  const queued = exchanges.find(({ path, status }) => path === '/api/admin/price-checks' && status === 202).response;
+  const running = { ...queued, status: 'running', startedAt: queued.createdAt };
+  const terminal = { ...running, finishedAt: '2026-10-28T12:01:00Z' };
+  const succeeded = { ...terminal, status: 'succeeded' };
+  const partial = { ...terminal, status: 'partial', counts: { total: 2, succeeded: 1, failed: 1, skipped: 0 } };
+  const failed = { ...terminal, status: 'failed', counts: { total: 2, succeeded: 0, failed: 2, skipped: 0 } };
+  for (const value of [queued, running, succeeded, partial, failed]) validate({ $ref: '#/components/schemas/PriceCheck' }, value);
+  reject('PriceCheck', { ...queued, startedAt: queued.createdAt });
+  reject('PriceCheck', { ...queued, finishedAt: terminal.finishedAt });
+  reject('PriceCheck', { ...running, startedAt: null });
+  reject('PriceCheck', { ...running, finishedAt: terminal.finishedAt });
+  for (const value of [succeeded, partial, failed]) {
+    reject('PriceCheck', { ...value, startedAt: null });
+    reject('PriceCheck', { ...value, finishedAt: null });
+  }
+  reject('PriceCheck', { ...succeeded, counts: { total: 2, succeeded: 0, failed: 2, skipped: 0 } });
+  reject('PriceCheck', { ...partial, counts: { total: 1, succeeded: 0, failed: 1, skipped: 0 } });
+  reject('PriceCheck', { ...partial, counts: { total: 1, succeeded: 1, failed: 0, skipped: 0 } });
+});
+
 test('all success and error response examples match their endpoint status schemas', () => {
   for (const example of exchanges) {
     const operation = contract.paths[example.path][example.method];
@@ -99,7 +183,7 @@ test('all success and error response examples match their endpoint status schema
       if (header.required) assert.notEqual(value, undefined);
       if (value !== undefined) validate(header.schema, value);
     }
-    if (example.status === 429 || example.responseHeaders?.['Retry-After']) {
+    if (example.status >= 400 && (example.status === 429 || example.responseHeaders?.['Retry-After'] !== undefined)) {
       assert.equal(example.response.error.retryAfterSeconds, example.responseHeaders['Retry-After']);
     }
   }

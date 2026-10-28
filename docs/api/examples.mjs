@@ -27,6 +27,7 @@ export const tracker = {
   enabled: true, alerts: { email: true, push: false }, createdAt: now, updatedAt: now,
 };
 const token = 'illustrative_only_not_a_real_token_000000000000';
+const sessionCsrfToken = 'illustrative_session_csrf_token_00000000000000';
 const credentials = { email: user.email, password: 'illustrative-password-only' };
 const accepted = { message: 'If eligible, you will receive an email with next steps.' };
 const sessionId = 'session_example';
@@ -35,16 +36,19 @@ const deviceRequest = { installationId: 'b36d3290-4086-4a55-98d5-783cb9f24031', 
 const device = { id: 'device_example', installationId: deviceRequest.installationId, platform: 'android', sessionId, createdAt: now, updatedAt: now };
 const run = { id: 'check_example', status: 'queued', trigger: 'manual', createdAt: now, startedAt: null, finishedAt: null, counts: { total: 0, succeeded: 0, failed: 0, skipped: 0 }, lastError: null };
 const origin = 'https://tracker.example.com';
-const webHeaders = { Origin: origin, 'X-CSRF-Token': token, Cookie: '__Host-price_tracker_session=illustrative-session-secret' };
+const webHeaders = { Origin: origin, 'X-CSRF-Token': sessionCsrfToken, Cookie: '__Host-price_tracker_session=illustrative-session-secret' };
 const preloginHeaders = { Origin: origin, 'X-CSRF-Token': token, Cookie: '__Host-price_tracker_prelogin=illustrative-prelogin-secret' };
 const mobileHeaders = { Authorization: 'Bearer illustrative-not-a-signed-jwt' };
 
 // Each entry is a concrete HTTP exchange. OpenAPI path templates keep examples easy to look up.
 export const exchanges = [];
 function exchange(method, path, status, request, response, headers = mobileHeaders, extra = {}) {
-  exchanges.push({ method, path, headers, ...(request === undefined ? {} : { request }), status, ...(response === undefined ? {} : { response }), ...extra });
+  exchanges.push({ method, path, headers: { ...(request === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, ...(request === undefined ? {} : { request }), status, ...(response === undefined ? {} : { response }), ...extra });
 }
-exchange('get', '/api/auth/web/csrf', 200, undefined, { csrfToken: token, expiresAt: '2026-10-28T12:30:00Z' }, {});
+exchange('get', '/api/auth/web/csrf', 200, undefined, { csrfToken: token, expiresAt: '2026-10-28T12:30:00Z' }, {}, {
+  responseHeaders: { 'Set-Cookie': '__Host-price_tracker_prelogin=illustrative-prelogin-secret; Path=/; Max-Age=1800; Expires=Wed, 28 Oct 2026 12:30:00 GMT; HttpOnly; Secure; SameSite=Lax' },
+});
+exchange('get', '/api/auth/web/csrf', 200, undefined, { csrfToken: sessionCsrfToken, expiresAt }, { Cookie: webHeaders.Cookie });
 for (const platform of ['web', 'mobile']) {
   const root = `/api/auth/${platform}`;
   const headers = platform === 'web' ? preloginHeaders : {};
@@ -59,6 +63,13 @@ for (const platform of ['web', 'mobile']) {
   platform === 'web' ? { responseHeaders: { 'Set-Cookie': '__Host-price_tracker_session=illustrative-session-secret; Path=/; Max-Age=604800; Expires=Wed, 04 Nov 2026 12:00:00 GMT; HttpOnly; Secure; SameSite=Lax' } } : {});
   exchange('get', `${root}/me`, 200, undefined, user, platform === 'web' ? { Cookie: webHeaders.Cookie } : mobileHeaders);
   exchange('post', `${root}/logout`, 204, undefined, undefined, platform === 'web' ? webHeaders : mobileHeaders);
+}
+// Account forms also work after a current-session CSRF bootstrap, without a pre-login cookie.
+for (const example of exchanges.filter(({ path, request }) => path.startsWith('/api/auth/web/') && request !== undefined)) {
+  const login = example.path.endsWith('/login');
+  exchange(example.method, example.path, example.status, example.request,
+    login ? { ...example.response, sessionId: 'session_rotated_example' } : example.response, webHeaders,
+    login ? { responseHeaders: { 'Set-Cookie': '__Host-price_tracker_session=illustrative-rotated-session-secret; Path=/; Max-Age=604800; Expires=Wed, 04 Nov 2026 12:00:00 GMT; HttpOnly; Secure; SameSite=Lax' } } : {});
 }
 exchange('post', '/api/product-previews', 201, { url: products[0].canonicalSteamUrl }, { id: 'preview_example', expiresAt: '2026-10-28T12:10:00Z', product: products[0] }, webHeaders);
 exchange('post', '/api/tracked-items', 201, { previewId: 'preview_example', targetPrice: tracker.targetPrice, enabled: true, alerts: tracker.alerts }, tracker,
@@ -76,9 +87,11 @@ exchange('post', '/api/devices', 201, deviceRequest, device);
 exchange('put', '/api/devices/{id}', 200, { ...deviceRequest, pushToken: 'illustrative-rotated-fcm-token' }, device, mobileHeaders, { params: { id: device.id } });
 exchange('delete', '/api/devices/{id}', 204, undefined, undefined, mobileHeaders, { params: { id: device.id } });
 exchange('post', '/api/admin/price-checks', 202, {}, run, webHeaders, { responseHeaders: { Location: '/api/admin/price-checks/check_example' } });
+exchange('get', '/api/admin/price-checks/{id}', 200, undefined, { ...run, status: 'running', startedAt: now, counts: { total: 2, succeeded: 0, failed: 0, skipped: 0 } }, mobileHeaders, { params: { id: run.id }, responseHeaders: { 'Retry-After': 5 } });
 exchange('get', '/api/admin/price-checks/{id}', 200, undefined, { ...run, status: 'succeeded', startedAt: now, finishedAt: '2026-10-28T12:01:00Z', counts: { total: 2, succeeded: 2, failed: 0, skipped: 0 } }, mobileHeaders, { params: { id: run.id } });
 
 export const error = (code, message, fields = [], retryAfterSeconds = null, resourceId = null) => ({ error: { code, message, fields, requestId: 'request_example', retryAfterSeconds, resourceId } });
+exchange('get', '/api/auth/web/csrf', 403, undefined, error('ORIGIN_DENIED', 'Origin is not allowed.'), { Origin: 'https://unapproved.example.com' });
 exchange('post', '/api/auth/web/verify-email', 400, { token }, error('TOKEN_INVALID', 'This link is invalid or expired.'), preloginHeaders);
 exchange('get', '/api/tracked-items', 401, undefined, error('SESSION_EXPIRED', 'Please sign in again.'));
 exchange('post', '/api/admin/price-checks', 403, {}, error('ADMIN_REQUIRED', 'Administrator access is required.'));

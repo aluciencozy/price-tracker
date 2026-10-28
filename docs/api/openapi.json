@@ -13,67 +13,67 @@
     "/api/auth/web/csrf": {
       "get": {
         "operationId": "getWebCsrf", "tags": ["Web auth"], "security": [],
-        "description": "Bootstrap a pre-login or current-session-bound CSRF token. Sets the HttpOnly pre-login cookie when needed. Never changes or extends session expiry. Reject Authorization headers; responses are no-store. See README for exact cookie policy.",
+        "description": "Bootstrap a pre-login or current-session-bound CSRF token. Sets the HttpOnly pre-login cookie when needed. Never changes or extends session expiry. Reject Authorization headers and unapproved supplied Origins (403 ORIGIN_DENIED); responses are no-store. See README for exact cookie policy.",
         "responses": {
-          "200": {"description": "CSRF bootstrap", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CsrfBootstrap"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}
+          "200": {"description": "CSRF bootstrap", "headers": {"Set-Cookie": {"description": "Required when establishing pre-login context without a session: __Host-price_tracker_prelogin=<opaque>; Path=/; Max-Age=1800; Expires=<matching date>; HttpOnly; Secure; SameSite=Lax; no Domain. Existing-session bootstrap need not set a cookie.", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CsrfBootstrap"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/OriginDenied"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}
         }
       }
     },
     "/api/auth/web/register": {
       "post": {
         "operationId": "registerWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Shared registration service. Requires pre-login CSRF cookie/token and exact allowed Origin; never creates a session. Same 202 for existing/new addresses.",
+        "description": "Shared registration service. Accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin; never creates a session. Same 202 for existing/new addresses.",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegisterRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/verify-email": {
       "post": {
         "operationId": "verifyEmailWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Explicit consumption of a single-use fragment token through the shared verification service. No auto-login. Invalid, expired or used token returns TOKEN_INVALID (400).",
+        "description": "Explicit consumption of a single-use fragment token through the shared verification service. Accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin. No auto-login. Invalid, expired or used token returns TOKEN_INVALID (400).",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}},
-        "responses": {"204": {"description": "Email verified; sign in separately"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Email verified; sign in separately"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/resend-verification": {
       "post": {
         "operationId": "resendVerificationWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Generic 202 regardless of address existence/verification. Shared service; pre-login CSRF required.",
+        "description": "Generic 202 regardless of address existence/verification. Shared service; accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin.",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/forgot-password": {
       "post": {
         "operationId": "forgotPasswordWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Generic 202 regardless of address existence. Shared reset-email service; pre-login CSRF required.",
+        "description": "Generic 202 regardless of address existence. Shared reset-email service; accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin.",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/reset-password": {
       "post": {
         "operationId": "resetPasswordWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Explicit single-use token consumption. Atomically revoke ALL account sessions/device bindings; clear this browser session cookie. No auto-login. TOKEN_INVALID covers used/expired tokens.",
+        "description": "Explicit single-use token consumption. Accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin. Atomically revoke ALL account sessions/device bindings; clear this browser session cookie. No auto-login. TOKEN_INVALID covers used/expired tokens.",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}},
-        "responses": {"204": {"description": "Password reset; all sessions revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Password reset; all sessions revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/login": {
       "post": {
         "operationId": "loginWeb", "tags": ["Web auth"], "security": [{"webCsrf": []}],
-        "description": "Verified accounts only. Requires pre-login cookie/token and exact Origin. Rotate session and CSRF binding. Sets __Host-price_tracker_session for fixed seven days. Response contains NO JWT. Reject bearer headers.",
+        "description": "Verified accounts only. Accept either pre-login-bound or current-session-bound CSRF token with its corresponding cookie and exact allowed Origin. Rotate session and CSRF binding, invalidating any existing session supplied on this request and its device bindings. Sets __Host-price_tracker_session for fixed seven days. Response contains NO JWT. Reject bearer headers.",
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}},
         "responses": {
           "200": {"description": "Persistent cookie session created", "headers": {"Set-Cookie": {"description": "__Host-price_tracker_session=<opaque>; Path=/; Max-Age=604800; Expires=<matching date>; HttpOnly; Secure; SameSite=Lax; no Domain", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLogin"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}
+          "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}
         }
       }
     },
@@ -81,7 +81,7 @@
       "get": {
         "operationId": "getWebUser", "tags": ["Web auth"], "security": [{"webSession": []}],
         "description": "Reload bootstrap; returns User directly. Does not slide expiry. Reject bearer headers.",
-        "responses": {"200": {"$ref": "#/components/responses/User"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"$ref": "#/components/responses/User"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/web/logout": {
@@ -89,7 +89,7 @@
         "operationId": "logoutWeb", "tags": ["Web auth"], "security": [{"webSession": [], "webCsrf": []}],
         "parameters": [{"$ref": "#/components/parameters/RequiredOrigin"}],
         "description": "Revoke current session and bound devices, clear session/pre-login cookies and CSRF binding. No body; no bearer headers. Expired/revoked session returns 401, client still clears local account state.",
-        "responses": {"204": {"description": "Current session revoked; cookies expired with identical name/path/security attributes"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Current session revoked; cookies expired with identical name/path/security attributes"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/register": {
@@ -97,7 +97,7 @@
         "operationId": "registerMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Same registration service as web; generic 202, no session. Reject web cookies. Verification completes intentionally in browser.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegisterRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/verify-email": {
@@ -105,7 +105,7 @@
         "operationId": "verifyEmailMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Same token service as web, reserved for native integrations; MVP Flutter directs users to browser web completion. No auto-login. Reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}},
-        "responses": {"204": {"description": "Email verified"}, "400": {"$ref": "#/components/responses/BadRequest"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Email verified"}, "400": {"$ref": "#/components/responses/BadRequest"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/resend-verification": {
@@ -113,7 +113,7 @@
         "operationId": "resendVerificationMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Same service and generic response as web. Reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/forgot-password": {
@@ -121,7 +121,7 @@
         "operationId": "forgotPasswordMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Same service and generic response as web. Reset completes in browser; reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"$ref": "#/components/responses/Accepted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/reset-password": {
@@ -129,7 +129,7 @@
         "operationId": "resetPasswordMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Same single-use token service as web. Revoke all account sessions/device bindings, no auto-login. MVP Flutter uses browser completion. Reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}},
-        "responses": {"204": {"description": "Password reset; all sessions revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Password reset; all sessions revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/login": {
@@ -137,21 +137,21 @@
         "operationId": "loginMobile", "tags": ["Mobile auth"], "security": [],
         "description": "Verified accounts only. Server-revocable JWT, fixed seven-day expiry, no refresh token. Reject web cookies. Store token only in platform-backed secure storage.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}},
-        "responses": {"200": {"description": "Native session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MobileLogin"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Native session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MobileLogin"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/me": {
       "get": {
         "operationId": "getMobileUser", "tags": ["Mobile auth"], "security": [{"mobileBearer": []}],
         "description": "Returns User directly; does not extend expiry. Reject web cookies.",
-        "responses": {"200": {"$ref": "#/components/responses/User"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"$ref": "#/components/responses/User"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/auth/mobile/logout": {
       "post": {
         "operationId": "logoutMobile", "tags": ["Mobile auth"], "security": [{"mobileBearer": []}],
         "description": "No body. Revoke current native session and all its device bindings before responding. Reject web cookies. Client also deletes token locally on 401.",
-        "responses": {"204": {"description": "Current session revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Current session revoked"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/product-previews": {
@@ -161,7 +161,7 @@
         "parameters": [{"$ref": "#/components/parameters/BrowserOrigin"}],
         "description": "Authenticated bounded/cache-aware URL lookup, NOT check-now. Parse allowlisted Steam URLs locally; never fetch submitted URL. Exact validated base-game catalog only. Preview owned by user, expires after 10 minutes; no tracker/history/alert writes. Missing offer is 422, never other-store fallback.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreviewRequest"}}}},
-        "responses": {"201": {"description": "Owned preview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProductPreview"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"201": {"description": "Owned preview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProductPreview"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/tracked-items": {
@@ -169,7 +169,7 @@
         "operationId": "listTrackedItems", "tags": ["Trackers"],
         "description": "Owned items only. q is a trimmed case-insensitive literal title substring, never regex/provider search. Sort createdAt descending then id descending. Cursor binds owner, filter and sort; insertions do not duplicate records across pages.",
         "parameters": [{"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}, {"name": "q", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 100}}],
-        "responses": {"200": {"description": "Owned watchlist", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItemList"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Owned watchlist", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItemList"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       },
       "post": {
         "operationId": "createTrackedItem", "tags": ["Trackers"],
@@ -177,7 +177,7 @@
         "description": "Create from user's unexpired preview, atomically enforce unique owner/product. UUID Idempotency-Key required. Replay same key/body returns original 201 for 24 hours, before checking preview expiry. Different body/key conflict is 409. Existing product under another key is DUPLICATE_TRACKED_ITEM with owned resourceId. Preview is not consumed; no provider fetch here.",
         "parameters": [{"$ref": "#/components/parameters/BrowserOrigin"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateTrackedItemRequest"}}}},
-        "responses": {"201": {"description": "Created or replayed tracker", "headers": {"Location": {"description": "Owned /api/tracked-items/{id}", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "410": {"$ref": "#/components/responses/Gone"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"201": {"description": "Created or replayed tracker", "headers": {"Location": {"description": "Owned /api/tracked-items/{id}", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "410": {"$ref": "#/components/responses/Gone"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/tracked-items/{id}": {
@@ -185,7 +185,7 @@
       "get": {
         "operationId": "getTrackedItem", "tags": ["Trackers"],
         "description": "404 for absent or foreign item; never disclose other users' targets/preferences.",
-        "responses": {"200": {"description": "Owned tracker", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Owned tracker", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       },
       "patch": {
         "operationId": "updateTrackedItem", "tags": ["Trackers"],
@@ -193,14 +193,14 @@
         "parameters": [{"$ref": "#/components/parameters/BrowserOrigin"}],
         "description": "Only targetPrice/enabled/alerts. At least one field. Supplied alerts replaces BOTH booleans. Omitted values unchanged. Replaying identical values cannot rearm an episode. Target changes are not price observations; see alert rules. Concurrent edits are last accepted write wins.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateTrackedItemRequest"}}}},
-        "responses": {"200": {"description": "Updated owned tracker", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Updated owned tracker", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrackedItem"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       },
       "delete": {
         "operationId": "deleteTrackedItem", "tags": ["Trackers"],
         "security": [{"webSession": [], "webCsrf": []}, {"mobileBearer": []}],
         "parameters": [{"$ref": "#/components/parameters/BrowserOrigin"}],
         "description": "No body. Stop future alerts/cancel unsent deliveries; preserve shared product/history and other users' trackers. 404 on already-deleted/foreign item. Already accepted external deliveries cannot be recalled.",
-        "responses": {"204": {"description": "Removed"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Removed"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/tracked-items/{id}/history": {
@@ -209,7 +209,7 @@
         "operationId": "getTrackedItemHistory", "tags": ["Trackers"],
         "description": "Authorize owned tracker BEFORE shared observations. Successful local observations only, sorted observedAt ascending then id ascending. from inclusive, to exclusive; defaults last 30 days ending now, max window 90 days. retainedFrom is earliest retained time boundary, not a promised first observation. Capture window on page one and repeat it with cursor. No general product-history route.",
         "parameters": [{"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}, {"name": "from", "in": "query", "schema": {"$ref": "#/components/schemas/Timestamp"}}, {"name": "to", "in": "query", "schema": {"$ref": "#/components/schemas/Timestamp"}}],
-        "responses": {"200": {"description": "Authorized observation page, including empty series", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/History"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Authorized observation page, including empty series", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/History"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/devices": {
@@ -217,7 +217,7 @@
         "operationId": "registerDevice", "tags": ["Devices"], "security": [{"mobileBearer": []}],
         "description": "Android only; derive owner and session from bearer. Bind installation and token atomically to current session, revoke previous binding for same token/installation on account switch. Repeated same registration returns same device id and 201. No raw token in response/logs. Reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceRequest"}}}},
-        "responses": {"201": {"description": "Owned session-bound device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Device"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"201": {"description": "Owned session-bound device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Device"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/devices/{id}": {
@@ -226,12 +226,12 @@
         "operationId": "rotateDevice", "tags": ["Devices"], "security": [{"mobileBearer": []}],
         "description": "Replace token for owned current-session device after FCM rotation/permission change. installationId must match existing device (409 otherwise). Repeating same body is idempotent. Foreign user/session yields 404. Reject web cookies.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceRequest"}}}},
-        "responses": {"200": {"description": "Rotated device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Device"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Rotated device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Device"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/Conflict"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       },
       "delete": {
         "operationId": "removeDevice", "tags": ["Devices"], "security": [{"mobileBearer": []}],
         "description": "No body. Remove owned current-session binding, not another session's device. 404 if absent/foreign; locally treat as already removed. Reject web cookies.",
-        "responses": {"204": {"description": "Unbound"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"204": {"description": "Unbound"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/admin/price-checks": {
@@ -241,7 +241,7 @@
         "parameters": [{"$ref": "#/components/parameters/BrowserOrigin"}],
         "description": "Admin role required (403 for ordinary user). Enqueue same bounded service as daily scheduler, never inline arbitrary retailer requests. Empty object only. Coalesce overlapping active manual/scheduled run and return its status with 202. Does not bypass caches/provider backoff.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmptyRequest"}}}},
-        "responses": {"202": {"description": "Queued or existing active run", "headers": {"Location": {"description": "/api/admin/price-checks/{id}", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PriceCheck"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"202": {"description": "Queued or existing active run", "headers": {"Location": {"description": "/api/admin/price-checks/{id}", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PriceCheck"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
     "/api/admin/price-checks/{id}": {
@@ -249,14 +249,14 @@
       "get": {
         "operationId": "getPriceCheck", "tags": ["Admin"],
         "description": "Admin role required. Poll no faster than Retry-After (minimum 5 seconds). Aggregate status only, no users/tokens/provider payload dumps. Terminal states succeeded/partial/failed; no success claim from mere enqueue.",
-        "responses": {"200": {"description": "Run status", "headers": {"Retry-After": {"description": "Seconds before another poll while active", "schema": {"type": "integer", "minimum": 5}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PriceCheck"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+        "responses": {"200": {"description": "Run status", "headers": {"Retry-After": {"description": "Seconds before another poll while active", "schema": {"type": "integer", "minimum": 5}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PriceCheck"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     }
   },
   "components": {
     "securitySchemes": {
       "webSession": {"type": "apiKey", "in": "cookie", "name": "__Host-price_tracker_session", "description": "Opaque server-revocable session; Secure HttpOnly host-only SameSite=Lax Path=/, fixed seven days. No Domain. See loopback-only development exception in README."},
-      "webCsrf": {"type": "apiKey", "in": "header", "name": "X-CSRF-Token", "description": "Token from GET /api/auth/web/csrf, bound to HttpOnly pre-login cookie or current web session. Exact allowed Origin also required. No bearer/cookie mixing."},
+      "webCsrf": {"type": "apiKey", "in": "header", "name": "X-CSRF-Token", "description": "Token from GET /api/auth/web/csrf, bound to HttpOnly pre-login cookie or current web session. Account forms (including login) accept either binding with its corresponding cookie; authenticated resource mutations/logout require current-session binding. Exact allowed Origin also required. No bearer/cookie mixing."},
       "mobileBearer": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Native-only JWT checked against revocable session on EVERY request. No cookies. Fixed seven-day expiry, no refresh tokens."}
     },
     "parameters": {
@@ -273,6 +273,10 @@
       "BadRequest": {"description": "400 MALFORMED_REQUEST, TOKEN_INVALID or AUTH_AMBIGUOUS. No token details. Mixed cookie/bearer or wrong auth namespace rejected before processing.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"enum": ["MALFORMED_REQUEST", "TOKEN_INVALID", "AUTH_AMBIGUOUS"]}}}}}}}},
       "Unauthorized": {"description": "401 AUTH_REQUIRED, INVALID_CREDENTIALS, SESSION_EXPIRED or SESSION_REVOKED. Invalid credentials use one generic message; clear client state on session loss.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"enum": ["AUTH_REQUIRED", "INVALID_CREDENTIALS", "SESSION_EXPIRED", "SESSION_REVOKED"]}}}}}}}},
       "Forbidden": {"description": "403 EMAIL_UNVERIFIED (only after correct credentials), CSRF_INVALID, ORIGIN_DENIED or ADMIN_REQUIRED.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"enum": ["EMAIL_UNVERIFIED", "CSRF_INVALID", "ORIGIN_DENIED", "ADMIN_REQUIRED"]}}}}}}}},
+      "OriginDenied": {"description": "403 ORIGIN_DENIED for an unapproved supplied Origin; do not issue CSRF tokens or cookies.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "ORIGIN_DENIED"}}}}}}}},
+      "PayloadTooLarge": {"description": "413 PAYLOAD_TOO_LARGE; request body exceeds 16 KiB.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "PAYLOAD_TOO_LARGE"}}}}}}}},
+      "UnsupportedMediaType": {"description": "415 UNSUPPORTED_MEDIA_TYPE; JSON body requires Content-Type: application/json.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "UNSUPPORTED_MEDIA_TYPE"}}}}}}}},
+      "InternalError": {"description": "500 INTERNAL_ERROR; safe generic message with requestId, no stack traces or secrets.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "INTERNAL_ERROR"}}}}}}}},
       "NotFound": {"description": "404 NOT_FOUND for absent OR foreign owned resource; resourceId null.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "NOT_FOUND"}}}}}}}},
       "Conflict": {"description": "409 DUPLICATE_TRACKED_ITEM (owned resourceId), IDEMPOTENCY_CONFLICT or DEVICE_CONFLICT.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"enum": ["DUPLICATE_TRACKED_ITEM", "IDEMPOTENCY_CONFLICT", "DEVICE_CONFLICT"]}}}}}}}},
       "Gone": {"description": "410 PREVIEW_EXPIRED for owned expired preview; preview again, never silently save changed metadata.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope", "properties": {"error": {"properties": {"code": {"const": "PREVIEW_EXPIRED"}}}}}}}},
@@ -341,7 +345,17 @@
       "Device": {"type": "object", "additionalProperties": false, "required": ["id", "installationId", "platform", "sessionId", "createdAt", "updatedAt"], "properties": {"id": {"$ref": "#/components/schemas/Id"}, "installationId": {"type": "string", "format": "uuid"}, "platform": {"type": "string", "const": "android"}, "sessionId": {"$ref": "#/components/schemas/Id"}, "createdAt": {"$ref": "#/components/schemas/Timestamp"}, "updatedAt": {"$ref": "#/components/schemas/Timestamp"}}},
       "EmptyRequest": {"type": "object", "additionalProperties": false, "properties": {}},
       "CheckCounts": {"type": "object", "additionalProperties": false, "required": ["total", "succeeded", "failed", "skipped"], "properties": {"total": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "succeeded": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "failed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "skipped": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}},
-      "PriceCheck": {"type": "object", "additionalProperties": false, "required": ["id", "status", "trigger", "createdAt", "startedAt", "finishedAt", "counts", "lastError"], "properties": {"id": {"$ref": "#/components/schemas/Id"}, "status": {"type": "string", "enum": ["queued", "running", "succeeded", "partial", "failed"]}, "trigger": {"type": "string", "enum": ["manual", "scheduled"]}, "createdAt": {"$ref": "#/components/schemas/Timestamp"}, "startedAt": {"$ref": "#/components/schemas/NullableTimestamp"}, "finishedAt": {"$ref": "#/components/schemas/NullableTimestamp"}, "counts": {"$ref": "#/components/schemas/CheckCounts"}, "lastError": {"anyOf": [{"$ref": "#/components/schemas/ProductError"}, {"type": "null"}]}}},
+      "PriceCheck": {
+        "type": "object", "additionalProperties": false, "required": ["id", "status", "trigger", "createdAt", "startedAt", "finishedAt", "counts", "lastError"],
+        "properties": {"id": {"$ref": "#/components/schemas/Id"}, "status": {"type": "string", "enum": ["queued", "running", "succeeded", "partial", "failed"]}, "trigger": {"type": "string", "enum": ["manual", "scheduled"]}, "createdAt": {"$ref": "#/components/schemas/Timestamp"}, "startedAt": {"$ref": "#/components/schemas/NullableTimestamp"}, "finishedAt": {"$ref": "#/components/schemas/NullableTimestamp"}, "counts": {"$ref": "#/components/schemas/CheckCounts"}, "lastError": {"anyOf": [{"$ref": "#/components/schemas/ProductError"}, {"type": "null"}]}},
+        "allOf": [
+          {"if": {"properties": {"status": {"const": "queued"}}}, "then": {"properties": {"startedAt": {"type": "null"}, "finishedAt": {"type": "null"}}}},
+          {"if": {"properties": {"status": {"const": "running"}}}, "then": {"properties": {"startedAt": {"$ref": "#/components/schemas/Timestamp"}, "finishedAt": {"type": "null"}}}},
+          {"if": {"properties": {"status": {"enum": ["succeeded", "partial", "failed"]}}}, "then": {"properties": {"startedAt": {"$ref": "#/components/schemas/Timestamp"}, "finishedAt": {"$ref": "#/components/schemas/Timestamp"}}}},
+          {"if": {"properties": {"status": {"const": "succeeded"}}}, "then": {"properties": {"counts": {"properties": {"failed": {"const": 0}}}}}},
+          {"if": {"properties": {"status": {"const": "partial"}}}, "then": {"properties": {"counts": {"properties": {"succeeded": {"minimum": 1}, "failed": {"minimum": 1}}}}}}
+        ]
+      },
       "FieldError": {"type": "object", "additionalProperties": false, "required": ["path", "code", "message"], "properties": {"path": {"type": "string", "pattern": "^/", "maxLength": 300}, "code": {"type": "string", "enum": ["required", "unknown_field", "invalid_type", "out_of_range", "invalid_format", "unsupported", "invalid_value"]}, "message": {"type": "string", "minLength": 1, "maxLength": 300}}},
       "ErrorDetail": {"type": "object", "additionalProperties": false, "required": ["code", "message", "fields", "requestId", "retryAfterSeconds", "resourceId"], "properties": {"code": {"type": "string", "enum": ["MALFORMED_REQUEST", "AUTH_AMBIGUOUS", "TOKEN_INVALID", "AUTH_REQUIRED", "INVALID_CREDENTIALS", "SESSION_EXPIRED", "SESSION_REVOKED", "EMAIL_UNVERIFIED", "CSRF_INVALID", "ORIGIN_DENIED", "ADMIN_REQUIRED", "NOT_FOUND", "DUPLICATE_TRACKED_ITEM", "IDEMPOTENCY_CONFLICT", "DEVICE_CONFLICT", "PREVIEW_EXPIRED", "VALIDATION_ERROR", "INVALID_CURSOR", "UNSUPPORTED_URL", "UNSUPPORTED_PRODUCT", "AMBIGUOUS_PRODUCT", "STEAM_OFFER_UNAVAILABLE", "RATE_LIMITED", "PROVIDER_RATE_LIMITED", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "INTERNAL_ERROR"]}, "message": {"type": "string", "minLength": 1, "maxLength": 500}, "fields": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/FieldError"}}, "requestId": {"$ref": "#/components/schemas/Id"}, "retryAfterSeconds": {"type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991}, "resourceId": {"anyOf": [{"$ref": "#/components/schemas/Id"}, {"type": "null"}]}}},
       "ErrorEnvelope": {"type": "object", "additionalProperties": false, "required": ["error"], "properties": {"error": {"$ref": "#/components/schemas/ErrorDetail"}}},
