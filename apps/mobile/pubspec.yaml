@@ -1,5 +1,5 @@
 name: price_tracker
-description: Price Tracker Android starter with a shared API health check.
+description: Native Price Tracker sample with local watchlist interactions.
 publish_to: none
 version: 0.1.0+1
 
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.6.0
+  flutter_secure_storage: ^10.0.0
 
 dev_dependencies:
   flutter_test:
@@ -18,3 +19,12 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/covers/
+    - assets/fonts/OFL.txt
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+        - asset: assets/fonts/JetBrainsMono-SemiBold.ttf
+          weight: 600

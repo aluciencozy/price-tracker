@@ -2,168 +2,116 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'api.dart';
+import 'app_config.dart';
+import 'app_scope.dart';
+import 'client/mobile_api.dart';
+import 'client/session_controller.dart';
+import 'client/session_store.dart';
+import 'live_account.dart';
+import 'live_session_host.dart';
+import 'sample_repository.dart';
+import 'screens.dart';
+import 'theme.dart';
+import 'tracker_repository.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const PriceTrackerApp());
 }
 
-class PriceTrackerApp extends StatelessWidget {
-  const PriceTrackerApp({super.key, this.api});
-
+class PriceTrackerApp extends StatefulWidget {
+  const PriceTrackerApp({
+    super.key,
+    this.repository,
+    this.api,
+    this.config,
+    this.client,
+    this.sessionStore,
+    this.mobileApi,
+    this.accountStatusBuilder,
+    this.sessionIntegrationBuilder,
+  });
+  final TrackerRepository? repository;
   final HealthApi? api;
-
+  final AppConfig? config;
+  final http.Client? client;
+  final SessionStore? sessionStore;
+  final MobileApi? mobileApi;
+  final AccountStatusBuilder? accountStatusBuilder;
+  final SessionIntegrationBuilder? sessionIntegrationBuilder;
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Price Tracker',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
-      home: StarterScreen(api: api),
-    );
-  }
+  State<PriceTrackerApp> createState() => _PriceTrackerAppState();
 }
 
-class StarterScreen extends StatefulWidget {
-  const StarterScreen({super.key, this.api});
-
-  final HealthApi? api;
-
-  @override
-  State<StarterScreen> createState() => _StarterScreenState();
-}
-
-class _StarterScreenState extends State<StarterScreen> {
+class _PriceTrackerAppState extends State<PriceTrackerApp> {
+  TrackerRepository? _repository;
+  SessionController? _session;
+  MobileApi? _mobile;
   http.Client? _ownedClient;
-  late final HealthApi _api;
-  bool _busy = false;
-  String _message = 'Not checked yet.';
-
+  String? _configurationError;
   @override
   void initState() {
     super.initState();
-
-    // Tests can supply an API. Otherwise, this screen owns the HTTP client.
-    if (widget.api != null) {
-      _api = widget.api!;
-    } else {
-      _ownedClient = http.Client();
-      _api = HealthApi(client: _ownedClient!);
+    try {
+      final config = widget.config ?? AppConfig.fromEnvironment();
+      if (config.source == DataSource.sample) {
+        _repository = widget.repository ?? SampleTrackerRepository();
+      } else {
+        final client =
+            widget.client ??
+            (widget.mobileApi == null
+                ? (_ownedClient = http.Client())
+                : widget.mobileApi!.client);
+        _mobile =
+            widget.mobileApi ??
+            MobileApi(client: client, baseUrl: config.apiBaseUrl);
+        _session = SessionController(
+          api: _mobile!,
+          store: widget.sessionStore ?? SecureSessionStore(),
+        );
+      }
+    } on ArgumentError {
+      _configurationError = 'Invalid configuration. DATA_SOURCE must be sample or api; API mode requires a valid HTTPS API origin (local debug HTTP only). No sample fallback was started.';
     }
   }
 
   @override
   void dispose() {
-    // Leave injected clients alone; close only the one this screen created.
+    _session?.dispose();
     _ownedClient?.close();
-
     super.dispose();
   }
 
-  Future<void> _checkConnection() async {
-    setState(() {
-      _busy = true;
-      _message = 'Contacting the API…';
-    });
-
-    try {
-      final health = await _api.getHealth();
-
-      // The request may finish after the user has left this screen.
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _message =
-            'API is online. Database: ${health.database.replaceAll('_', ' ')}.'
-            '${health.database == 'connected' ? '' : ' Persistence is not ready.'}';
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _message = 'Could not reach the API. Check the server and API_BASE_URL, then try again.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Price Tracker')),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                const Text('DEVELOPMENT STARTER'),
-                const SizedBox(height: 20),
-
-                Text(
-                  'One API. Web + Android.',
-                  style: Theme.of(context).textTheme.headlineLarge,
-                ),
-                const SizedBox(height: 16),
-
-                const Text(
-                  'Accounts, tracked products, price history, and alerts are not implemented yet. '
-                  'This screen checks the shared Express API only.',
-                ),
-                const SizedBox(height: 32),
-
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Check the connection',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 12),
-
-                        const Text(
-                          'No database or service credentials are needed for this check.',
-                        ),
-                        const SizedBox(height: 24),
-
-                        FilledButton.icon(
-                          onPressed: _busy ? null : _checkConnection,
-                          icon: const Icon(Icons.network_check),
-                          label: Text(_busy ? 'Checking…' : 'Check API'),
-                        ),
-                        const SizedBox(height: 20),
-
-                        Semantics(liveRegion: true, child: Text(_message)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                const Text(
-                  'No live retailer data or saved watchlists in this starter.',
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Price Tracker',
+    debugShowCheckedModeBanner: false,
+    theme: appTheme(),
+    themeMode: ThemeMode.light,
+    home: _configurationError != null
+        ? Scaffold(
+            body: SafeArea(child: Center(child: Text(_configurationError!))),
+          )
+        : _session != null
+        ? Builder(
+            builder: (context) {
+              final host = LiveSessionHost(
+                session: _session!,
+                api: _mobile!,
+                healthApi: widget.api,
+                accountStatusBuilder: widget.accountStatusBuilder,
+              );
+              return widget.sessionIntegrationBuilder?.call(
+                    context,
+                    _session!,
+                    host,
+                  ) ??
+                  host;
+            },
+          )
+        : TrackerAppScope(
+            sample: true,
+            child: WatchlistScreen(repository: _repository!, api: widget.api),
           ),
-        ),
-      ),
-    );
-  }
+  );
 }
