@@ -58,22 +58,19 @@ npm run dev:api
 npm run dev:web
 ```
 
-Open **http://127.0.0.1:5173**. Click **Check API** to test the connection to the API at **http://127.0.0.1:4000**. Vite proxies `/api` during development.
+Open **http://127.0.0.1:5173** and choose **Try sample**. The light-only web app works without the API. Its fonts and small game thumbnails are bundled locally; no backend, provider, remote font, or remote image request happens by default.
 
-The web UI has [reviewable SVG wireframes](docs/wireframes/README.md) for the home page, watchlist, add/edit tracker, game details, notification preferences, account screens, and preview states. The existing sample game cards and search are available on the watchlist screen. Sample selections, USD targets, and preferences stay in React memory and reset on refresh; account forms do not create sessions or send email. The developer preview selector shows loading, empty, validation, expired-session, unavailable-offer, and unsupported-link examples. Price history stays empty until the API supplies observations.
+The sample starts with Portal 2 and Half-Life 2. Search your saved games, open details, edit targets and independent email/Android-push preferences, or confirm removal. **Add game** uses Steam URL → offer preview → target/preferences → save; remove a seeded game first to add it again. Targets use integer USD cents and allow $0.00. Changes live in memory and reset on refresh, never upload automatically, and survive navigation/back. Routes and saved-game search are URL-addressable; static hosting must rewrite app routes to `index.html` while keeping `/api` routing separate.
 
-The app opens on a responsive home page with an introduction, a three-step guide, and buttons to the tracker form and watchlist. Use **Home** or the Price Tracker logo to return without clearing your current preview selections. Daily checks and alerts described on the home page are planned features.
+Prices and human purchase redirects are stale snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. Only these two identities were validated. The multi-day chart is **explicitly labeled illustrative**, with a data table; its invented values are not recorded Steam history. Purchase links can expire and are never fetched automatically. No other store or historical low substitutes for a missing Steam offer.
 
-To review Issue #5's Steam examples:
+Registration, verification/resend, login/logout, forgot/reset, and account pages are honest local previews. Use made-up sample credentials only. They do not store/transmit credentials, create sessions, send email, register devices, or deliver alerts. Android push is a per-game preference, not browser push.
 
-- Open **Watchlist**, then **View Details** for Portal 2 or Half-Life 2. Their USD prices and CheapShark purchase links are recorded snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. The deal links may have changed or expired. Purchase links are for human navigation only; the app never fetches them.
-- Search for **Stardew Valley** to see a missing-offer fixture. Its price and purchase action are unavailable. This does not claim the real game is unavailable on Steam.
-- Select **unsupported-dlc**, **unsupported-bundle**, or **unsupported-edition** under **Developer preview state** to review each explanation. These simulate rejection states; the API must validate actual game types and editions.
-- Portal, Hollow Knight, and Hades use illustrative prices without purchase links. Other stores' offers are never used as a Steam fallback.
+Expand **Development tools** in the footer for loading, empty, offline, expired-session, save-error, failed-check, missing-offer, free-price, unsupported-content and history scenarios. These are local fixtures, not provider-support claims. Account forms have their own expandable scenario controls. Choose **Normal** to leave a scenario; refresh to reset everything.
 
-`npm run test --workspace @price-tracker/web` checks purchase routing, deal-ID encoding, offer identity, missing offers, and unsupported previews with offline fixtures. It makes no live provider calls and does not verify that a recorded deal still works upstream.
+Inside Development tools, expand **API connection (manual diagnostic)** and click **Check API** to test `http://127.0.0.1:4000` health. This is the only optional backend request; it never fetches prices. Vite proxies `/api` locally.
 
-Open **Development tools · API connection** below the page content to use **Check API**. This checks health only; it does not fetch prices.
+See [the web design and repository handoff](docs/web-design.md). The existing [SVG wireframes](docs/wireframes/README.md) remain planning artifacts. `npm test --workspace @price-tracker/web` runs offline interaction/repository/purchase safety tests; it does not verify live accounts, ownership, delivery, or upstream purchase links.
 
 The starter works without environment files or a database account. For custom settings, copy the examples:
 
@@ -123,6 +120,8 @@ npm run check
 ```
 
 This runs lint, TypeScript checks, tests, and API/web builds. Individual commands are `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build`.
+
+**Web design validation, October 28, 2026:** `npm run check` passed lint, both typechecks, **80 web tests + 14 API regression tests**, and both builds. These are offline sample/health/purchase tests, not live authentication, ownership, price checking, or delivery proof. Browser layout/screenshots and independent review remain a separate follow-up.
 
 From `apps/mobile`:
 

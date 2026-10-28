@@ -1,90 +1,94 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import GameDetails from './components/GameDetails';
+import { createSampleRepository } from './data/sampleRepository';
 import { steamPurchaseUrl } from './steamPurchaseUrl';
-import type { SteamGame } from './types/SteamGame';
+import type { Product } from './data/types';
 
-// Synthetic deal IDs stay in offline tests, never the visible catalog.
-const game: SteamGame = {
-  appId: 620,
-  name: 'Portal 2',
-  imageUrl: '',
-  originalPrice: 10,
-  currentPrice: 5,
-  discountPercent: 50,
-  currency: 'USD',
-  steamOffer: {
-    steamAppId: 620,
-    storeId: '1',
-    currency: 'USD',
-    dealId: 'fixture+/=',
-    observedAt: '2026-10-26',
-  },
-};
-
+async function fixture() {
+  const repository = createSampleRepository();
+  const item = (await repository.list())[0]!;
+  return { repository, item, product: item.product };
+}
 describe('Steam purchase navigation', () => {
   it.each(['fixture+/=', 'fixture%2B%2F%3D'])(
-    'encodes a raw or encoded ID exactly once: %s',
-    (dealId) => {
-      const url = new URL(
-        steamPurchaseUrl({
-          ...game,
-          steamOffer: { ...game.steamOffer!, dealId },
-        })!,
-      );
+    'encodes a raw or encoded deal ID exactly once: %s',
+    async (dealId) => {
+      const { product } = await fixture();
+      const url = new URL(steamPurchaseUrl({ ...product, dealId })!);
       expect(url.origin).toBe('https://www.cheapshark.com');
       expect(url.pathname).toBe('/redirect');
       expect(url.searchParams.get('dealID')).toBe('fixture+/=');
       expect([...url.searchParams.keys()]).toEqual(['dealID']);
     },
   );
-
   it.each([
-    { storeId: '2' },
-    { steamAppId: 400 },
-    { currency: 'EUR' },
+    {
+      identity: {
+        provider: 'cheapshark',
+        providerGameId: '36',
+        storeId: '2',
+        market: 'US',
+        currency: 'USD',
+      },
+    },
+    { steamAppId: '400' },
+    { canonicalSteamUrl: 'https://store.steampowered.com.evil/app/620/' },
+    { currentPrice: { amountMinor: 999, currency: 'EUR' } },
     { dealId: '' },
     { dealId: '  ' },
     { dealId: '%invalid' },
-  ])('hides the action for an invalid or mismatched offer: %j', (change) => {
-    const invalidGame = {
-      ...game,
-      steamOffer: { ...game.steamOffer!, ...change },
-    };
-    expect(steamPurchaseUrl(invalidGame)).toBeNull();
+  ])('hides an invalid or mismatched offer: %j', async (change) => {
+    const { item, repository } = await fixture();
+    const product = { ...item.product, ...change } as Product;
+    expect(steamPurchaseUrl(product)).toBeNull();
     render(
-      <GameDetails
-        game={invalidGame}
-        unavailable={false}
-        onClose={() => {}}
-        onEdit={() => {}}
-      />,
+      <MemoryRouter>
+        <GameDetails item={{ ...item, product }} repository={repository} />
+      </MemoryRouter>,
     );
     expect(
       screen.queryByRole('link', { name: 'Open Steam deal via CheapShark' }),
     ).not.toBeInTheDocument();
   });
-
-  it('distinguishes a missing offer from a genuine zero price', () => {
-    expect(steamPurchaseUrl({ ...game, currentPrice: null })).toBeNull();
-    expect(steamPurchaseUrl({ ...game, steamOffer: undefined })).toBeNull();
-    expect(steamPurchaseUrl({ ...game, currency: 'EUR' })).toBeNull();
-    expect(steamPurchaseUrl({ ...game, currentPrice: 0 })).not.toBeNull();
+  it('distinguishes a missing offer from a genuine zero price', async () => {
+    const { product } = await fixture();
+    expect(steamPurchaseUrl({ ...product, currentPrice: null })).toBeNull();
+    expect(steamPurchaseUrl({ ...product, dealId: null })).toBeNull();
+    expect(
+      steamPurchaseUrl({
+        ...product,
+        currentPrice: { amountMinor: 0, currency: 'USD' },
+      }),
+    ).not.toBeNull();
   });
-
-  it('opens a valid purchase action safely in a new tab', () => {
+  it('does not permit deal IDs to inject query parameters or URLs', async () => {
+    const { product } = await fixture();
+    const url = new URL(
+      steamPurchaseUrl({
+        ...product,
+        dealId: 'https://evil.example/?x=1&next=bad',
+      })!,
+    );
+    expect(url.origin).toBe('https://www.cheapshark.com');
+    expect([...url.searchParams.keys()]).toEqual(['dealID']);
+  });
+  it('opens the dated purchase action safely in a new tab', async () => {
+    const { item, repository } = await fixture();
     render(
-      <GameDetails
-        game={game}
-        unavailable={false}
-        onClose={() => {}}
-        onEdit={() => {}}
-      />,
+      <MemoryRouter>
+        <GameDetails item={item} repository={repository} />
+      </MemoryRouter>,
     );
     const link = screen.getByRole('link', {
       name: 'Open Steam deal via CheapShark',
     });
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.cheapshark.com/redirect?dealID=rwQ2JCEr5NOySyBsAj6fyPuZg4qMlh9w67U%2BmM6b2VE%3D',
+    );
   });
 });
