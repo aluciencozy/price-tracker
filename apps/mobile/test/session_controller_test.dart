@@ -435,6 +435,43 @@ void main() {
     },
   );
 
+  test(
+    'pending resume check cannot block logout or overwrite the next account',
+    () async {
+      final pending = Completer<http.Response>();
+      setup((request) async {
+        if (request.url.path.endsWith('/me')) return pending.future;
+        if (request.url.path.endsWith('/logout')) return http.Response('', 204);
+        final second =
+            (jsonDecode(request.body) as Map<String, dynamic>)['email'] ==
+            'b@example.test';
+        return http.Response(
+          jsonEncode(
+            second
+                ? (sessionJson()
+                    ..['sessionId'] = 'session_B'
+                    ..['user'] = (userJson()..['id'] = 'user_B'))
+                : sessionJson(),
+          ),
+          200,
+        );
+      });
+      await controller.login('a@example.test', 'fixture');
+      final check = controller.checkSession();
+      await controller.logout();
+      expect(pending.isCompleted, isFalse);
+      expect(controller.user, isNull);
+      expect(store.value, isNull);
+      await controller.login('b@example.test', 'fixture');
+      final savedB = store.value;
+      pending.complete(http.Response(jsonEncode(userJson()), 200));
+      await check;
+      expect(controller.user!.id, 'user_B');
+      expect(controller.sessionId, 'session_B');
+      expect(store.value, savedB);
+    },
+  );
+
   test('disposed restore after delayed storage read never activates token or writes', () async {
     final store = MemorySessionStore()
       ..value = 'newer account'

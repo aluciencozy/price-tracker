@@ -12,7 +12,7 @@ class HttpTrackerRepository
   final MobileApi api;
   bool _active = true;
   int _searchVersion = 0;
-  String _search = '';
+  String? _search;
   String? _cursor;
   List<ui.Tracker> _items = [];
   final Map<String, String> _saveKeys = {};
@@ -88,7 +88,8 @@ class HttpTrackerRepository
   @override
   Future<List<ui.Tracker>> list({String search = ''}) => _call(() async {
     final version = ++_searchVersion;
-    _search = search.trim();
+    final filter = search.trim();
+    _search = filter.isEmpty ? null : filter;
     _cursor = null;
     final page = await api.list(search: _search);
     _check();

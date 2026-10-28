@@ -79,7 +79,8 @@ class _PriceTrackerAppState extends State<PriceTrackerApp> {
           store: widget.sessionStore ?? SecureSessionStore(),
         );
       }
-    } on ArgumentError {
+    } catch (error) {
+      if (error is! ArgumentError && error is! FormatException) rethrow;
       _configurationError = 'Invalid configuration. DATA_SOURCE must be sample or api; API mode requires a valid HTTPS API origin (local debug HTTP only). No sample fallback was started.';
     }
   }
