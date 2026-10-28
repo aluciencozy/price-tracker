@@ -136,6 +136,7 @@ class PushRegistration {
         _revocation = PushRevocation.unconfirmed;
       }
       if (_isCurrent(session)) {
+        if (error.reason == DeviceFailure.notFound) _binding = null;
         _retryAfterSeconds = error.retryAfterSeconds;
         _status = error.reason == DeviceFailure.offline
             ? PushStatus.offline

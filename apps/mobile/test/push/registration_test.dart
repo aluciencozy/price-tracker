@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:price_tracker/push/device_api.dart';
 import 'package:price_tracker/push/registration.dart';
 
@@ -123,6 +126,88 @@ void main() {
       expect(registration.status, PushStatus.registered);
     },
   );
+
+  test(
+    'PUT 404 forgets missing binding; only next explicit retry POSTs',
+    () async {
+      final requests = <http.Request>[];
+      const installationId = 'b36d3290-4086-4a55-98d5-783cb9f24031';
+      final client = MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'PUT') return http.Response('', 404);
+        return http.Response(
+          jsonEncode({
+            'id': requests.length == 1 ? 'device-a' : 'device-b',
+            'installationId': installationId,
+            'platform': 'android',
+            'sessionId': session!.id,
+            'createdAt': '2026-10-28T12:00:00Z',
+            'updatedAt': '2026-10-28T12:00:00Z',
+          }),
+          201,
+        );
+      });
+      addTearDown(client.close);
+      registration = PushRegistration(
+        devices: HttpDeviceEndpoint(
+          client: client,
+          baseUrl: 'https://api.example',
+          installationId: installationId,
+        ),
+        readSession: () => session,
+        gateway: gateway,
+      );
+      await registration.synchronize();
+      expect(registration.status, PushStatus.registered);
+      gateway.currentToken = 'rotated';
+      await registration.synchronize();
+      expect(registration.status, PushStatus.error);
+      expect(requests.map((r) => r.method), ['POST', 'PUT']);
+      expect(requests.last.url.path, '/api/devices/device-a');
+
+      await registration.synchronize();
+      expect(requests.map((r) => r.method), ['POST', 'PUT', 'POST']);
+      expect(jsonDecode(requests.last.body), {
+        'installationId': installationId,
+        'platform': 'android',
+        'pushToken': 'rotated',
+      });
+      expect(registration.status, PushStatus.registered);
+    },
+  );
+
+  for (final failure in [
+    DeviceFailure.offline,
+    DeviceFailure.unauthorized,
+    DeviceFailure.rejected,
+    DeviceFailure.invalidResponse,
+  ]) {
+    test(
+      'rotation $failure preserves binding and does not replay as POST',
+      () async {
+        await registration.synchronize();
+        gateway.currentToken = 'rotated';
+        devices.failure = failure;
+        await registration.synchronize();
+        expect(
+          registration.status,
+          failure == DeviceFailure.offline
+              ? PushStatus.offline
+              : PushStatus.error,
+        );
+        expect(devices.calls.length, 2);
+
+        devices.failure = null;
+        await registration.synchronize();
+        expect(devices.calls, [
+          'POST session-a fixture-token',
+          'PUT session-a device-a rotated',
+          'PUT session-a device-a rotated',
+        ]);
+        expect(registration.status, PushStatus.registered);
+      },
+    );
+  }
 
   test('offline is not registered; explicit retry recovers but uncertainty remains', () async {
     devices.failure = DeviceFailure.offline;

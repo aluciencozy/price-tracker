@@ -51,7 +51,9 @@ or raw transport errors. Keep those out of UI and analytics too.
 
 Call `synchronize()` immediately after session changes, on token rotation, and for
 explicit retry. Calls are serialized. The same token does not re-register; rotation
-uses PUT. On logout, clear the callback's session first and await synchronization
+uses PUT. A PUT 404 forgets only the missing binding; the next explicit retry uses
+POST, without automatically replaying the write. Other failures retain the binding.
+On logout, clear the callback's session first and await synchronization
 **before revoking the old API session when possible**. Local registration context
 clears immediately; a late successful registration cannot restore old-account UI.
 
@@ -112,7 +114,9 @@ event ID even if a malformed sender varies the delivery ID.
 `PushEvents.tap` deliberately does not suppress a tap just because foreground
 handling already ran. It checks the session, calls
 `readOwnedTracker(capturedSession, trackedItemId)`, and checks the session again
-after awaiting the authenticated read. Map 404 to null and 401 to
+after awaiting the authenticated read, including error paths. A result from an old
+session returns wrong-session, not an expiry/error for the newly signed-in account.
+Map 404 to null and 401 to
 `PushSessionExpired`; other errors return unavailable. Only a matching authorized
 tracker/product reaches `openTracker`. Handle deleted/foreign, expired-session,
 offline, and mismatched results with a safe current screen—not payload navigation.
@@ -155,6 +159,11 @@ authorized tap reads.
 passed without lockfile changes; format check passed (10 files, no changes),
 `flutter analyze` reported no issues, and `flutter test --reporter expanded`
 passed **53 tests** (49 new push tests plus 4 existing starter tests).
+
+**Review follow-up, same toolchain:** both stale-session error regressions and the
+missing-device rotation regression failed before the fixes. Afterward,
+`flutter test test/push --reporter expanded` passed **56 tests**, the full suite
+passed **60 tests**, analysis reported no issues, and format/diff checks passed.
 
 **Unverified:** secure-store persistence, live endpoint ownership/rebinding,
 Android builds/appearance, real permission/token acquisition, foreground/background/

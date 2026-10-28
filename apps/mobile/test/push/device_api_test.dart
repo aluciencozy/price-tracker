@@ -168,7 +168,7 @@ void main() {
     await api(client).unregister(session, 'device_example');
     await expectLater(
       api(client).update(session, 'device_example', 'token'),
-      failsWith(DeviceFailure.rejected),
+      failsWith(DeviceFailure.notFound),
     );
   });
 

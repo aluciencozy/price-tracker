@@ -291,6 +291,36 @@ void main() {
       expect(opened, isEmpty);
     });
 
+    for (final error in {
+      '401': const PushSessionExpired(),
+      'generic error': StateError('offline'),
+    }.entries) {
+      test(
+        'delayed ${error.key} after account switch belongs to old session',
+        () async {
+          final started = Completer<void>();
+          final result = Completer<AuthorizedPushTracker?>();
+          reader = (owner, id) {
+            expect(owner.id, 'session_example');
+            started.complete();
+            return result.future;
+          };
+          final tap = events.tap(payload());
+          await started.future;
+          final nextSession = PushSession(
+            id: 'session-b',
+            bearerToken: 'other-bearer',
+          );
+          session = nextSession;
+          result.completeError(error.value);
+
+          expect(await tap, PushTapResult.wrongSession);
+          expect(session, same(nextSession));
+          expect(opened, isEmpty);
+        },
+      );
+    }
+
     test(
       'mismatched authorized tracker/product cannot route from payload',
       () async {

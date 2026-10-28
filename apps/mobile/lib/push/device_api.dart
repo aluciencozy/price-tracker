@@ -36,7 +36,13 @@ class PushDevice {
   final DateTime updatedAt;
 }
 
-enum DeviceFailure { offline, unauthorized, rejected, invalidResponse }
+enum DeviceFailure {
+  offline,
+  unauthorized,
+  notFound,
+  rejected,
+  invalidResponse,
+}
 
 class DeviceApiException implements Exception {
   const DeviceApiException(this.reason, {this.retryAfterSeconds});
@@ -173,6 +179,9 @@ class HttpDeviceEndpoint implements DeviceEndpoint {
     }
     // The contract explicitly treats an absent/foreign DELETE as already removed.
     if (method == 'DELETE' && response.statusCode == 404) return response;
+    if (method == 'PUT' && response.statusCode == 404) {
+      throw const DeviceApiException(DeviceFailure.notFound);
+    }
     final expected = method == 'POST'
         ? 201
         : method == 'PUT'

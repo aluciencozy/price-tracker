@@ -172,8 +172,10 @@ class PushEvents {
     try {
       tracker = await readOwnedTracker(session, event.trackedItemId);
     } on PushSessionExpired {
+      if (readSession()?.id != session.id) return PushTapResult.wrongSession;
       return PushTapResult.sessionExpired;
     } catch (_) {
+      if (readSession()?.id != session.id) return PushTapResult.wrongSession;
       return PushTapResult.unavailable;
     }
     if (readSession()?.id != session.id) return PushTapResult.wrongSession;
