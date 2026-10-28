@@ -26,6 +26,10 @@ class SessionController extends ChangeNotifier {
   Future<void>? _clearing;
   bool _busy = false;
   bool _disposed = false;
+  bool _revocationUnconfirmed = false;
+  bool _cleanupRequired = false;
+  bool get cleanupRequired => _cleanupRequired;
+  bool get revocationUnconfirmed => _revocationUnconfirmed;
   User? get user => _user;
   String? get sessionId => _sessionId;
   // Only automatic expiry errors use this property; explicit actions throw.
@@ -40,6 +44,7 @@ class SessionController extends ChangeNotifier {
     } catch (_) {
       throw const ApiFailure('STORAGE', 'Could not read the secure session.');
     }
+    if (_disposed) return;
     if (saved == null) return;
     Session session;
     try {
@@ -56,6 +61,7 @@ class SessionController extends ChangeNotifier {
     api.setSession(session);
     try {
       final user = await api.me();
+      if (_disposed) return;
       if (user.id != session.user.id) {
         await _clear();
         throw const ApiFailure('INVALID_SESSION', 'Please sign in again.');
@@ -64,12 +70,19 @@ class SessionController extends ChangeNotifier {
     } catch (_) {
       // Network failure retains the secure record for a retry, but startup
       // does not authorize private screens until /me succeeds. A 401 clears it.
+      if (_disposed) return;
       _dropMemory(keepCredentials: true);
       rethrow;
     }
   });
 
   Future<void> login(String email, String password) => _exclusive(() async {
+    if (_cleanupRequired) {
+      throw const ApiFailure(
+        'STORAGE',
+        'Clear the previous local credentials before signing in.',
+      );
+    }
     if (_credentials != null) {
       throw const ApiFailure(
         'ALREADY_SIGNED_IN',
@@ -77,18 +90,20 @@ class SessionController extends ChangeNotifier {
       );
     }
     final session = await api.login(email, password);
+    if (_disposed) return;
     try {
       await store.write(jsonEncode(session.toJson()));
     } catch (_) {
+      if (_disposed) return;
       await _clear();
       throw const ApiFailure('STORAGE', 'Could not save the secure session.');
     }
+    if (_disposed) return;
     // Secure storage itself can take long enough for a token to expire.
     if (session.expired(_now())) {
       await _clear();
       throw const ApiFailure('SESSION_EXPIRED', 'Please sign in again.');
     }
-    if (_disposed) return;
     api.setSession(session);
     _accept(session, session.user);
   });
@@ -98,8 +113,34 @@ class SessionController extends ChangeNotifier {
     // Offline revocation still fails honestly after local sign-out completes.
     // Startup may have retained a validated credential after an offline /me.
     // It may revoke that session, but never authorizes private screens itself.
-    if (_credentials != null) api.setSession(_credentials);
-    await Future.wait([api.logout(), _clear()]);
+    if (_credentials == null) {
+      await _clear();
+      return;
+    }
+    api.setSession(_credentials);
+    Future<void> revoke() async {
+      try {
+        await api.logout();
+        _revocationUnconfirmed = false;
+      } catch (_) {
+        _revocationUnconfirmed = true;
+        rethrow;
+      }
+    }
+
+    await Future.wait([revoke(), _clear()]);
+  });
+
+  Future<void> checkSession() => _exclusive(() async {
+    if (_user == null) return;
+    final user = await api.me();
+    if (_disposed) return;
+    if (user.id != _user?.id) {
+      await _clear();
+      throw const ApiFailure('INVALID_SESSION', 'Please sign in again.');
+    }
+    _user = user;
+    _notify();
   });
 
   void _accept(Session session, User user) {
@@ -158,9 +199,12 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _clearStored() async {
+    _cleanupRequired = true;
     _dropMemory();
     try {
       await store.clear();
+      _cleanupRequired = false;
+      _notify();
     } catch (_) {
       throw const ApiFailure(
         'STORAGE',
@@ -178,6 +222,7 @@ class SessionController extends ChangeNotifier {
     try {
       final clearing = _clearing;
       if (clearing != null) await clearing;
+      if (_disposed) return;
       await action();
     } finally {
       _busy = false;

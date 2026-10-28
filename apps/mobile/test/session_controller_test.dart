@@ -14,9 +14,11 @@ class MemorySessionStore implements SessionStore {
   String? value;
   bool failRead = false, failWrite = false, failClear = false;
   Completer<void>? clearing;
+  Completer<String?>? reading;
   @override
   Future<String?> read() async {
     if (failRead) throw StateError('fixture');
+    if (reading != null) return reading!.future;
     return value;
   }
 
@@ -165,7 +167,7 @@ void main() {
       expect(store.value, isNull);
       expect(controller.user, isNull);
       expect(controller.sessionId, isNull);
-      expect(notifications, 1);
+      expect(notifications, 2);
     },
   );
 
@@ -259,6 +261,11 @@ void main() {
     await expectLater(controller.logout(), throwsA(failure('STORAGE')));
     expect(controller.user, isNull);
     expect(store.value, isNotNull);
+    expect(controller.cleanupRequired, isTrue);
+    store.failClear = false;
+    await controller.logout();
+    expect(store.value, isNull);
+    expect(controller.cleanupRequired, isFalse);
   });
 
   test(
@@ -381,6 +388,74 @@ void main() {
     await login;
     expect(notifications, 0);
     expect(controller.user, isNull);
+    await expectLater(api.me(), throwsA(failure('AUTH_REQUIRED')));
+  });
+
+  test(
+    'disposed delayed login A cannot overwrite B sharing secure storage',
+    () async {
+      final store = MemorySessionStore();
+      final pending = Completer<http.Response>();
+      final clientA = MockClient((_) => pending.future);
+      final clientB = MockClient(
+        (_) async => http.Response(
+          jsonEncode(
+            sessionJson()
+              ..['sessionId'] = 'session_B'
+              ..['accessToken'] = 'token-B'
+              ..['user'] = (userJson()..['id'] = 'user_B'),
+          ),
+          200,
+        ),
+      );
+      addTearDown(clientA.close);
+      addTearDown(clientB.close);
+      final apiA = MobileApi(
+        client: clientA,
+        baseUrl: 'https://api.example.test',
+        now: () => now,
+      );
+      final apiB = MobileApi(
+        client: clientB,
+        baseUrl: 'https://api.example.test',
+        now: () => now,
+      );
+      final a = SessionController(api: apiA, store: store, now: () => now);
+      final b = SessionController(api: apiB, store: store, now: () => now);
+      addTearDown(b.dispose);
+      final old = a.login('a@example.test', 'fixture');
+      a.dispose();
+      await b.login('b@example.test', 'fixture');
+      final savedB = store.value;
+      pending.complete(http.Response(jsonEncode(sessionJson()), 200));
+      await old;
+      expect(store.value, savedB);
+      expect(b.user!.id, 'user_B');
+      await expectLater(apiA.me(), throwsA(failure('AUTH_REQUIRED')));
+    },
+  );
+
+  test('disposed restore after delayed storage read never activates token or writes', () async {
+    final store = MemorySessionStore()
+      ..value = 'newer account'
+      ..reading = Completer<String?>();
+    final client = MockClient((_) async => throw StateError('unexpected HTTP'));
+    addTearDown(client.close);
+    final api = MobileApi(
+      client: client,
+      baseUrl: 'https://api.example.test',
+      now: () => now,
+    );
+    final controller = SessionController(
+      api: api,
+      store: store,
+      now: () => now,
+    );
+    final restore = controller.restore();
+    controller.dispose();
+    store.reading!.complete(jsonEncode(sessionJson()));
+    await restore;
+    expect(store.value, 'newer account');
     await expectLater(api.me(), throwsA(failure('AUTH_REQUIRED')));
   });
 }
