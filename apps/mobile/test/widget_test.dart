@@ -6,8 +6,45 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:price_tracker/api.dart';
 import 'package:price_tracker/main.dart';
+import 'package:price_tracker/diagnostic.dart';
+import 'package:price_tracker/sample_repository.dart';
 
 void main() {
+  testWidgets('sample only calls health after explicit diagnostic action', (
+    tester,
+  ) async {
+    var requests = 0;
+    final client = MockClient((_) async {
+      requests++;
+      return http.Response(
+        '{"status":"ok","service":"price-tracker-api","database":"connected"}',
+        200,
+      );
+    });
+    addTearDown(client.close);
+    await tester.pumpWidget(
+      PriceTrackerApp(
+        repository: SampleTrackerRepository(delay: Duration.zero),
+        api: HealthApi(client: client),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 0);
+    await tester.tap(find.byTooltip('Account and settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('API diagnostic'), 250);
+    await tester.tap(find.text('API diagnostic'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Open API diagnostic'), 150);
+    await tester.tap(find.text('Open API diagnostic'));
+    await tester.pumpAndSettle();
+    expect(requests, 0);
+    await tester.scrollUntilVisible(find.text('Check API'), 150);
+    await tester.tap(find.text('Check API'));
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    expect(find.textContaining('API is online.'), findsOneWidget);
+  });
   testWidgets(
     'starter checks shared API and distinguishes database readiness',
     (tester) async {
@@ -19,7 +56,11 @@ void main() {
       });
 
       addTearDown(client.close);
-      await tester.pumpWidget(PriceTrackerApp(api: HealthApi(client: client)));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StarterScreen(api: HealthApi(client: client)),
+        ),
+      );
 
       expect(find.textContaining('not implemented yet'), findsOneWidget);
       expect(find.text('Not checked yet.'), findsOneWidget);
@@ -57,7 +98,11 @@ void main() {
     );
 
     addTearDown(client.close);
-    await tester.pumpWidget(PriceTrackerApp(api: HealthApi(client: client)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StarterScreen(api: HealthApi(client: client)),
+      ),
+    );
 
     await tester.tap(find.text('Check API'));
     await tester.pumpAndSettle();
