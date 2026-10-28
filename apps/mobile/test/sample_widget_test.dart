@@ -66,6 +66,7 @@ void main() {
   testWidgets('search, no results, details and clearly illustrative history', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     final repo = SampleTrackerRepository(delay: Duration.zero);
     await start(tester, repo);
     await tester.enterText(find.byType(TextField), 'not a game');
@@ -82,9 +83,18 @@ void main() {
       250,
     );
     expect(find.text('Illustrative sample history'), findsOneWidget);
-    await tester.scrollUntilVisible(find.textContaining('2026-10-24'), 200);
+    await tester.scrollUntilVisible(
+      find.bySemanticsLabel(RegExp('Illustrative sample history chart')),
+      200,
+    );
+    expect(
+      find.bySemanticsLabel(RegExp('not recorded Steam history')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(find.text('2026-10-24   \$12.99 USD'), 200);
     expect(find.textContaining('\$12.99 USD'), findsOneWidget);
     expect((await repo.list()).first.targetPrice.amountMinor, 499);
+    semantics.dispose();
   });
   testWidgets(
     'URL preview then valid zero target and independent preferences save',

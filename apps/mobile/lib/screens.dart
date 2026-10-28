@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'diagnostic.dart';
+import 'history_chart.dart';
 import 'sample_repository.dart';
 import 'tracker_repository.dart';
 
@@ -737,7 +738,7 @@ class _DetailScreenState extends State<DetailScreen> {
               const Text(
                 'Invented multi-day values for layout only. Not recorded Steam history or a claim of a sale.',
               ),
-              if (history.isEmpty) const Text('No observations available.'),
+              IllustrativeHistoryChart(observations: history),
               for (final entry in history)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),

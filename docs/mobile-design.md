@@ -21,7 +21,9 @@ Android day/night launch and window styles also stay light, including Android
 ## Try the sample
 
 - Search saved games; open details; review dated source/timestamps and explicitly
-  **illustrative sample history** with readable daily USD values.
+  **illustrative sample history** with a native line plot and readable daily USD
+  values. The plot uses a zero-based price scale and chronological time spacing;
+  its screen-reader summary also identifies the values as invented.
 - Edit targets (including zero), enabled state, independent email/Android push
   preferences. Remove with confirmation, or cancel without changing anything.
 - Add: local Steam URL parsing → supported preview → target/preferences → save.
@@ -95,7 +97,7 @@ flutter analyze
 flutter test
 ```
 
-Passed: format (10 files unchanged), analyze (no issues), **21 tests**. Coverage
+Passed: format (12 files unchanged), analyze (no issues), **27 tests**. Coverage
 includes money/free/unknown, identity/URL/purchase safety, CRUD/search/preferences/
 duplicates, preview expiry, preserved success on failures, loading/errors,
 session/account previews, cancel/confirmed deletion, forced light under dark OS,
@@ -103,6 +105,11 @@ session/account previews, cancel/confirmed deletion, forced light under dark OS,
 The health test also proves it runs only after the explicit diagnostic action.
 Tests use fixtures, not Steam/CheapShark calls. Artwork was downloaded once during
 implementation, not at runtime or in CI.
+
+Chart widget tests check painted points and screen-reader labels, including
+empty, single-point, flat/zero, same-timestamp, and narrow/large-text cases. No
+chart package or animation was added; the existing dated values remain the
+readable alternative to the plot.
 
 No Android visual/build/device tests or browser review were requested here.
 Actual appearance, upstream listing availability, deployed ownership/security,
