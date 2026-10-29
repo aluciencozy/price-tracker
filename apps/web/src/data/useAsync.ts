@@ -5,15 +5,16 @@ export function useAsync<T>(load: () => Promise<T>) {
     data?: T;
     error?: unknown;
     loading: boolean;
+    load?: () => Promise<T>;
   }>({ loading: true });
   useEffect(() => {
     let active = true;
     load().then(
       (data) => {
-        if (active) setState({ data, loading: false });
+        if (active) setState({ data, loading: false, load });
       },
       (error: unknown) => {
-        if (active) setState({ error, loading: false });
+        if (active) setState({ error, loading: false, load });
       },
     );
     return () => {
@@ -21,7 +22,7 @@ export function useAsync<T>(load: () => Promise<T>) {
     };
   }, [load, attempt]);
   return {
-    ...state,
+    ...(state.load === load ? state : { loading: true }),
     retry: () => {
       setState({ loading: true });
       setAttempt((value) => value + 1);

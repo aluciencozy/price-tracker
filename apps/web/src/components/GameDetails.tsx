@@ -21,6 +21,10 @@ import {
   AlertDialogTrigger,
 } from './ui/alert-dialog';
 import { LoadError, LoadingRows, Status } from './Ui';
+import { useApiMode } from '../data/mode';
+import { isAborted } from '../client/sessionContext';
+import { RequestError } from './RequestError';
+import { useRetryWait } from '../data/useRetryWait';
 
 export function GameDetailsPage({
   repository,
@@ -66,6 +70,7 @@ export default function GameDetails({
   repository: TrackerRepository;
 }) {
   const { product } = item;
+  const api = useApiMode();
   const navigate = useNavigate();
   const mounted = useRef(true);
   useEffect(() => {
@@ -75,25 +80,26 @@ export default function GameDetails({
     };
   }, []);
   useEffect(() => {
-    document.title = `${product.title} / Price Tracker sample`;
-  }, [product.title]);
+    document.title = `${product.title} / Price Tracker${api ? '' : ' sample'}`;
+  }, [product.title, api]);
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
+  const [deleteError, setDeleteError] = useState<unknown>();
   const [confirm, setConfirm] = useState(false);
-  const purchaseUrl = steamPurchaseUrl(product);
+  const purchaseUrl = api
+    ? product.currentPrice === null
+      ? null
+      : product.purchaseUrl
+    : steamPurchaseUrl(product);
+  const wait = useRetryWait(deleteError);
   async function remove() {
+    if (deleting || wait) return;
     setDeleting(true);
-    setDeleteError('');
+    setDeleteError(undefined);
     try {
       await repository.remove(item.id);
       if (mounted.current) navigate('/watchlist');
     } catch (error) {
-      if (mounted.current)
-        setDeleteError(
-          error instanceof Error
-            ? error.message
-            : 'Removal failed. Nothing changed. Try again.',
-        );
+      if (mounted.current && !isAborted(error)) setDeleteError(error);
     } finally {
       if (mounted.current) setDeleting(false);
     }
@@ -112,7 +118,7 @@ export default function GameDetails({
           <h1 tabIndex={-1}>{product.title}</h1>
           <p>Steam base game / US / USD</p>
         </div>
-        <Badge variant="secondary">{trackerStatus(item)}</Badge>
+        <Badge variant="secondary">{trackerStatus(item, !api)}</Badge>
       </div>
       {product.lastError ? (
         <div className="mb-6">
@@ -169,7 +175,9 @@ export default function GameDetails({
         <div>
           <h2>About this price</h2>
           <p>
-            Stale recorded Steam offer from 2026-10-26 via{' '}
+            {api
+              ? `${product.freshness} Steam offer via `
+              : 'Stale recorded Steam offer from 2026-10-26 via '}
             <a
               className="text-link"
               href="https://www.cheapshark.com/"
@@ -178,8 +186,8 @@ export default function GameDetails({
             >
               CheapShark
             </a>
-            . Not a live checkout quote. Any retained purchase link is dated and
-            unconfirmed.
+            . Not a live checkout quote. Any retained purchase link is dated
+            and unconfirmed.
           </p>
           <dl>
             <div>
@@ -194,9 +202,27 @@ export default function GameDetails({
               <dt>Provider price-change time</dt>
               <dd>
                 {product.providerChangedAt ??
-                  'Not recorded in the source proof'}
+                  (api
+                    ? 'Not supplied by the provider'
+                    : 'Not recorded in the source proof')}
               </dd>
             </div>
+            {api ? (
+              <>
+                <div>
+                  <dt>Last attempt</dt>
+                  <dd>{product.lastAttemptAt ?? 'Not attempted'}</dd>
+                </div>
+                <div>
+                  <dt>Stale after</dt>
+                  <dd>{product.staleAt ?? 'No successful observation'}</dd>
+                </div>
+                <div>
+                  <dt>Next estimated check</dt>
+                  <dd>{product.nextCheckAt ?? 'Not scheduled'}</dd>
+                </div>
+              </>
+            ) : null}
           </dl>
         </div>
         <div>
@@ -212,12 +238,19 @@ export default function GameDetails({
             </div>
             <div>
               <dt>Android push</dt>
-              <dd>{item.alerts.push ? 'On / no connected device' : 'Off'}</dd>
+              <dd>
+                {item.alerts.push
+                  ? api
+                    ? 'On / Android registration required'
+                    : 'On / no connected device'
+                  : 'Off'}
+              </dd>
             </div>
           </dl>
           <p>
-            Preferences only. No sample delivery, browser push, or background
-            checks. A target edit does not change price history.
+            {api
+              ? 'Preferences only; delivery is not confirmed here. Daily checks compare a successful Steam price at or below your target. Android push requires an opted-in registered device. No browser push. A target edit creates no price history.'
+              : 'Preferences only. No sample delivery, browser push, or background checks. A target edit does not change price history.'}
           </p>
         </div>
       </div>
@@ -241,18 +274,23 @@ export default function GameDetails({
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {product.title}?</AlertDialogTitle>
               <AlertDialogDescription>
-                This removes its sample target and preferences from your
-                watchlist. You can add it again. No real account is changed.
+                {api
+                  ? 'This removes your saved tracker and cancels future unsent alerts for it. Shared history and other accounts are unchanged. Already delivered messages cannot be recalled.'
+                  : 'This removes its sample target and preferences from your watchlist. You can add it again. No real account is changed.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            {deleteError ? <Status error>{deleteError}</Status> : null}
+            {deleteError ? (
+              <Status error>
+                <RequestError error={deleteError} />
+              </Status>
+            ) : null}
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleting}>
                 Keep game
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                disabled={deleting}
+                disabled={deleting || wait > 0}
                 onClick={(event) => {
                   event.preventDefault();
                   void remove();

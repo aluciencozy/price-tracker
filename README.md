@@ -68,7 +68,17 @@ Registration, verification/resend, login/logout, forgot/reset, and account pages
 
 Expand **Development tools** in the footer for loading, empty, offline, expired-session, save-error, failed-check, missing-offer, free-price, unsupported-content and history scenarios. These are local fixtures, not provider-support claims. Account forms have their own expandable scenario controls. Choose **Normal** to leave a scenario; refresh to reset everything.
 
-Inside Development tools, expand **API connection (manual diagnostic)** and click **Check API** to test `http://127.0.0.1:4000` health. This is the only optional backend request; it never fetches prices. Vite proxies `/api` locally.
+Inside Development tools, expand **API connection (manual diagnostic)** and click **Check API** to test `http://127.0.0.1:4000` health. This is the only optional backend request in sample mode; it never fetches prices. Vite proxies `/api` locally.
+
+#### Opt-in API mode
+
+Set `VITE_DATA_SOURCE=api` in `apps/web/.env` and restart Vite (or rebuild for deployment) to connect account forms and the private watchlist to the [shared contract proposed in PR #36](https://github.com/aluciencozy/price-tracker/pull/36). The default is `sample`; invalid values show a configuration error without starting either source. API mode never uploads sample records or falls back to sample success. It uses persistent browser-managed HttpOnly cookies and CSRF protection, not JavaScript-stored JWTs.
+
+**The starter API still implements only health/readiness.** This frontend boundary does not implement those business endpoints or prove real accounts, ownership, mailbox delivery or alerts. API mode will show errors until the backend implements the agreed routes.
+
+Leave `VITE_API_BASE_URL` blank for same-origin `/api` routing. A separate API must use an approved **same-site HTTPS origin**, without `/api`, and exact credentialed CORS configuration; HTTPS alone does not make cross-site cookies work. HTTP is development-only on exact `localhost`/`127.0.0.1`. No credentials belong in public `VITE_` values.
+
+Static hosting must serve the app shell on direct `/watchlist/:id`, `/verify-email` and `/reset-password` routes. Email links hand off `#token` to memory and immediately remove it from the address bar; verification/reset require explicit POST actions and never auto-login. The app sets a no-referrer meta policy; deployed hosting should also send `Referrer-Policy: no-referrer`. See [web API wiring](docs/web-api-wiring.md) for interfaces, bounds, tests and remaining real integration work.
 
 See [the web design and repository handoff](docs/web-design.md). The existing [SVG wireframes](docs/wireframes/README.md) remain planning artifacts. `npm test --workspace @price-tracker/web` runs offline interaction/repository/purchase safety tests; it does not verify live accounts, ownership, delivery, or upstream purchase links.
 
@@ -81,6 +91,7 @@ cp apps/web/.env.example apps/web/.env
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
+| `VITE_DATA_SOURCE` | Web `.env` | `sample` (default, local-only) or `api` (real HTTP/session boundary, no sample fallback). Restart/rebuild after changing. |
 | `PORT`, `HOST` | API `.env` | Defaults to `4000`, `127.0.0.1`. |
 | `WEB_ORIGINS` | API `.env` | Comma-separated allowed web origins; localhost/127.0.0.1 port 5173 by default. |
 | `MONGODB_URI` | API `.env` | Optional for the starter health screen. Use the team's remote MongoDB URI once configured; never commit credentials. |

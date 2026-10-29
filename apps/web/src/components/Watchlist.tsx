@@ -8,15 +8,21 @@ import { Button } from './ui/button';
 import { Field, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { EmptyState, LoadError, LoadingRows } from './Ui';
+import { useApiMode } from '../data/mode';
 export default function Watchlist({
   repository,
 }: {
   repository: TrackerRepository;
 }) {
-  const load = useCallback(() => repository.list(), [repository]);
-  const { data: items, loading, error, retry } = useAsync(load);
+  const api = useApiMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') ?? '';
+  const serverQuery = api ? query : undefined;
+  const load = useCallback(
+    () => repository.list(serverQuery),
+    [repository, serverQuery],
+  );
+  const { data: items, loading, error, retry } = useAsync(load);
   function setQuery(value: string) {
     setSearchParams(value ? { q: value } : {}, { replace: true });
   }
@@ -39,36 +45,39 @@ export default function Watchlist({
           </Link>
         </Button>
       </div>
+      <div className="watchlist-toolbar">
+        <FieldGroup className="max-w-sm">
+          <Field>
+            <FieldLabel className="sr-only" htmlFor="search">
+              Search saved games
+            </FieldLabel>
+            <Input
+              id="search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search your saved games…"
+            />
+          </Field>
+        </FieldGroup>
+        <p role="status">
+          {filtered?.length ?? 0} {filtered?.length === 1 ? 'game' : 'games'}
+          {query ? ' found' : ' saved'}
+        </p>
+      </div>
       {loading ? (
         <LoadingRows />
       ) : error ? (
         <LoadError error={error} retry={retry} />
       ) : (
         <>
-          <div className="watchlist-toolbar">
-            <FieldGroup className="max-w-sm">
-              <Field>
-                <FieldLabel className="sr-only" htmlFor="search">
-                  Search saved games
-                </FieldLabel>
-                <Input
-                  id="search"
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search your saved games…"
-                />
-              </Field>
-            </FieldGroup>
-            <p role="status">
-              {filtered?.length ?? 0}{' '}
-              {filtered?.length === 1 ? 'game' : 'games'}
-              {query ? ' found' : ' saved'}
-            </p>
-          </div>
           {!items?.length ? (
             <EmptyState
-              title="Make room for your next game"
+              title={
+                query
+                  ? 'No saved games match'
+                  : 'Make room for your next game'
+              }
               description="Add a Steam link, choose your target, and keep it on your list."
             >
               <Button asChild>
@@ -92,8 +101,9 @@ export default function Watchlist({
                 ))}
               </ul>
               <p className="list-footnote">
-                Stale October 26, 2026 snapshots via CheapShark. Sample targets
-                and preferences only; no alerts are sent.
+                {api
+                  ? 'Steam US/USD offers via CheapShark. Last successful observations are retained after failed checks. Preferences do not prove alert delivery.'
+                  : 'Stale October 26, 2026 snapshots via CheapShark. Sample targets and preferences only; no alerts are sent.'}
               </p>
             </>
           )}
