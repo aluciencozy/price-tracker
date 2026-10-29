@@ -420,6 +420,71 @@ void main() {
   });
 
   testWidgets(
+    'device registration 401 ends the matching session and local push immediately',
+    (tester) async {
+      await start(
+        tester,
+        gateway: FakeGateway(),
+        handle: (request) async =>
+            request.method == 'POST' && request.url.path == '/api/devices'
+            ? response(errorJson('SESSION_REVOKED'), 401)
+            : null,
+      );
+      expect(session!.user, isNull);
+      expect(session!.sessionId, isNull);
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+      expect(
+        await dispatcher.foreground(payload()),
+        ForegroundPushResult.wrongSession,
+      );
+      expect(await dispatcher.tap(payload()), PushTapResult.wrongSession);
+    },
+  );
+
+  testWidgets(
+    'late device 401 from the old session cannot sign out a newer login',
+    (tester) async {
+      final pending = Completer<http.Response>();
+      var posts = 0;
+      await start(
+        tester,
+        gateway: FakeGateway(),
+        handle: (request) async {
+          if (request.method == 'POST' && request.url.path == '/api/devices') {
+            posts++;
+            if (posts == 1) return pending.future;
+          }
+          if (request.url.path.endsWith('/login')) {
+            return response(
+              freshSession()
+                ..['sessionId'] = 'session_B'
+                ..['accessToken'] = 'fixture-token-B'
+                ..['user'] = (userJson()..['id'] = 'user_B'),
+            );
+          }
+          return null;
+        },
+      );
+      await session!.logout();
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Email'), 'new@example.com');
+      await tester.enterText(field('Password'), 'fixture-password');
+      await tap(tester, find.widgetWithText(FilledButton, 'Sign in'));
+      await tester.pumpAndSettle();
+      expect(session!.sessionId, 'session_B');
+      pending.complete(response(errorJson('SESSION_REVOKED'), 401));
+      await tester.pumpAndSettle();
+      expect(session!.sessionId, 'session_B');
+      expect(session!.user!.id, 'user_B');
+      expect(integration!.notice, isNull);
+      expect(
+        getDeviceRequests().last.headers['Authorization'],
+        'Bearer fixture-token-B',
+      );
+    },
+  );
+
+  testWidgets(
     'logout clears event keys and uses captured old bearer for cleanup; late 401 cannot kill new login',
     (tester) async {
       final cleanup = Completer<http.Response>();

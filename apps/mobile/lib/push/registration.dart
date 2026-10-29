@@ -37,11 +37,17 @@ class PushRegistration {
     required this.devices,
     required this.readSession,
     this.gateway = const UnconfiguredPushGateway(),
+    this.onUnauthorized,
   });
 
   final DeviceEndpoint devices;
   final PushSession? Function() readSession;
   final PushPermissionGateway gateway;
+
+  /// Called after a device request is rejected with 401 for a session that is
+  /// still current. The session owner uses it to sign out that exact session;
+  /// a late 401 for a replaced session never reaches this callback.
+  final Future<void> Function(PushSession session)? onUnauthorized;
 
   PushStatus get status => _status;
   PushRevocation get revocation => _revocation;
@@ -135,12 +141,14 @@ class PushRegistration {
         _hasUnconfirmedRevocation = true;
         _revocation = PushRevocation.unconfirmed;
       }
-      if (_isCurrent(session)) {
-        if (error.reason == DeviceFailure.notFound) _binding = null;
-        _retryAfterSeconds = error.retryAfterSeconds;
-        _status = error.reason == DeviceFailure.offline
-            ? PushStatus.offline
-            : PushStatus.error;
+      if (!_isCurrent(session)) return;
+      if (error.reason == DeviceFailure.notFound) _binding = null;
+      _retryAfterSeconds = error.retryAfterSeconds;
+      _status = error.reason == DeviceFailure.offline
+          ? PushStatus.offline
+          : PushStatus.error;
+      if (error.reason == DeviceFailure.unauthorized) {
+        await _invalidateSession(session);
       }
     } catch (_) {
       if (writeAttempted) {
@@ -148,6 +156,18 @@ class PushRegistration {
         _revocation = PushRevocation.unconfirmed;
       }
       if (_isCurrent(session)) _status = PushStatus.error;
+    }
+  }
+
+  Future<void> _invalidateSession(PushSession? session) async {
+    final callback = onUnauthorized;
+    if (session == null || callback == null || !_isCurrent(session)) return;
+    try {
+      await callback(session);
+    } catch (_) {
+      // The session is already cleared in memory; a failed secure-store
+      // deletion has its own explicit retry path and must not surface here as
+      // a transport error.
     }
   }
 

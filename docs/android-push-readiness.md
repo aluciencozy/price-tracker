@@ -63,6 +63,11 @@ POST, without automatically replaying the write. Other failures retain the bindi
 On logout, clear the callback's session first and await synchronization
 **before revoking the old API session when possible**. Local registration context
 clears immediately; a late successful registration cannot restore old-account UI.
+A 401 means the captured credentials are no longer valid: `PushRegistration`
+forwards that session through `onUnauthorized`, and the session owner clears only
+that exact current session, so private screens and local push handling stop
+immediately instead of waiting for a later API request. A late 401 for a session
+replaced by sign-out or a newer login never reaches the callback.
 
 `revocation == unconfirmed` means cleanup failed or a registration response may
 have been lost/invalid. It remains sticky for this coordinator's lifetime: a later

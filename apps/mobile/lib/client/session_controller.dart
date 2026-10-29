@@ -163,6 +163,18 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  /// A native integration's captured credentials were rejected with 401.
+  /// Clear only while that exact session is still active, so a late error from
+  /// a signed-out or replaced session cannot sign out a newer account.
+  Future<void> invalidateSession(String sessionId, String accessToken) async {
+    if (_disposed ||
+        _sessionId != sessionId ||
+        _credentials?.accessToken != accessToken) {
+      return;
+    }
+    await _clear();
+  }
+
   void _accept(Session session, User user) {
     if (_disposed) return;
     _user = user;

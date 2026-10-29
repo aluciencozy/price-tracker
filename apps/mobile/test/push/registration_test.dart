@@ -228,6 +228,54 @@ void main() {
   });
 
   test(
+    '401 asks the owner to invalidate exactly the current session',
+    () async {
+      final invalidated = <String>[];
+      registration = PushRegistration(
+        devices: devices,
+        readSession: () => session,
+        gateway: gateway,
+        onUnauthorized: (rejected) async => invalidated.add(rejected.id),
+      );
+      devices.failure = DeviceFailure.unauthorized;
+      await registration.synchronize();
+      expect(devices.calls, ['POST session-a fixture-token']);
+      expect(invalidated, ['session-a']);
+      expect(registration.status, PushStatus.error);
+    },
+  );
+
+  test(
+    'late 401 for a replaced session never invalidates the new one',
+    () async {
+      final invalidated = <String>[];
+      registration = PushRegistration(
+        devices: devices,
+        readSession: () => session,
+        gateway: gateway,
+        onUnauthorized: (rejected) async => invalidated.add(rejected.id),
+      );
+      final pending = Completer<PushDevice>();
+      devices.pending = pending.future;
+      final saving = registration.synchronize();
+      await Future<void>.delayed(Duration.zero);
+      session = PushSession(id: 'session-b', bearerToken: 'other-bearer');
+      final switching = registration.synchronize();
+      devices.pending = null;
+      pending.completeError(
+        const DeviceApiException(DeviceFailure.unauthorized),
+      );
+      await Future.wait([saving, switching]);
+      expect(invalidated, isEmpty);
+      expect(devices.calls, [
+        'POST session-a fixture-token',
+        'POST session-b fixture-token',
+      ]);
+      expect(registration.status, PushStatus.registered);
+    },
+  );
+
+  test(
     'account switch clears status immediately and unregisters as old session',
     () async {
       await registration.synchronize();

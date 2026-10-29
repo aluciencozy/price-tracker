@@ -171,6 +171,25 @@ void main() {
     },
   );
 
+  test('device 401 invalidates only the session that produced it', () async {
+    setup(loginResponse);
+    await controller.login('a@example.test', 'fixture');
+    await controller.invalidateSession('session_example', 'other-token');
+    await controller.invalidateSession(
+      'session_B',
+      'illustrative-not-a-signed-jwt',
+    );
+    expect(controller.user, isNotNull);
+    expect(store.value, isNotNull);
+    await controller.invalidateSession(
+      'session_example',
+      'illustrative-not-a-signed-jwt',
+    );
+    expect(controller.user, isNull);
+    expect(controller.sessionId, isNull);
+    expect(store.value, isNull);
+  });
+
   test(
     'local expiry clears without a request or refresh endpoint call',
     () async {

@@ -57,6 +57,10 @@ class PushIntegrationController extends ChangeNotifier {
       devices: devices,
       readSession: _snapshot,
       gateway: gateway,
+      // The device adapter bypasses MobileApi, so its 401 must invalidate the
+      // captured session here instead of waiting for another API request.
+      onUnauthorized: (pushSession) =>
+          session.invalidateSession(pushSession.id, pushSession.bearerToken),
     );
     events = PushEvents(
       readSession: _snapshot,
