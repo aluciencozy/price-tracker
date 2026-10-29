@@ -144,6 +144,9 @@ export default function PriceHistory({
               ))}
             </svg>
           </div>
+          <p className="chart-scroll-hint">
+            Scroll sideways to see every day.
+          </p>
           <details className="history-table">
             <summary>View chart data</summary>
             <div className="table-scroll">

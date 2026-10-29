@@ -685,6 +685,17 @@
   overflow-x: auto;
   overscroll-behavior-inline: contain;
 }
+.chart-scroll-hint {
+  display: none;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+@media (max-width: 680px) {
+  .chart-scroll-hint {
+    display: block;
+  }
+}
 .chart-scroll:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 4px;
