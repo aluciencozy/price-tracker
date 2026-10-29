@@ -23,7 +23,7 @@ Half-Life 2 (`https://store.steampowered.com/app/220/`). Both start saved; remov
 first or choose **Account and settings → Sample developer scenarios → Empty
 watchlist** to try adding. Preferences are local, and no alerts are sent.
 
-Account screens use fixed read-only credential placeholders. Verification and
+Sample account screens use fixed read-only credential placeholders. Verification and
 password reset explain the future browser handoff: finish in the browser, return
 to Flutter, then sign in. No deep links, real sessions, or password storage.
 
@@ -36,9 +36,35 @@ For a USB-connected physical device, use `adb reverse tcp:4000 tcp:4000` then
 HTTP is permitted only for the three local debug hosts. Use an HTTPS API origin for deployed builds. `API_BASE_URL` is compiled into the app, so it must never contain secrets. Release signing and publishing are not configured; the generated release build still uses the debug key.
 
 The diagnostic reports database readiness separately. It does not fetch prices or
-save trackers. Live authentication/tracking, secure token storage, and Android
-push integration are separate work. Push controls here only preview preferences
-and an unavailable device, not permissions or delivery.
+save trackers. Push controls only save preferences; Android permission/device/event
+handling is a separate PR, not evidence of delivery.
+
+## Explicit API mode
+
+`DATA_SOURCE=sample` is the default. It initializes neither the live client nor
+credential storage. `API_BASE_URL` alone does not enable live mode. Unknown
+`DATA_SOURCE` values show a configuration error, never sample success.
+
+```sh
+flutter run --dart-define=DATA_SOURCE=api --dart-define=API_BASE_URL=http://10.0.2.2:4000
+```
+
+For a deployed API, use its HTTPS origin without `/api`. The shared contract is
+[PR #36](https://github.com/aluciencozy/price-tracker/pull/36); business routes must
+actually be implemented before real accounts/trackers work. The health-only API
+scaffold is not sufficient.
+
+API mode uses editable auth forms, platform-backed Bearer-session storage, owned
+tracker CRUD/search/pagination and recorded history. Verification/password reset
+finish through the emailed browser links; return to the app and sign in. No token
+deep links or automatic sign-in. Startup network errors offer a session retry,
+not sample fallback. Logout clears local data; an offline result cannot prove
+server revocation. See [API wiring notes](../../docs/mobile-api-wiring.md) for
+interfaces, storage failures, test coverage and remaining backend verification.
+
+Android minSdk is at least 23. Credential preferences are excluded from legacy
+backup and Android 12+ cloud/device transfer, with auto-backup disabled. These
+settings and plugin requirements were inspected, not verified by an APK/device run.
 
 Android build/device/visual checks and real FCM delivery are not verified in this
 design change. Run `dart format --output=none --set-exit-if-changed lib test`,
