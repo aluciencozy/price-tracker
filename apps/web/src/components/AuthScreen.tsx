@@ -1,170 +1,260 @@
-import React, { useState } from 'react';
-import type { Page } from '../types/Navigation';
-import { Btn, Field, Panel, Status } from './Ui';
+import { useState, type SubmitEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { MailCheck } from 'lucide-react';
+import { Button } from './ui/button';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
+import { Input } from './ui/input';
+import { NativeSelect, NativeSelectOption } from './ui/native-select';
+import { Status } from './Ui';
 
-export default function AuthScreen({
-  page,
-  navigate,
-}: {
-  page: Page;
-  navigate: (page: Page) => void;
-}) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+type AuthPage = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
+const titles = {
+  login: 'Welcome back.',
+  register: 'Make a little list.',
+  verify: 'Check your inbox.',
+  forgot: 'Forgot your password?',
+  reset: 'Choose a new password.',
+};
+const descriptions = {
+  login: 'An account-flow preview, not a real sign-in.',
+  register: 'Preview an account for your next good game.',
+  verify: 'Verification happens in the browser, before sign-in.',
+  forgot: 'Preview the email reset flow. No message will be sent.',
+  reset: 'A browser preview of the final reset step.',
+};
+export default function AuthScreen({ page }: { page: AuthPage }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [password, setPassword] = useState('sample-only');
+  const [confirmation, setConfirmation] = useState('sample-only');
   const [message, setMessage] = useState('');
-
-  function submit(event: React.SubmitEvent<HTMLFormElement>) {
-    // These forms preview the account flow; they do not create a real session.
+  const [error, setError] = useState('');
+  const [complete, setComplete] = useState(false);
+  const [scenario, setScenario] = useState('normal');
+  const needsPassword =
+    page === 'login' || page === 'register' || page === 'reset';
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if ((page === 'register' || page === 'reset') && password !== confirm) {
-      setMessage('Passwords do not match.');
+    setError('');
+    setMessage('');
+    if (scenario === 'expired') {
+      setError(
+        'Expired-link preview. Request a new link before continuing. No real token was read.',
+      );
       return;
     }
-    if ((page === 'register' || page === 'reset') && password.length < 8) {
-      setMessage('For this prototype, use at least 8 characters.');
+    if (page === 'login' && scenario === 'unverified') {
+      setError(
+        'Unverified-account preview. Verify your email before signing in.',
+      );
       return;
     }
-    if (page === 'register') {
-      setMessage('');
-      navigate('verify');
+    if (needsPassword && password.length < 8) {
+      setError(
+        'Use at least 8 characters for this sample password. Do not use a real password.',
+      );
       return;
     }
-    if (page === 'login') {
-      setMessage('');
-      navigate('watchlist');
+    if (
+      (page === 'register' || page === 'reset') &&
+      password !== confirmation
+    ) {
+      setError('The sample passwords do not match.');
       return;
     }
-    if (page === 'forgot') {
-      setMessage('Mock request accepted; no reset email was sent.');
-      return;
+    setPassword('');
+    setConfirmation('');
+    if (page === 'register') navigate('/verify');
+    else if (page === 'login')
+      navigate('/account', { state: { preview: true } });
+    else {
+      setComplete(true);
+      setMessage(
+        page === 'forgot'
+          ? 'Reset-request preview complete. A real service would respond the same way whether an account exists or not. No email was sent.'
+          : page === 'reset'
+            ? 'Password-reset preview complete. No password was saved and you are not signed in.'
+            : 'Verification-result preview: email verified. No real account was changed and you are not signed in.',
+      );
     }
-    if (page === 'reset') {
-      setMessage('Mock reset completed; no password was changed.');
-      return;
-    }
-    setMessage('Mock verification completed; no token was checked.');
   }
-
-  const title: Record<string, string> = {
-    login: 'Sign in',
-    register: 'Create account',
-    verify: 'Verify email',
-    forgot: 'Forgot password',
-    reset: 'Reset password',
-  };
   return (
-    <main className="mx-auto max-w-lg px-4 py-10 sm:py-16">
-      <h1 className="mb-3 text-3xl font-bold">{title[page]}</h1>
-      <div className="mb-6">
-        <Status>
-          Frontend preview only. Registration, email delivery, verification, and
-          sessions are not connected to a backend.
-        </Status>
+    <section className="auth-page" aria-labelledby="auth-title">
+      <div className="auth-intro">
+        <h1 id="auth-title" tabIndex={-1}>
+          {titles[page]}
+        </h1>
+        <p>{descriptions[page]}</p>
       </div>
-      <Panel title={title[page] ?? 'Sign in'}>
-        <form key={page} onSubmit={submit} className="space-y-4">
-          {(page === 'login' || page === 'register' || page === 'forgot') && (
-            <Field
-              label="Email"
-              type="email"
-              value={email}
-              onChange={setEmail}
-              placeholder="you@example.com"
-            />
-          )}
-          {(page === 'login' || page === 'register' || page === 'reset') && (
-            <Field
-              label={page === 'reset' ? 'New password' : 'Password'}
-              type="password"
-              value={password}
-              onChange={setPassword}
-            />
-          )}
-          {(page === 'register' || page === 'reset') && (
-            <Field
-              label="Confirm password"
-              type="password"
-              value={confirm}
-              onChange={setConfirm}
-            />
-          )}
-          {page === 'verify' && (
-            <Field
-              label="Verification code"
-              value={confirm}
-              onChange={setConfirm}
-              placeholder="Example: 123456"
-            />
-          )}
-          {message && (
-            <Status
-              tone={
-                message.startsWith('Passwords') || message.startsWith('For')
-                  ? 'error'
-                  : 'info'
-              }
-            >
-              {message}
+      <div className="auth-surface">
+        <p className="auth-disclosure">
+          Sample fields only. Don’t enter real credentials. Nothing is stored or
+          transmitted.
+        </p>
+        {location.state?.signedOut ? (
+          <div className="mb-5">
+            <Status>
+              Signed-out preview. There was no real session to end.
             </Status>
-          )}
-          <Btn type="submit">
-            {page === 'login'
-              ? 'Preview sign-in'
-              : page === 'register'
-                ? 'Continue to verification'
-                : page === 'verify'
-                  ? 'Preview verification'
-                  : page === 'forgot'
-                    ? 'Request reset (mock)'
-                    : 'Reset password (mock)'}
-          </Btn>
-        </form>
-        <div className="mt-6 flex flex-wrap gap-3 text-sm">
-          {page !== 'login' && (
-            <button
-              className="text-teal-300 underline"
-              onClick={() => navigate('login')}
-            >
-              Back to sign in
-            </button>
-          )}
-          {page === 'login' && (
+          </div>
+        ) : null}
+        {page === 'verify' ? (
+          <div className="verify-intro">
+            <MailCheck aria-hidden="true" />
+            <p>
+              In the connected service, a verification link would go to your
+              email. Open it in this browser, verify, then sign in. Android
+              users return to the app to sign in.
+            </p>
+          </div>
+        ) : null}
+        {!complete ? (
+          <form onSubmit={submit}>
+            <FieldGroup>
+              {page !== 'verify' && page !== 'reset' ? (
+                <Field>
+                  <FieldLabel htmlFor="sample-email">Sample email</FieldLabel>
+                  <Input
+                    id="sample-email"
+                    type="email"
+                    value="player@example.test"
+                    readOnly
+                    autoComplete="off"
+                  />
+                  <FieldDescription>
+                    Fixed example address; no mailbox is used.
+                  </FieldDescription>
+                </Field>
+              ) : null}
+              {needsPassword ? (
+                <Field data-invalid={Boolean(error)}>
+                  <FieldLabel htmlFor="sample-password">
+                    {page === 'reset'
+                      ? 'New sample password'
+                      : 'Sample password'}
+                  </FieldLabel>
+                  <Input
+                    id="sample-password"
+                    type="password"
+                    autoComplete="off"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby="password-help"
+                  />
+                  <FieldDescription id="password-help">
+                    Use made-up text only, at least 8 characters.
+                  </FieldDescription>
+                </Field>
+              ) : null}
+              {page === 'register' || page === 'reset' ? (
+                <Field data-invalid={Boolean(error)}>
+                  <FieldLabel htmlFor="sample-confirm">
+                    Confirm sample password
+                  </FieldLabel>
+                  <Input
+                    id="sample-confirm"
+                    type="password"
+                    autoComplete="off"
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                    aria-invalid={Boolean(error)}
+                  />
+                </Field>
+              ) : null}
+              {error ? (
+                <Status error>
+                  {error}
+                  {scenario === 'unverified' ? (
+                    <Link to="/verify" className="text-link">
+                      Preview email verification
+                    </Link>
+                  ) : scenario === 'expired' ? (
+                    <Link
+                      to={page === 'verify' ? '/register' : '/forgot'}
+                      className="text-link"
+                    >
+                      Request a new link (preview)
+                    </Link>
+                  ) : null}
+                </Status>
+              ) : null}
+              <Button type="submit">
+                {page === 'login'
+                  ? 'Preview sign in'
+                  : page === 'register'
+                    ? 'Preview registration'
+                    : page === 'verify'
+                      ? 'Preview successful verification'
+                      : page === 'forgot'
+                        ? 'Preview reset request'
+                        : 'Preview password reset'}
+              </Button>
+            </FieldGroup>
+          </form>
+        ) : null}
+        {message ? (
+          <div className="mt-5">
+            <Status>{message}</Status>
+          </div>
+        ) : null}
+        {page === 'verify' && !complete ? (
+          <Button
+            className="mt-3"
+            variant="outline"
+            onClick={() =>
+              setMessage('Resend preview only. No verification email was sent.')
+            }
+          >
+            Preview resend email
+          </Button>
+        ) : null}
+        <div className="auth-links">
+          {page === 'login' ? (
             <>
-              <button
-                className="text-teal-300 underline"
-                onClick={() => navigate('register')}
-              >
-                Create account
-              </button>
-              <button
-                className="text-teal-300 underline"
-                onClick={() => navigate('forgot')}
-              >
-                Forgot password?
-              </button>
+              <Link to="/forgot">Forgot password?</Link>
+              <Link to="/register">Preview registration</Link>
             </>
+          ) : page === 'forgot' && complete ? (
+            <Link to="/reset">Preview reset screen</Link>
+          ) : (
+            <Link to="/login">Back to sign in</Link>
           )}
-          {page === 'forgot' && (
-            <button
-              className="text-teal-300 underline"
-              onClick={() => navigate('reset')}
-            >
-              Preview reset page
-            </button>
-          )}
-          {page === 'verify' && (
-            <button
-              className="text-teal-300 underline"
-              onClick={() =>
-                setMessage('Mock resend selected; no email was sent.')
-              }
-            >
-              Resend code (mock)
-            </button>
-          )}
+          <Link to="/watchlist">Try sample without signing in</Link>
         </div>
-      </Panel>
-    </main>
+      </div>
+      <details className="auth-scenarios">
+        <summary>Account preview scenarios</summary>
+        <FieldGroup className="mt-4">
+          <Field>
+            <FieldLabel htmlFor="auth-scenario">Account scenario</FieldLabel>
+            <NativeSelect
+              id="auth-scenario"
+              value={scenario}
+              onChange={(event) => {
+                setScenario(event.target.value);
+                setError('');
+                setComplete(false);
+                setMessage('');
+                setPassword('sample-only');
+                setConfirmation('sample-only');
+              }}
+            >
+              <NativeSelectOption value="normal">Normal</NativeSelectOption>
+              {page === 'login' ? (
+                <NativeSelectOption value="unverified">
+                  Unverified account
+                </NativeSelectOption>
+              ) : null}
+              {page === 'verify' || page === 'reset' ? (
+                <NativeSelectOption value="expired">
+                  Expired link
+                </NativeSelectOption>
+              ) : null}
+            </NativeSelect>
+          </Field>
+        </FieldGroup>
+      </details>
+    </section>
   );
 }

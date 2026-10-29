@@ -1,151 +1,114 @@
-import type { SteamGame } from '../types/SteamGame';
-import type { UiState } from '../types/Navigation';
-import GameSearch from './GameSearch';
-import { Btn, LoadingRows } from './Ui';
-
-type WatchlistProps = {
-  games: SteamGame[];
-  onRemove: (appId: number) => void;
-  onViewDetails: (game: SteamGame) => void;
-  onEdit: (game: SteamGame) => void;
-  onAdd: () => void;
-  targets: Record<number, number>;
-  query: string;
-  onSearch: (input: string) => void;
-  previewState: UiState;
-};
-
+import { useCallback } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import type { TrackerRepository } from '../data/types';
+import { useAsync } from '../data/useAsync';
+import GameCard from './GameCard';
+import { Button } from './ui/button';
+import { Field, FieldGroup, FieldLabel } from './ui/field';
+import { Input } from './ui/input';
+import { EmptyState, LoadError, LoadingRows } from './Ui';
+import { useApiMode } from '../data/mode';
 export default function Watchlist({
-  games,
-  onRemove,
-  onViewDetails,
-  onEdit,
-  onAdd,
-  targets,
-  query,
-  onSearch,
-  previewState,
-}: WatchlistProps) {
+  repository,
+}: {
+  repository: TrackerRepository;
+}) {
+  const api = useApiMode();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get('q') ?? '';
+  const serverQuery = api ? query : undefined;
+  const load = useCallback(
+    () => repository.list(serverQuery),
+    [repository, serverQuery],
+  );
+  const { data: items, loading, error, retry } = useAsync(load);
+  function setQuery(value: string) {
+    setSearchParams(value ? { q: value } : {}, { replace: true });
+  }
+  const filtered = items?.filter((item) =>
+    item.product.title.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   return (
-    <section
-      className="rounded-xl border border-slate-700 bg-slate-900/80 p-4 shadow-sm sm:p-6"
-      aria-labelledby="watchlist-title"
-    >
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 id="watchlist-title" className="text-xl font-bold text-white">
-          My Watchlist
-        </h2>
-        <span className="text-sm text-slate-400">
-          {games.length} {games.length === 1 ? 'game' : 'games'} shown
-        </span>
-      </div>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="w-full max-w-sm">
-          <GameSearch query={query} onSearch={onSearch} />
+    <>
+      <div className="page-heading">
+        <div>
+          <h1 tabIndex={-1}>
+            Your watchlist<span className="title-period">.</span>
+          </h1>
+          <p>A place for games worth waiting for.</p>
         </div>
-        <Btn onClick={onAdd}>+ Add tracker</Btn>
+        <Button asChild>
+          <Link to="/add">
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            Add game
+          </Link>
+        </Button>
       </div>
-      {previewState === 'loading' ? (
+      <div className="watchlist-toolbar">
+        <FieldGroup className="max-w-sm">
+          <Field>
+            <FieldLabel className="sr-only" htmlFor="search">
+              Search saved games
+            </FieldLabel>
+            <Input
+              id="search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search your saved games…"
+            />
+          </Field>
+        </FieldGroup>
+        <p role="status">
+          {filtered?.length ?? 0} {filtered?.length === 1 ? 'game' : 'games'}
+          {query ? ' found' : ' saved'}
+        </p>
+      </div>
+      {loading ? (
         <LoadingRows />
-      ) : games.length === 0 || previewState === 'empty' ? (
-        <div className="rounded-lg border border-dashed border-slate-600 p-8 text-center text-slate-400">
-          <p className="mb-3">
-            {query
-              ? 'No tracked games match your search.'
-              : "You aren't tracking any games yet."}
-          </p>
-          <Btn onClick={onAdd}>Add your first tracker</Btn>
-          <p className="mt-3 text-sm">
-            Or choose Track Game from the example catalog below.
-          </p>
-        </div>
+      ) : error ? (
+        <LoadError error={error} retry={retry} />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
-            <caption className="sr-only">
-              Selected example games and sample USD prices
-            </caption>
-            <thead className="bg-slate-800 text-slate-300">
-              <tr>
-                {[
-                  'Steam game',
-                  'Current offer',
-                  'Target',
-                  'Status',
-                  'Actions',
-                ].map((label) => (
-                  <th key={label} scope="col" className="p-3">
-                    {label}
-                  </th>
+        <>
+          {!items?.length ? (
+            <EmptyState
+              title={
+                query
+                  ? 'No saved games match'
+                  : 'Make room for your next game'
+              }
+              description="Add a Steam link, choose your target, and keep it on your list."
+            >
+              <Button asChild>
+                <Link to="/add">Add your first game</Link>
+              </Button>
+            </EmptyState>
+          ) : !filtered?.length ? (
+            <EmptyState
+              title="No saved games match"
+              description={`Nothing on your list matches “${query}”. Try another title.`}
+            >
+              <Button variant="outline" onClick={() => setQuery('')}>
+                Clear search
+              </Button>
+            </EmptyState>
+          ) : (
+            <>
+              <ul className="game-list" aria-label="Saved games">
+                {filtered.map((item) => (
+                  <GameCard key={item.id} item={item} />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {games.map((game) => (
-                <tr key={game.appId} className="border-b border-slate-700">
-                  <th scope="row" className="p-3 font-semibold">
-                    {game.name}
-                    <div className="text-xs font-normal text-slate-400">
-                      App {game.appId} · Example base game
-                    </div>
-                  </th>
-                  <td className="p-3">
-                    {previewState === 'unavailable' ||
-                    game.currentPrice === null
-                      ? 'Price unavailable'
-                      : `$${game.currentPrice.toFixed(2)}`}
-                  </td>
-                  <td className="p-3">
-                    {targets[game.appId] === undefined
-                      ? 'Not set'
-                      : `$${((targets[game.appId] ?? 0) / 100).toFixed(2)}`}
-                  </td>
-                  <td className="p-3">
-                    {previewState === 'unavailable' ||
-                    game.currentPrice === null
-                      ? 'Steam offer missing'
-                      : targets[game.appId] === undefined
-                        ? 'Set a target'
-                        : Math.round(game.currentPrice * 100) <=
-                            (targets[game.appId] ?? 0)
-                          ? 'Target reached (sample)'
-                          : 'Waiting for drop (sample)'}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex gap-3">
-                      <button
-                        className="text-teal-300 underline"
-                        aria-label={`Details for ${game.name}`}
-                        onClick={() => onViewDetails(game)}
-                      >
-                        Details
-                      </button>
-                      <button
-                        className="text-teal-300 underline"
-                        aria-label={`Edit ${game.name}`}
-                        onClick={() => onEdit(game)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="text-rose-300 underline"
-                        aria-label={`Remove ${game.name} from watchlist`}
-                        onClick={() => onRemove(game.appId)}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </ul>
+              <p className="list-footnote">
+                {api
+                  ? 'Steam US/USD offers via CheapShark. Last successful observations are retained after failed checks. Preferences do not prove alert delivery.'
+                  : 'Stale October 26, 2026 snapshots via CheapShark. Sample targets and preferences only; no alerts are sent.'}
+              </p>
+            </>
+          )}
+        </>
       )}
-      <p className="mt-4 text-xs text-slate-400">
-        Session preview · example prices are not live; selections and targets
-        are not saved.
-      </p>
-    </section>
+    </>
   );
 }

@@ -1,24 +1,29 @@
-import type { SteamGame } from './types/SteamGame';
+import type { Product } from './data/types';
 
-// Build a human navigation link only. Never fetch the purchase redirect.
-export function steamPurchaseUrl(game: SteamGame): string | null {
-  const offer = game.steamOffer;
+// Human navigation only. Never fetch or prefetch the purchase redirect.
+export function steamPurchaseUrl(product: Product): string | null {
   if (
-    game.currentPrice === null ||
-    !offer ||
-    offer.storeId !== '1' ||
-    offer.steamAppId !== game.appId ||
-    offer.currency !== 'USD' ||
-    game.currency !== 'USD'
+    product.currentPrice === null ||
+    !Number.isSafeInteger(product.currentPrice.amountMinor) ||
+    product.currentPrice.amountMinor < 0 ||
+    product.currentPrice.currency !== 'USD' ||
+    product.identity.provider !== 'cheapshark' ||
+    product.identity.storeId !== '1' ||
+    product.identity.market !== 'US' ||
+    product.identity.currency !== 'USD' ||
+    product.storeName !== 'Steam' ||
+    !/^[1-9]\d*$/.test(product.steamAppId) ||
+    product.canonicalSteamUrl !==
+      `https://store.steampowered.com/app/${product.steamAppId}/` ||
+    !product.dealId
   )
     return null;
-
   try {
-    // CheapShark can return percent-encoded IDs. Decode once before URLSearchParams encodes them.
-    const dealId = decodeURIComponent(offer.dealId).trim();
-    if (!dealId) return null;
+    // Preserve the raw/percent-encoded CheapShark regression: encode exactly once.
+    const id = decodeURIComponent(product.dealId).trim();
+    if (!id) return null;
     const url = new URL('https://www.cheapshark.com/redirect');
-    url.searchParams.set('dealID', dealId);
+    url.searchParams.set('dealID', id);
     return url.toString();
   } catch {
     return null;
