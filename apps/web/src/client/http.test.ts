@@ -122,6 +122,27 @@ describe('bounded JSON HTTP transport', () => {
     expect(await pending).toEqual({ items: [], page });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+  it('re-checks the shared cooldown before retrying a GET that is already backing off', async () => {
+    vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0);
+    const { request, fetch } = setup();
+    fetch.mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(json(error('RATE_LIMITED', 60), 429, { 'Retry-After': '60' }));
+    const backingOff = request('GET', '/tracked-items', 200, trackedItems);
+    const assertion = expect(backingOff).rejects.toMatchObject({
+      kind: 'http', message: 'The API asked us to wait before another request.',
+      details: { status: 429, code: 'RATE_LIMITED', retryAfterSeconds: 60 },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(request('GET', '/tracked-items', 200, trackedItems)).rejects.toMatchObject({
+      kind: 'http', details: { status: 429, code: 'RATE_LIMITED', retryAfterSeconds: 60 },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('never retries POST/PATCH/DELETE after a network failure', async () => {
     const { request, fetch } = setup();
     fetch.mockRejectedValue(new TypeError('offline'));

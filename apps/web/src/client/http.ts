@@ -135,12 +135,13 @@ export function createHttp(options: HttpOptions) {
     parse: (value: unknown) => T, options: HttpRequestOptions = {},
   ): Promise<T> {
     if (options.signal?.aborted) throw cancelled();
-    if (Date.now() < notBefore) {
-      throw new ClientError('http', 'The API asked us to wait before another request.', {
-        status: 429, code: 'RATE_LIMITED', retryAfterSeconds: Math.min(Number.MAX_SAFE_INTEGER, Math.ceil((notBefore - Date.now()) / 1000)),
-      });
-    }
     for (let retry = 0; ; retry++) {
+      // Another request may have set the shared cooldown while this one was backing off.
+      if (Date.now() < notBefore) {
+        throw new ClientError('http', 'The API asked us to wait before another request.', {
+          status: 429, code: 'RATE_LIMITED', retryAfterSeconds: Math.min(Number.MAX_SAFE_INTEGER, Math.ceil((notBefore - Date.now()) / 1000)),
+        });
+      }
       try { return await attempt(method, path, expectedStatus, parse, options); }
       catch (error) {
         if (!(error instanceof ClientError)) throw error;
