@@ -32,6 +32,10 @@ class SessionController extends ChangeNotifier {
   bool get revocationUnconfirmed => _revocationUnconfirmed;
   User? get user => _user;
   String? get sessionId => _sessionId;
+
+  /// Verified active credentials for native integrations, never for rendering.
+  /// A captured snapshot may only clean up resources belonging to that session.
+  Session? get activeSession => _user == null ? null : _credentials;
   // Only automatic expiry errors use this property; explicit actions throw.
   ApiFailure? _expiryFailure;
   ApiFailure? get expiryFailure => _expiryFailure;
@@ -157,6 +161,18 @@ class SessionController extends ChangeNotifier {
       }
       rethrow;
     }
+  }
+
+  /// A native integration's captured credentials were rejected with 401.
+  /// Clear only while that exact session is still active, so a late error from
+  /// a signed-out or replaced session cannot sign out a newer account.
+  Future<void> invalidateSession(String sessionId, String accessToken) async {
+    if (_disposed ||
+        _sessionId != sessionId ||
+        _credentials?.accessToken != accessToken) {
+      return;
+    }
+    await _clear();
   }
 
   void _accept(Session session, User user) {

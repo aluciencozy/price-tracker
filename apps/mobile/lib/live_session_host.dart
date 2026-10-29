@@ -7,6 +7,7 @@ import 'client/mobile_api.dart';
 import 'client/session_controller.dart';
 import 'live_account.dart';
 import 'request_feedback.dart';
+import 'push/integration.dart';
 import 'screens.dart';
 
 class LiveSessionHost extends StatefulWidget {
@@ -185,9 +186,12 @@ class _LiveSessionHostState extends State<LiveSessionHost>
           : Navigator(
               key: ValueKey(_epoch),
               onGenerateRoute: (_) => MaterialPageRoute<void>(
-                builder: (_) => WatchlistScreen(
+                builder: (_) => PushTrackerNavigation(
                   repository: _repository!,
-                  api: widget.healthApi,
+                  child: WatchlistScreen(
+                    repository: _repository!,
+                    api: widget.healthApi,
+                  ),
                 ),
               ),
             ),
