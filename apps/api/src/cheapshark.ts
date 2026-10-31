@@ -62,8 +62,8 @@ export type SteamOffer = {
 const attribution =
   'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
 
-/** Parse the submitted Steam URL locally. This function never requests Steam. */
-export function parseSteamUrl(input: string) {
+/** Parse a Steam /app/ URL locally. This function never requests Steam. */
+function parseSteamUrlLocally(input: string) {
   let url: URL;
 
   try {
@@ -90,16 +90,34 @@ export function parseSteamUrl(input: string) {
 
   const match = /^\/app\/([1-9]\d{0,31})(?:\/[^/]+)?\/?$/.exec(url.pathname);
   const steamAppId = match?.[1];
-  const title = steamAppId ? CONFIRMED_GAMES.get(steamAppId) : undefined;
-
-  if (!steamAppId || !title) {
-    throw new Error('This Steam game is not in the confirmed supported-game list.');
+  if (!steamAppId) {
+    throw new Error('Use an individual Steam /app/<id>/ game URL.');
   }
 
   return {
     steamAppId,
-    title,
     canonicalSteamUrl: `https://store.steampowered.com/app/${steamAppId}/`,
+  };
+}
+
+/** Extract a syntactically valid app ID for an approved-catalog database lookup. */
+export function parseSteamAppIdFromUrl(input: string): string {
+  return parseSteamUrlLocally(input).steamAppId;
+}
+
+/** Parse a URL and require that the app ID is in the initial confirmed catalog. */
+export function parseSteamUrl(input: string) {
+  const parsed = parseSteamUrlLocally(input);
+  const title = CONFIRMED_GAMES.get(parsed.steamAppId);
+
+  if (!title) {
+    throw new Error('This Steam game is not in the confirmed supported-game list.');
+  }
+
+  return {
+    steamAppId: parsed.steamAppId,
+    title,
+    canonicalSteamUrl: parsed.canonicalSteamUrl,
   };
 }
 
