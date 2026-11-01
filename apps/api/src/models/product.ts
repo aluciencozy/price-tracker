@@ -16,7 +16,11 @@ type ProductRecord = {
   lastSuccessfulCheckAt: Date | null;
   providerChangedAt: Date | null;
   nextCheckAt: Date | null;
+  lastAttemptAt: Date | null;
   lastError: string | null;
+  consecutiveFailures: number;
+  refreshLeaseUntil: Date | null;
+  refreshLeaseToken: string | null;
 };
 
 /** Shared game/store offer record. User targets belong in a separate tracker model. */
@@ -37,7 +41,11 @@ const productSchema = new Schema<ProductRecord>(
     lastSuccessfulCheckAt: { type: Date, default: null },
     providerChangedAt: { type: Date, default: null },
     nextCheckAt: { type: Date, default: null },
+    lastAttemptAt: { type: Date, default: null },
     lastError: { type: String, default: null, maxlength: 500 },
+    consecutiveFailures: { type: Number, default: 0, min: 0 },
+    refreshLeaseUntil: { type: Date, default: null },
+    refreshLeaseToken: { type: String, default: null },
   },
   { timestamps: true, versionKey: false },
 );

@@ -1,10 +1,16 @@
 import { z } from 'zod';
+import {
+  ProviderRateLimitError,
+  withCheapSharkRequestBudget,
+} from './providerBudget.js';
 
 const API_ORIGIN = 'https://www.cheapshark.com';
 const USER_AGENT =
   'PriceTracker-COP4331C/0.1 (nickwesterfeld@gmail.com; +https://github.com/aluciencozy/price-tracker)';
 const STEAM_STORE_ID = '1';
 const MAX_RESPONSE_BYTES = 1_000_000;
+const REQUEST_TIMEOUT_MS = 10_000;
+const LOOKUP_TIMEOUT_MS = 30_000;
 
 // These are the only confirmed base games from issue #3. Expand this list only
 // after the same exact-match/current-Steam-offer checks have been completed.
@@ -142,73 +148,82 @@ export function usdToCents(price: string): number {
   return Number(cents);
 }
 
-async function requestJson(path: string): Promise<unknown> {
+async function requestJson(path: string, deadline: number): Promise<unknown> {
   // Callers construct paths only from validated numeric provider IDs.
   const url = new URL(path, API_ORIGIN);
   if (url.origin !== API_ORIGIN || !url.pathname.startsWith('/api/1.0/games')) {
     throw new Error('Invalid CheapShark endpoint.');
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    throw new Error('CheapShark could not be reached or the request timed out.');
-  }
-
-  if (response.status === 429) {
-    const retryAfter = response.headers.get('retry-after');
-    await response.body?.cancel();
-    throw new Error(`CheapShark rate limited the request (Retry-After: ${retryAfter ?? 'unknown'}).`);
-  }
-
-  if (response.status < 200 || response.status >= 300) {
-    await response.body?.cancel();
-    throw new Error('CheapShark returned an unsuccessful response.');
-  }
-
-  const contentLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new Error('CheapShark response exceeded the size limit.');
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('CheapShark returned an empty response.');
-
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error('CheapShark response exceeded the size limit.');
-      }
-      chunks.push(value);
+  return withCheapSharkRequestBudget(deadline, async () => {
+    let response: Response;
+    try {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error('Request deadline expired.');
+      response = await fetch(url, {
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
+      });
+    } catch {
+      throw new Error('CheapShark could not be reached or the request timed out.');
     }
-  } finally {
-    reader.releaseLock();
-  }
 
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('retry-after');
+      await response.body?.cancel();
+      throw new ProviderRateLimitError(null, retryAfter);
+    }
 
-  try {
-    return JSON.parse(new TextDecoder().decode(body)) as unknown;
-  } catch {
-    throw new Error('CheapShark returned invalid JSON.');
-  }
+    if (response.status < 200 || response.status >= 300) {
+      await response.body?.cancel();
+      throw new Error('CheapShark returned an unsuccessful response.');
+    }
+
+    if (!/application\/json/i.test(response.headers.get('content-type') ?? '')) {
+      await response.body?.cancel();
+      throw new Error('CheapShark returned an unexpected content type.');
+    }
+
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+      await response.body?.cancel();
+      throw new Error('CheapShark response exceeded the size limit.');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('CheapShark returned an empty response.');
+
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new Error('CheapShark response exceeded the size limit.');
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const body = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    try {
+      return JSON.parse(new TextDecoder().decode(body)) as unknown;
+    } catch {
+      throw new Error('CheapShark returned invalid JSON.');
+    }
+  });
 }
 
 function purchaseUrl(dealId: string): string {
@@ -229,9 +244,11 @@ function purchaseUrl(dealId: string): string {
 /** Resolve a Steam URL to its current Steam offer through CheapShark. */
 export async function lookupSteamOffer(input: string): Promise<SteamOffer> {
   const game = parseSteamUrl(input);
+  const deadline = Date.now() + LOOKUP_TIMEOUT_MS;
 
   const rawMatches = await requestJson(
     `/api/1.0/games?steamAppID=${encodeURIComponent(game.steamAppId)}`,
+    deadline,
   );
   const matchesResult = z.array(lookupMatchSchema).safeParse(rawMatches);
   if (!matchesResult.success) {
@@ -248,6 +265,7 @@ export async function lookupSteamOffer(input: string): Promise<SteamOffer> {
   const providerGameId = matches[0]!.gameID;
   const rawDetails = await requestJson(
     `/api/1.0/games?id=${encodeURIComponent(providerGameId)}`,
+    deadline,
   );
   const detailsResult = detailsSchema.safeParse(rawDetails);
   if (!detailsResult.success) {
