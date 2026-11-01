@@ -141,6 +141,8 @@ All outbound pricing requests go to fixed CheapShark API endpoints, not the subm
 
 To reproduce the live check explicitly, run `node scripts/verify-cheapshark.mjs`. It paces four requests, stops on 429, and is **not part of CI**. Do not fetch purchase redirects from the server: the provider documents that `/redirect` blocks automated access and is for human clicks only.
 
+To make one real lookup through the application adapter, put a working `MONGODB_URI` in `apps/api/.env` and run `npm run verify:cheapshark-adapter --workspace @price-tracker/api` from the repository root. It uses the shared MongoDB request budget, makes the two fixed Portal 2 API requests, prints the normalized result, and disconnects. This is an explicit live check; routine tests stay offline. It creates no price-history observation and never requests the purchase redirect.
+
 ### Real-price presentation
 
 Use a real supported game. First check with a target below its reported price, then raise the target above that same real price and run an admin check. Show email and Android push, repeat the check, and show that no duplicate alert is sent. This demonstrates qualification and deduplication—not a claimed new sale. No training store, fabricated price, or live mock provider is required; test fixtures remain for automated tests only.
