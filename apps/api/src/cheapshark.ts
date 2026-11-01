@@ -1,3 +1,7 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
+import type { IncomingMessage } from 'node:http';
+import { isIP } from 'node:net';
+import https from 'node:https';
 import { z } from 'zod';
 import {
   ProviderRateLimitError,
@@ -11,6 +15,24 @@ const STEAM_STORE_ID = '1';
 const MAX_RESPONSE_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOOKUP_TIMEOUT_MS = 30_000;
+
+const BLOCKED_IPV4_CIDRS: Array<[string, number]> = [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.0.2.0', 24],
+  ['192.88.99.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['198.51.100.0', 24],
+  ['203.0.113.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+];
 
 // These are the only confirmed base games from issue #3. Expand this list only
 // after the same exact-match/current-Steam-offer checks have been completed.
@@ -36,6 +58,7 @@ const detailsSchema = z.object({
       price: z.string().max(32),
       retailPrice: z.string().max(32).optional(),
       dealID: z.string().min(1).max(256),
+      currency: z.literal('USD').optional(),
     }),
   ),
 });
@@ -148,6 +171,172 @@ export function usdToCents(price: string): number {
   return Number(cents);
 }
 
+function ipv4Number(address: string): number | null {
+  if (isIP(address) !== 4) return null;
+  const octets = address.split('.').map(Number);
+  return octets.reduce((value, octet) => value * 256 + octet, 0);
+}
+
+function inIpv4Cidr(address: number, network: string, prefix: number): boolean {
+  const networkNumber = ipv4Number(network);
+  if (networkNumber === null) return true;
+  const mask = prefix === 0 ? 0 : (0xffff_ffff << (32 - prefix)) >>> 0;
+  return ((address & mask) >>> 0) === ((networkNumber & mask) >>> 0);
+}
+
+function ipv6Groups(address: string): number[] | null {
+  if (isIP(address) !== 6 || address.includes('%')) return null;
+
+  let normalized = address.toLowerCase();
+  if (normalized.includes('.')) {
+    const lastColon = normalized.lastIndexOf(':');
+    const embeddedIpv4 = ipv4Number(normalized.slice(lastColon + 1));
+    if (embeddedIpv4 === null) return null;
+    const high = Math.floor(embeddedIpv4 / 0x1_0000).toString(16);
+    const low = (embeddedIpv4 % 0x1_0000).toString(16);
+    normalized = `${normalized.slice(0, lastColon + 1)}${high}:${low}`;
+  }
+
+  const halves = normalized.split('::');
+  if (halves.length > 2) return null;
+
+  const parseHalf = (half: string): number[] | null => {
+    if (!half) return [];
+    const groups = half.split(':');
+    if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
+    return groups.map((group) => Number.parseInt(group, 16));
+  };
+
+  const left = parseHalf(halves[0]!);
+  const right = parseHalf(halves[1] ?? '');
+  if (!left || !right) return null;
+
+  if (halves.length === 1) {
+    return left.length === 8 ? left : null;
+  }
+
+  const zeroGroups = 8 - left.length - right.length;
+  if (zeroGroups < 1) return null;
+  return [...left, ...Array.from({ length: zeroGroups }, () => 0), ...right];
+}
+
+function isPublicAddress(address: string): boolean {
+  const family = isIP(address);
+
+  if (family === 4) {
+    const numericAddress = ipv4Number(address);
+    return numericAddress !== null && !BLOCKED_IPV4_CIDRS.some(
+      ([network, prefix]) => inIpv4Cidr(numericAddress, network, prefix),
+    );
+  }
+
+  if (family !== 6) return false;
+  const groups = ipv6Groups(address);
+  if (!groups) return false;
+
+  // Permit only global-unicast IPv6, excluding documentation and transition
+  // ranges that can carry or represent non-public IPv4 destinations.
+  const globalUnicast = groups[0]! >= 0x2000 && groups[0]! <= 0x3fff;
+  const documentation =
+    (groups[0] === 0x2001 && groups[1] === 0x0db8) ||
+    (groups[0] === 0x3fff && (groups[1]! & 0xf000) === 0);
+  const transitionOrSpecial =
+    (groups[0] === 0x2001 && groups[1]! <= 0x01ff) ||
+    groups[0] === 0x2002 ||
+    (groups[0] === 0x2001 && groups[1]! >= 0x0010 && groups[1]! <= 0x002f) ||
+    (groups[0] === 0x2001 && groups[1] === 0x0002 && groups[2] === 0);
+
+  return globalUnicast && !documentation && !transitionOrSpecial;
+}
+
+const safeCheapSharkLookup: NonNullable<https.RequestOptions['lookup']> = (
+  hostname,
+  options,
+  callback,
+) => {
+  if (hostname.toLowerCase() !== 'www.cheapshark.com') {
+    const error = Object.assign(new Error('Blocked outbound hostname.'), { code: 'EACCES' });
+    callback(error, '', 0);
+    return;
+  }
+
+  void dnsLookup(hostname, { all: true, verbatim: true }).then(
+    (addresses) => {
+      if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
+        const error = Object.assign(new Error('Blocked non-public DNS destination.'), { code: 'EACCES' });
+        callback(error, '', 0);
+        return;
+      }
+
+      const requestedFamily = typeof options === 'number' ? options : options.family;
+      const candidates = requestedFamily
+        ? addresses.filter(({ family }) => family === requestedFamily)
+        : addresses;
+      if (!candidates.length) {
+        const error = Object.assign(new Error('No safe DNS address for the requested family.'), { code: 'EAI_ADDRFAMILY' });
+        callback(error, '', 0);
+        return;
+      }
+
+      if (typeof options === 'object' && options.all) {
+        callback(null, candidates);
+      } else {
+        const selected = candidates[0]!;
+        callback(null, selected.address, selected.family);
+      }
+    },
+    () => {
+      const error = Object.assign(new Error('CheapShark DNS lookup failed.'), { code: 'EAI_AGAIN' });
+      callback(error, '', 0);
+    },
+  );
+};
+
+async function readJsonResponse(response: IncomingMessage): Promise<unknown> {
+  if (response.statusCode === 429) {
+    const retryAfter = response.headers['retry-after'];
+    response.destroy();
+    throw new ProviderRateLimitError(
+      null,
+      Array.isArray(retryAfter) ? retryAfter[0] ?? null : retryAfter ?? null,
+    );
+  }
+
+  if (response.statusCode === undefined || response.statusCode < 200 || response.statusCode >= 300) {
+    response.destroy();
+    throw new Error('CheapShark returned an unsuccessful response.');
+  }
+
+  if (!/application\/json/i.test(response.headers['content-type'] ?? '')) {
+    response.destroy();
+    throw new Error('CheapShark returned an unexpected content type.');
+  }
+
+  const contentLength = Number(response.headers['content-length']);
+  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+    response.destroy();
+    throw new Error('CheapShark response exceeded the size limit.');
+  }
+
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      response.destroy();
+      throw new Error('CheapShark response exceeded the size limit.');
+    }
+    chunks.push(buffer);
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString('utf8')) as unknown;
+  } catch {
+    throw new Error('CheapShark returned invalid JSON.');
+  }
+}
+
 async function requestJson(path: string, deadline: number): Promise<unknown> {
   // Callers construct paths only from validated numeric provider IDs.
   const url = new URL(path, API_ORIGIN);
@@ -156,73 +345,41 @@ async function requestJson(path: string, deadline: number): Promise<unknown> {
   }
 
   return withCheapSharkRequestBudget(deadline, async () => {
-    let response: Response;
-    try {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error('Request deadline expired.');
-      response = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-        redirect: 'manual',
-        signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
-      });
-    } catch {
-      throw new Error('CheapShark could not be reached or the request timed out.');
-    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('CheapShark lookup deadline expired.');
 
-    if (response.status === 429) {
-      const retryAfter = response.headers.get('retry-after');
-      await response.body?.cancel();
-      throw new ProviderRateLimitError(null, retryAfter);
-    }
+    return new Promise<unknown>((resolve, reject) => {
+      const timeoutMs = Math.min(REQUEST_TIMEOUT_MS, remaining);
+      let responseReceived = false;
+      const request = https.request(
+        url,
+        {
+          method: 'GET',
+          headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+          agent: false,
+          servername: url.hostname,
+          lookup: safeCheapSharkLookup,
+        },
+        (response) => {
+          responseReceived = true;
+          void readJsonResponse(response).then(resolve, reject).finally(() => clearTimeout(timer));
+        },
+      );
 
-    if (response.status < 200 || response.status >= 300) {
-      await response.body?.cancel();
-      throw new Error('CheapShark returned an unsuccessful response.');
-    }
+      const timer = setTimeout(() => {
+        request.destroy(new Error('CheapShark request timed out.'));
+      }, timeoutMs);
+      timer.unref();
 
-    if (!/application\/json/i.test(response.headers.get('content-type') ?? '')) {
-      await response.body?.cancel();
-      throw new Error('CheapShark returned an unexpected content type.');
-    }
-
-    const contentLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-      await response.body?.cancel();
-      throw new Error('CheapShark response exceeded the size limit.');
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('CheapShark returned an empty response.');
-
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > MAX_RESPONSE_BYTES) {
-          await reader.cancel();
-          throw new Error('CheapShark response exceeded the size limit.');
+      request.once('error', () => {
+        clearTimeout(timer);
+        if (!responseReceived) {
+          reject(new Error('CheapShark could not be reached, DNS validation failed, or the request timed out.'));
         }
-        chunks.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
+      });
 
-    const body = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      body.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-
-    try {
-      return JSON.parse(new TextDecoder().decode(body)) as unknown;
-    } catch {
-      throw new Error('CheapShark returned invalid JSON.');
-    }
+      request.end();
+    });
   });
 }
 
