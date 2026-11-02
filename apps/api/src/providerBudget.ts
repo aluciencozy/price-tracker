@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ProviderBudgetModel } from './models/providerBudget.js';
 
@@ -46,6 +47,7 @@ async function ensureBudgetRecord(): Promise<void> {
       {
         $setOnInsert: {
           leaseUntil: EPOCH,
+          leaseToken: null,
           nextRequestAt: EPOCH,
           cooldownUntil: EPOCH,
           rateLimitCount: 0,
@@ -61,12 +63,13 @@ async function ensureBudgetRecord(): Promise<void> {
   }
 }
 
-async function acquireRequestSlot(deadline: number): Promise<void> {
+async function acquireRequestSlot(deadline: number): Promise<string> {
   await ensureBudgetRecord();
 
   while (Date.now() < deadline) {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + REQUEST_LEASE_MS);
+    const leaseToken = randomUUID();
     const lease = await ProviderBudgetModel.findOneAndUpdate(
       {
         _id: PROVIDER_KEY,
@@ -74,13 +77,13 @@ async function acquireRequestSlot(deadline: number): Promise<void> {
         nextRequestAt: { $lte: now },
         cooldownUntil: { $lte: now },
       },
-      { $set: { leaseUntil } },
+      { $set: { leaseUntil, leaseToken } },
       { new: true },
     )
       .lean()
       .exec();
 
-    if (lease) return;
+    if (lease) return leaseToken;
 
     const budget = await ProviderBudgetModel.findById(PROVIDER_KEY).lean().exec();
     if (!budget) {
@@ -103,21 +106,22 @@ async function acquireRequestSlot(deadline: number): Promise<void> {
   throw new ProviderDeferredError(new Date(Date.now() + 1_000));
 }
 
-async function releaseRequestSlot(success: boolean): Promise<void> {
+async function releaseRequestSlot(success: boolean, leaseToken: string): Promise<void> {
   const now = new Date();
   await ProviderBudgetModel.updateOne(
-    { _id: PROVIDER_KEY },
+    { _id: PROVIDER_KEY, leaseToken },
     {
       $set: {
         leaseUntil: EPOCH,
-        nextRequestAt: new Date(now.getTime() + MIN_REQUEST_INTERVAL_MS),
+        leaseToken: null,
         ...(success ? { rateLimitCount: 0 } : {}),
       },
+      $max: { nextRequestAt: new Date(now.getTime() + MIN_REQUEST_INTERVAL_MS) },
     },
   ).exec();
 }
 
-async function recordRateLimit(retryAfter: string | null): Promise<Date> {
+async function recordRateLimit(retryAfter: string | null, leaseToken: string): Promise<Date> {
   const now = Date.now();
   const state = await ProviderBudgetModel.findOneAndUpdate(
     { _id: PROVIDER_KEY },
@@ -144,9 +148,12 @@ async function recordRateLimit(retryAfter: string | null): Promise<Date> {
     { _id: PROVIDER_KEY },
     {
       $max: { cooldownUntil: retryAt, nextRequestAt: retryAt },
-      $set: { leaseUntil: EPOCH },
     },
   ).exec();
+
+  // A late 429 still extends the shared cooldown, but must not clear a newer
+  // worker's lease. Release only the slot owned by this request.
+  await releaseRequestSlot(false, leaseToken);
 
   return retryAt;
 }
@@ -156,19 +163,19 @@ export async function withCheapSharkRequestBudget<T>(
   deadline: number,
   request: () => Promise<T>,
 ): Promise<T> {
-  await acquireRequestSlot(deadline);
+  const leaseToken = await acquireRequestSlot(deadline);
 
   try {
     const result = await request();
-    await releaseRequestSlot(true);
+    await releaseRequestSlot(true, leaseToken);
     return result;
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {
-      const retryAt = await recordRateLimit(error.retryAfterHeader);
+      const retryAt = await recordRateLimit(error.retryAfterHeader, leaseToken);
       throw new ProviderRateLimitError(retryAt, error.retryAfterHeader, { cause: error });
     }
 
-    await releaseRequestSlot(false);
+    await releaseRequestSlot(false, leaseToken);
     throw error;
   }
 }

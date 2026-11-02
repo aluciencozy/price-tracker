@@ -75,7 +75,10 @@ export async function refreshSteamProductById(
   let product = await ProductModel.findById(productId).lean().exec();
   if (!product) throw new Error('The approved Steam product was not found.');
 
-  if (!options.force && hasFreshPrice(product)) return product;
+  if (!options.force) {
+    deferFailedCheck(product);
+    if (hasFreshPrice(product)) return product;
+  }
 
   const now = new Date();
   const leaseToken = randomUUID();
@@ -102,10 +105,22 @@ export async function refreshSteamProductById(
 
   if (!leased) {
     product = await ProductModel.findById(productId).lean().exec();
-    if (product && !options.force && hasFreshPrice(product)) return product;
+    if (product && !options.force) {
+      deferFailedCheck(product);
+      if (hasFreshPrice(product)) return product;
+    }
 
     const retryAt = product?.refreshLeaseUntil ?? new Date(Date.now() + 1_000);
     throw new ProviderDeferredError(retryAt);
+  }
+
+  // A concurrent failure may have scheduled a retry before we got the lease.
+  // Releasing this unused claim is not another failed provider attempt.
+  try {
+    if (!options.force) deferFailedCheck(leased);
+  } catch (error) {
+    await releaseProductLease(product._id, leaseToken);
+    throw error;
   }
 
   try {
@@ -189,14 +204,25 @@ export async function refreshSteamProductById(
 function hasFreshPrice(product: {
   currentPriceMinor: number | null;
   lastSuccessfulCheckAt: Date | null;
-  nextCheckAt: Date | null;
+  lastError: string | null;
 }): boolean {
-  return product.currentPriceMinor !== null &&
+  return product.lastError === null &&
+    product.currentPriceMinor !== null &&
     Number.isSafeInteger(product.currentPriceMinor) &&
     product.currentPriceMinor >= 0 &&
     product.lastSuccessfulCheckAt !== null &&
-    product.nextCheckAt !== null &&
-    product.nextCheckAt.getTime() > Date.now();
+    product.lastSuccessfulCheckAt.getTime() + SUCCESS_CACHE_TTL_MS > Date.now();
+}
+
+function deferFailedCheck(product: {
+  lastError: string | null;
+  nextCheckAt: Date | null;
+}): void {
+  // Retry scheduling applies even before the first successful observation.
+  // It is separate from freshness: a retry time cannot renew an old price.
+  if (product.lastError && product.nextCheckAt && product.nextCheckAt.getTime() > Date.now()) {
+    throw new ProviderDeferredError(product.nextCheckAt);
+  }
 }
 
 function retryTime(error: unknown, failureCount: number): Date {
