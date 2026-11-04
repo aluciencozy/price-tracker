@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify:cheapshark-adapter": "tsx scripts/verify-cheapshark-adapter.ts",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "db:indexes": "tsx src/databaseSetupCli.ts indexes",
+    "db:seed": "tsx src/databaseSetupCli.ts seed",
+    "db:verify": "tsx src/databaseSetupCli.ts verify"
   },
   "dependencies": {
     "cors": "^2.8.5",
