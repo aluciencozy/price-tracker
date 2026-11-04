@@ -4,10 +4,12 @@ import { Resend } from "resend";
 const apiKey = process.env.RESEND_SEND_API_KEY;
 if (!apiKey) throw new Error("RESEND_SEND_API_KEY is not set");
 
+const resend = new Resend(apiKey);
+
 const fullAPIKey = process.env.RESEND_FULL_ACCESS_API_KEY;
 if(!fullAPIKey) throw new Error("RESEND_FULL_ACCESS_API_KEY is not set");
 
-const resend = new Resend(apiKey);
+
 const fullResend = new Resend(fullAPIKey)
 
 export async function testEmail(): Promise<string> {
