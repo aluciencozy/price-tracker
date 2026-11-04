@@ -50,11 +50,16 @@ do not label it passed merely because the local run passed.
 The first GitHub run (41894577067) used `ubuntu-latest`, which resolved to Ubuntu
 26.04, and failed because the MongoDB container exited before tests started.
 Flutter passed. The initial workflow did not preserve the container's logs, so
-the exact server crash is not established by that run. The Node job now pins
-Ubuntu 24.04 and always captures container state/logs before cleanup. This avoids
-an implicit runner OS migration and preserves evidence for any future startup
-failure. The rerun must verify the correction; the previous local results remain
-local evidence only.
+the exact server crash was not established by that run. Adding container logs and
+trying Ubuntu 24.04 exposed fatal MongoDB ID 12257600: its kernel-version guard
+rejects the hosted runner's newer kernel before tests can start.
+
+The Node job now pins **Ubuntu 22.04**, the temporary workaround recommended in
+[GitHub runner-images #15005](https://github.com/actions/runner-images/issues/15005).
+That upstream report reproduces the same issue on 24.04 and 26.04 and links the
+MongoDB kernel-detection fix. We do not bypass the MongoDB guard or change Atlas.
+The workflow always captures container state/logs before cleanup. The new run
+must verify this correction; the previous local results remain local evidence only.
 
 ## Acceptance still outstanding
 

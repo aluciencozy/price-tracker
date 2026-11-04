@@ -9,8 +9,9 @@ permissions:
 
 jobs:
   node:
-    # Keep the MongoDB test host stable instead of following ubuntu-latest.
-    runs-on: ubuntu-24.04
+    # MongoDB 8.0's kernel check rejects current 24.04/26.04 hosted runners.
+    # GitHub recommends 22.04 pending the upstream fix: runner-images#15005.
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
