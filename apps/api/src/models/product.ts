@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 
-type ProductRecord = {
+export type ProductRecord = {
   provider: 'cheapshark';
   providerGameId: string;
   steamAppId: string;
