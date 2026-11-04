@@ -9,7 +9,8 @@ permissions:
 
 jobs:
   node:
-    runs-on: ubuntu-latest
+    # Keep the MongoDB test host stable instead of following ubuntu-latest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +46,10 @@ jobs:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27028/?directConnection=true
       - name: Remove disposable MongoDB
         if: always()
-        run: docker rm --force price-tracker-test-db || true
+        run: |
+          docker inspect --format '{{.State.Status}} (exit {{.State.ExitCode}})' price-tracker-test-db || true
+          docker logs --tail 120 price-tracker-test-db || true
+          docker rm --force price-tracker-test-db || true
 
   flutter:
     runs-on: ubuntu-latest

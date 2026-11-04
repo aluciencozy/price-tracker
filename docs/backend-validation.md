@@ -47,6 +47,15 @@ The local combined suite passed against the same replica-set topology. A GitHub
 CI run must still confirm the workflow in its actual Linux runner environment;
 do not label it passed merely because the local run passed.
 
+The first GitHub run (41894577067) used `ubuntu-latest`, which resolved to Ubuntu
+26.04, and failed because the MongoDB container exited before tests started.
+Flutter passed. The initial workflow did not preserve the container's logs, so
+the exact server crash is not established by that run. The Node job now pins
+Ubuntu 24.04 and always captures container state/logs before cleanup. This avoids
+an implicit runner OS migration and preserves evidence for any future startup
+failure. The rerun must verify the correction; the previous local results remain
+local evidence only.
+
 ## Acceptance still outstanding
 
 - Verified-before-login, reset, JWT/cookie revocation, CSRF/auth ambiguity and full
