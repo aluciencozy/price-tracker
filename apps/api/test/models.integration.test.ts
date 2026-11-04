@@ -5,6 +5,8 @@ import { createDatabaseIndexes } from '../src/models/index.js';
 import { UserModel, AuthTokenModel } from '../src/models/account.js';
 import { TrackedItemModel, PriceHistoryModel, NotificationDeliveryModel } from '../src/models/tracking.js';
 import { DeviceModel } from '../src/models/device.js';
+import { ProductModel } from '../src/models/product.js';
+import { seedCatalog, verifyTransactions } from '../src/databaseSetup.js';
 
 // Only an explicit test URI enables these tests. A fresh isolated database is
 // selected regardless of the URI's path; no production database is ever dropped.
@@ -63,5 +65,20 @@ describe.skipIf(!uri)('MongoDB indexes and persistence', () => {
     expect(indexes.find(index => index.key.expiresAt === 1)?.expireAfterSeconds).toBe(0);
     const historyIndexes = await PriceHistoryModel.collection.indexes();
     expect(historyIndexes.find(index => index.key.observedAt === 1 && index.expireAfterSeconds)?.expireAfterSeconds).toBe(90 * 86400);
+  });
+  it('seeds metadata repeatably without fabricating or overwriting live observations', async () => {
+    await seedCatalog();
+    expect(await ProductModel.countDocuments()).toBe(2);
+    const portal = await ProductModel.findOne({ steamAppId: '620' }).orFail();
+    expect(portal.currentPriceMinor).toBeNull();
+    expect(portal.lastSuccessfulCheckAt).toBeNull();
+    await ProductModel.updateOne({ _id: portal._id }, { $set: { currentPriceMinor: 500 } });
+    await seedCatalog();
+    expect(await ProductModel.countDocuments()).toBe(2);
+    expect((await ProductModel.findById(portal._id))?.currentPriceMinor).toBe(500);
+  });
+  it('proves transaction rollback and commit, then removes only its own probe', async () => {
+    await verifyTransactions();
+    expect(await mongoose.connection.db!.collection('infrastructureprobes').countDocuments()).toBe(0);
   });
 });
