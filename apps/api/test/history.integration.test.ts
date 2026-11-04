@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { readFileSync } from 'node:fs';
-import Ajv2020 from 'ajv/dist/2020.js';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { createDatabaseIndexes } from '../src/models/index.js';
 import { ProductModel } from '../src/models/product.js';
@@ -139,7 +139,7 @@ describe.skipIf(!uri)('successful observation history and owned reads', () => {
     const contract = JSON.parse(readFileSync(new URL('../../../docs/api/openapi.json', import.meta.url), 'utf8'));
     const definitions = JSON.parse(JSON.stringify(contract.components.schemas).replaceAll('#/components/schemas/', '#/$defs/'));
     const ajv = new Ajv2020({ strict: true, strictTypes: false });
-    addFormats(ajv);
+    addFormats.default(ajv);
     const validate = ajv.compile({ $defs: definitions, $ref: '#/$defs/History' });
     await recordObservation(productId, 'contract', 'worker', offer(), now);
     const result = await read(String(owner), trackerId, {}, new Date(now.getTime() + 1));
