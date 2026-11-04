@@ -10,9 +10,9 @@ export async function sendVerificationEmail(
   recipient: string,
   verificationUrl: string,
 ): Promise<string> {
-  const templateId = process.env.RESEND_VERIFICATION_TEMPLATE_ID;
+  const templateId = process.env.TEMPLATE_VERIFICATION_EMAIL_ID;
   if (!templateId) {
-    throw new Error("RESEND_VERIFICATION_TEMPLATE_ID is not set");
+    throw new Error("TEMPLATE_VERIFICATION_EMAIL_ID is not set");
   }
 
   const { data, error } = await resend.emails.send({
