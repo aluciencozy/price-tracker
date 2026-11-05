@@ -45,14 +45,29 @@ export const requireAuth = async (
 
         const token = authHeader.split(' ')[1];
 
-        let payload: any;
+        let payload: jwt.JwtPayload;
+        
         try {
-            payload = jwt.verify(token, JWT_SECRET, {
+            const verified = jwt.verify(token, JWT_SECRET, {
                 algorithms: ['HS256'],
                 issuer: JWT_ISSUER,
                 audience: JWT_AUDIENCE
             });
-        } catch (err) {
+        
+            if (
+                typeof verified === 'string' ||
+                typeof verified.sub !== 'string' ||
+                typeof verified.ver !== 'number'
+            ) {
+                return sendError(
+                    res,
+                    401,
+                    'INVALID_TOKEN',
+                    'Access token is invalid or expired.'
+                );
+            }
+            payload = verified;
+        }catch {
             return sendError(
                 res,
                 401,
@@ -88,7 +103,7 @@ export const requireAuth = async (
         };
 
         next();
-    } catch (error) {
+    } catch {
         return sendError(
             res,
             500,
