@@ -1,4 +1,4 @@
-import {validationEmailTemplate} from "../src/testTemplateMail.js"
+import { validationEmailTemplate } from "../src/testTemplateMail.js";
 
 const templateId = await validationEmailTemplate();
-console.log("Save this template ID in API configuration:", templateId);
+console.log("Save this verification template ID in API configuration:", templateId);

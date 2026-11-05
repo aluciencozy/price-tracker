@@ -1,24 +1,16 @@
 import "dotenv/config";
-import { Resend } from "resend";
-import {testEmail} from "../src/testTemplateMail.js";
-import { sendVerificationEmail, sendPasswordReset} from "../src/emails.js";
-import {passwordResetTemplate} from "../src/testTemplateMail.js";
+import { sendPriceAlert } from "../src/emails.js";
 
-const apiKey = process.env.RESEND_SEND_API_KEY;
-if (!apiKey) throw new Error("RESEND_SEND_API_KEY is not set");
+const recipient = "nickwesterfeld@gmail.com";
 
-const resend = new Resend(apiKey);
-/*
-const templateId = await passwordResetTemplate();
-console.log("Password reset template ID:", templateId);
-*/
+const messageId = await sendPriceAlert(recipient, {
+  // The title marks this as a test message; the amounts are sample values.
+  gameTitle: "Portal 2 [TEST ONLY]",
+  currentPriceCents: 999,
+  targetPriceCents: 999,
+  // Previously returned by CheapShark for Portal 2; this test does not fetch it.
+  purchaseUrl:
+    "https://www.cheapshark.com/redirect?dealID=rwQ2JCEr5NOySyBsAj6fyPuZg4qMlh9w67U%2BmM6b2VE%3D",
+});
 
-await sendPasswordReset(
-  "nickwesterfeld@gmail.com",
-  "https://webcourses.ucf.edu"
-)
-
-/*await sendVerificationEmail(
-  "nickwesterfeld@gmail.com",
-  "https://www.youtube.com/watch?v=r9X4BQkCqUw",
-);*/
+console.log("Price alert test email accepted by Resend. Message ID:", messageId);

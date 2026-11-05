@@ -96,3 +96,32 @@ export async function passwordResetTemplate( ): Promise<string>{
     return data.id;
 }
 
+export async function priceAlertTemplate(): Promise<string> {
+  const { data, error } = await fullResend.templates.create({
+    name: "price-alert",
+    subject: "{{{GAME_TITLE}}} on Steam is on sale!",
+    html: [
+      "<p>The latest successful check found <strong>{{{GAME_TITLE}}}</strong> on Steam at {{{CURRENT_PRICE}}}.</p>",
+      "<p>That qualifies for your target of {{{TARGET_PRICE}}}.</p>",
+      '<p><a href="{{{PURCHASE_URL}}}">View the Steam offer</a></p>',
+    ].join(""),
+    text: "The latest successful check found {{{GAME_TITLE}}} on Steam at {{{CURRENT_PRICE}}}. This qualifies for your target of {{{TARGET_PRICE}}}. View the Steam offer: {{{PURCHASE_URL}}}",
+    variables: [
+      { key: "GAME_TITLE", type: "string" },
+      { key: "CURRENT_PRICE", type: "string" },
+      { key: "TARGET_PRICE", type: "string" },
+      { key: "PURCHASE_URL", type: "string" },
+    ],
+  });
+
+  if (error) throw new Error(`Could not create template: ${error.message}`);
+  if (!data) throw new Error("Resend did not return a template.");
+
+  const { error: publishError } = await fullResend.templates.publish(data.id);
+  if (publishError) {
+    throw new Error(`Could not publish template: ${publishError.message}`);
+  }
+
+  return data.id;
+}
+
