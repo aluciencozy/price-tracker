@@ -1,13 +1,13 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { DeviceModel } from './models/device.js';
+import { DeviceModel, installationIdSchema } from './models/device.js';
 import { SessionModel, UserModel } from './models/account.js';
 
 export type MobilePrincipal = { userId: string; sessionId: string };
 export class DeviceError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
 }
-const bodySchema = z.object({ installationId: z.uuid(), platform: z.literal('android'), pushToken: z.string().min(1).max(4096) }).strict();
+const bodySchema = z.object({ installationId: installationIdSchema, platform: z.literal('android'), pushToken: z.string().min(1).max(4096) }).strict();
 const id = /^[a-f0-9]{24}$/;
 function parseBody(body: unknown) {
   const parsed = bodySchema.safeParse(body);

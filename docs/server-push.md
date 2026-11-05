@@ -14,6 +14,8 @@ default identity; the health-only starter does not mount these routes automatica
 
 The service independently checks verified user state and an active, unexpired
 mobile Session. Bodies accept exactly `{installationId,platform:"android",pushToken}`.
+Request and database validation share the same UUID parser, including UUIDv7.
+Installation UUIDs normalize to lowercase before lookup, rotation and rebinding.
 POST returns 201; full PUT rotation 200; bodyless DELETE 204. Public Device has
 only id, installationId, platform, sessionId, createdAt and updatedAt. Tokens and
 foreign identities never appear in public responses or sanitized error envelopes.
