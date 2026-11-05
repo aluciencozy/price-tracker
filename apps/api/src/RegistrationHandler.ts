@@ -1,9 +1,9 @@
 
 import { Request, Response } from 'express';
 import { randomBytes, createHash, scrypt } from 'node:crypto';
-import { UserModel, AuthTokenModel } from '../models/account.js';
-import { sendError } from '../helpers/response.js';
-import type { DeliveryOutcome } from '../emails.js';
+import { UserModel, AuthTokenModel } from './models/account.js';
+import { sendError } from './helpers/response.js';
+import type { DeliveryOutcome } from './emails.js';
 
 type SendVerificationEmail = (details: {
     email: string;
