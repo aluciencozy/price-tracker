@@ -1,9 +1,13 @@
 import mongoose, { Schema } from 'mongoose';
+import { z } from 'zod';
+
+// Use this same UUID parser at the request boundary and in persistence.
+export const installationIdSchema = z.uuid().transform(value => value.toLowerCase());
 
 const deviceSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   sessionId: { type: Schema.Types.ObjectId, ref: 'Session', required: true },
-  installationId: { type: String, required: true, match: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i },
+  installationId: { type: String, required: true, lowercase: true, validate: (value: string) => installationIdSchema.safeParse(value).success },
   platform: { type: String, enum: ['android'], required: true },
   pushToken: { type: String, required: true, maxlength: 4096, select: false },
   active: { type: Boolean, required: true, default: true },

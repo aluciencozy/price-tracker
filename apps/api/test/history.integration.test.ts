@@ -62,6 +62,13 @@ describe.skipIf(!uri)('successful observation history and owned reads', () => {
     expect(await PriceHistoryModel.countDocuments()).toBe(0);
     expect((await ProductModel.findById(productId))?.currentPriceMinor).toBeNull();
   });
+  it('records encoded provider deal IDs without double-encoding their purchase links', async () => {
+    const encoded = { ...offer(), dealId: 'fixture%2Bencoded%3D', purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=fixture%2Bencoded%3D' };
+    const observation = await recordObservation(productId, 'encoded', 'worker', encoded, now);
+    expect(observation.dealId).toBe(encoded.dealId);
+    expect((await ProductModel.findById(productId))?.purchaseUrl).toBe(encoded.purchaseUrl);
+    expect(await PriceHistoryModel.countDocuments()).toBe(1);
+  });
   it('rejects stale, future, malformed, wrong-store and missing prices', async () => {
     const invalid = [
       offer(0.1), offer(-1), offer(Number.MAX_SAFE_INTEGER + 1),
