@@ -1,7 +1,6 @@
 
 import { Request, Response } from 'express';
 import {
-    createHmac,
     timingSafeEqual,
     scrypt
 } from 'node:crypto';
@@ -211,7 +210,7 @@ export const LoginHandler = () => {
                 expiresIn: 900
             });
 
-        } catch (error: unknown) {
+        } catch {
 
             console.error('Login failed');
 
