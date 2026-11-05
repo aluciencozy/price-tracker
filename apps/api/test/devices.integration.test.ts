@@ -50,6 +50,20 @@ describe.skipIf(!uri)('owned Android device bindings', () => {
     await deactivateInvalidDevice(first.id, principal.sessionId, 'rotated-fixture');
     expect((await DeviceModel.findById(first.id))?.active).toBe(false);
   });
+  it('registers UUIDv7 and treats UUID letter case as the same installation during rotation and account switching', async () => {
+    const input = { ...body(), installationId: '019A50A0-0000-7000-8000-000000000001' };
+    const first = await registerDevice(principal, input);
+    expect(first.installationId).toBe(input.installationId.toLowerCase());
+    const again = await registerDevice(principal, { ...input, installationId: input.installationId.toLowerCase() });
+    expect(again.id).toBe(first.id);
+    const rotatedInput = { ...input, pushToken: 'rotated-uuid-fixture' };
+    expect((await updateDevice(principal, first.id, rotatedInput)).id).toBe(first.id);
+    const rebound = await registerDevice(another, { ...rotatedInput, installationId: input.installationId.toLowerCase() });
+    expect(rebound.id).toBe(first.id);
+    expect(await eligiblePushDevices(principal.userId)).toHaveLength(0);
+    expect(await eligiblePushDevices(another.userId)).toHaveLength(1);
+    expect(await DeviceModel.countDocuments()).toBe(1);
+  });
   it('rebinds the same installation/token to the new signed-in account and removes old eligibility', async () => {
     const input = body();
     const first = await registerDevice(principal, input);
