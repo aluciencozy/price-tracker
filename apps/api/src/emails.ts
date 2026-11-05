@@ -12,6 +12,10 @@ export type DeliveryOutcome =
   | { status: "permanent_failure"; code: string; attempts: number }
   | { status: "unknown"; code: string; attempts: number };
 
+function permanentFailure(code: string): DeliveryOutcome {
+  return { status: "permanent_failure", code, attempts: 0 };
+}
+
 type EmailPayload = Parameters<typeof resend.emails.send>[0];
 type EmailResponse = Awaited<ReturnType<typeof resend.emails.send>>;
 export type EmailSender = (
@@ -118,10 +122,16 @@ export async function sendVerificationEmail(
   verificationUrl: string,
   idempotencyKey: string,
 ): Promise<DeliveryOutcome> {
-  requireHttpsUrl(verificationUrl, "Verification URL");
+  if (!recipient.trim()) return permanentFailure("recipient_required");
+  try {
+    requireHttpsUrl(verificationUrl, "Verification URL");
+  } catch {
+    return permanentFailure("invalid_verification_url");
+  }
+
   const templateId = process.env.TEMPLATE_VERIFICATION_EMAIL_ID;
   if (!templateId) {
-    throw new Error("TEMPLATE_VERIFICATION_EMAIL_ID is not set");
+    return permanentFailure("verification_template_id_missing");
   }
 
   return sendWithOutcome({
@@ -141,10 +151,16 @@ export async function sendPasswordReset(
   passwordResetURL: string,
   idempotencyKey: string,
 ): Promise<DeliveryOutcome> {
-  requireHttpsUrl(passwordResetURL, "Password reset URL");
+  if (!recipient.trim()) return permanentFailure("recipient_required");
+  try {
+    requireHttpsUrl(passwordResetURL, "Password reset URL");
+  } catch {
+    return permanentFailure("invalid_password_reset_url");
+  }
+
   const templateId = process.env.TEMPLATE_PASSWORD_RESET_ID;
   if (!templateId) {
-    throw new Error("TEMPLATE_PASSWORD_RESET_ID is not set");
+    return permanentFailure("password_reset_template_id_missing");
   }
 
   return sendWithOutcome({
@@ -171,8 +187,9 @@ export async function sendPriceAlert(
   alert: PriceAlertEmail,
   idempotencyKey: string,
 ): Promise<DeliveryOutcome> {
+  if (!recipient.trim()) return permanentFailure("recipient_required");
   if (!alert.gameTitle.trim()) {
-    throw new Error("Price alert game title is required");
+    return permanentFailure("game_title_required");
   }
   if (
     !Number.isSafeInteger(alert.currentPriceCents) ||
@@ -180,24 +197,29 @@ export async function sendPriceAlert(
     !Number.isSafeInteger(alert.targetPriceCents) ||
     alert.targetPriceCents < 0
   ) {
-    throw new Error("Price alert amounts must be nonnegative integer cents");
+    return permanentFailure("invalid_price_amount");
   }
   if (alert.currentPriceCents > alert.targetPriceCents) {
-    throw new Error("Price alert can only be sent when the game qualifies for the target");
+    return permanentFailure("target_not_qualified");
   }
 
-  const purchaseUrl = requireHttpsUrl(alert.purchaseUrl, "CheapShark purchase URL");
+  let purchaseUrl: URL;
+  try {
+    purchaseUrl = requireHttpsUrl(alert.purchaseUrl, "CheapShark purchase URL");
+  } catch {
+    return permanentFailure("invalid_purchase_url");
+  }
   if (
     purchaseUrl.hostname !== "www.cheapshark.com" ||
     purchaseUrl.pathname !== "/redirect" ||
-    !purchaseUrl.searchParams.has("dealID")
+    !purchaseUrl.searchParams.get("dealID")
   ) {
-    throw new Error("Price alert must use a CheapShark purchase redirect");
+    return permanentFailure("invalid_cheapshark_redirect");
   }
 
   const templateId = process.env.TEMPLATE_PRICE_ALERT_ID;
   if (!templateId) {
-    throw new Error("TEMPLATE_PRICE_ALERT_ID is not set");
+    return permanentFailure("price_alert_template_id_missing");
   }
 
   const formatUsd = (cents: number) =>
