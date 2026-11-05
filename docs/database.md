@@ -25,6 +25,11 @@ No client-supplied user ID, role, session, episode, or price history is authorit
 | Device / devices | User + active Session, installation UUID, Android platform, private push token, active flag and timestamps. One binding per token and installation. |
 | ProviderBudget / providerbudgets | Existing singleton CheapShark pacing/cooldown/lease state; shared by preview and scheduled/manual checks. |
 
+Device installation IDs use the shared `installationIdSchema` UUID validator,
+including modern UUID versions such as v7. Store and compare lowercase UUIDs so
+letter case cannot create a different installation binding. Request handlers must
+use that same parser before lookups and equality checks.
+
 `select:false` omits password/token/claim secrets in ordinary queries; it does not
 redact newly created documents, explicit projections, raw driver queries or logs.
 Services must map public fields and sanitize logs. A Mongoose `ref` is not a foreign
