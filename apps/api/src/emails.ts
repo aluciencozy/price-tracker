@@ -6,6 +6,98 @@ if (!apiKey) throw new Error("RESEND_SEND_API_KEY is not set");
 
 const resend = new Resend(apiKey);
 
+export type DeliveryOutcome =
+  | { status: "success"; messageId: string; attempts: number }
+  | { status: "retryable_failure"; code: string; attempts: number; retryAfterMs?: number }
+  | { status: "permanent_failure"; code: string; attempts: number }
+  | { status: "unknown"; code: string; attempts: number };
+
+type EmailPayload = Parameters<typeof resend.emails.send>[0];
+type EmailResponse = Awaited<ReturnType<typeof resend.emails.send>>;
+export type EmailSender = (
+  payload: EmailPayload,
+  options: { idempotencyKey: string; signal: AbortSignal },
+) => Promise<EmailResponse>;
+
+const MAX_SEND_ATTEMPTS = 3;
+const SEND_TIMEOUT_MS = 5_000;
+const MAX_RETRY_WAIT_MS = 1_000;
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function getRetryAfterMs(response: EmailResponse): number | undefined {
+  const value = response.headers?.["retry-after"];
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
+/** Shared bounded send logic. Tests can pass a fake sender as the third argument. */
+export async function sendWithOutcome(
+  payload: EmailPayload,
+  idempotencyKey: string,
+  sender: EmailSender = (message, options) => resend.emails.send(message, options),
+): Promise<DeliveryOutcome> {
+  if (!idempotencyKey.trim() || idempotencyKey.length > 256) {
+    return { status: "permanent_failure", code: "invalid_idempotency_key", attempts: 0 };
+  }
+
+  for (let attempts = 1; attempts <= MAX_SEND_ATTEMPTS; attempts += 1) {
+    let response: EmailResponse;
+    try {
+      response = await sender(payload, {
+        idempotencyKey,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+    } catch {
+      // The provider may have accepted the email before the connection failed.
+      // Retry only with this same idempotency key.
+      if (attempts < MAX_SEND_ATTEMPTS) {
+        await wait(Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
+        continue;
+      }
+      return { status: "unknown", code: "network_outcome_unknown", attempts };
+    }
+
+    if (response.data?.id) {
+      return { status: "success", messageId: response.data.id, attempts };
+    }
+
+    const error = response.error;
+    if (!error) {
+      return { status: "unknown", code: "provider_response_missing_id", attempts };
+    }
+
+    const code = error.name || "provider_error";
+    const statusCode = error.statusCode;
+    if (statusCode === null) {
+      if (attempts < MAX_SEND_ATTEMPTS) {
+        await wait(Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
+        continue;
+      }
+      return { status: "unknown", code, attempts };
+    }
+
+    const retryable = statusCode === 408 || statusCode === 429 || statusCode >= 500 ||
+      code === "concurrent_idempotent_requests";
+    if (!retryable) {
+      return { status: "permanent_failure", code, attempts };
+    }
+
+    const retryAfterMs = getRetryAfterMs(response);
+    if (attempts === MAX_SEND_ATTEMPTS || (retryAfterMs !== undefined && retryAfterMs > MAX_RETRY_WAIT_MS)) {
+      return { status: "retryable_failure", code, attempts, retryAfterMs };
+    }
+
+    await wait(retryAfterMs ?? Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
+  }
+
+  return { status: "unknown", code: "attempt_limit_reached", attempts: MAX_SEND_ATTEMPTS };
+}
+
 function requireHttpsUrl(value: string, label: string): URL {
   let url: URL;
   try {
@@ -24,14 +116,15 @@ function requireHttpsUrl(value: string, label: string): URL {
 export async function sendVerificationEmail(
   recipient: string,
   verificationUrl: string,
-): Promise<string> {
+  idempotencyKey: string,
+): Promise<DeliveryOutcome> {
   requireHttpsUrl(verificationUrl, "Verification URL");
   const templateId = process.env.TEMPLATE_VERIFICATION_EMAIL_ID;
   if (!templateId) {
     throw new Error("TEMPLATE_VERIFICATION_EMAIL_ID is not set");
   }
 
-  const { data, error } = await resend.emails.send({
+  return sendWithOutcome({
     from: process.env.EMAIL_FROM ?? "onboarding@resend.dev",
     to: recipient,
     template: {
@@ -40,30 +133,21 @@ export async function sendVerificationEmail(
         VALIDATION_EMAIL_URL: verificationUrl,
       },
     },
-  });
-
-  if (error) {
-    throw new Error(`Resend rejected the request: ${error.message}`);
-  }
-
-  if (!data?.id) {
-    throw new Error("Resend did not return a message ID");
-  }
-
-  return data.id;
+  }, idempotencyKey);
 }
 
 export async function sendPasswordReset(
   recipient: string,
   passwordResetURL: string,
-): Promise<string> {
+  idempotencyKey: string,
+): Promise<DeliveryOutcome> {
   requireHttpsUrl(passwordResetURL, "Password reset URL");
   const templateId = process.env.TEMPLATE_PASSWORD_RESET_ID;
   if (!templateId) {
     throw new Error("TEMPLATE_PASSWORD_RESET_ID is not set");
   }
 
-  const { data, error } = await resend.emails.send({
+  return sendWithOutcome({
     from: process.env.EMAIL_FROM ?? "onboarding@resend.dev",
     to: recipient,
     template: {
@@ -72,17 +156,7 @@ export async function sendPasswordReset(
         PASSWORD_RESET_URL: passwordResetURL,
       },
     },
-  });
-
-  if (error) {
-    throw new Error(`Resend rejected the request: ${error.message}`);
-  }
-
-  if (!data?.id) {
-    throw new Error("Resend did not return a message ID");
-  }
-
-  return data.id;
+  }, idempotencyKey);
 }
 
 export type PriceAlertEmail = {
@@ -95,7 +169,8 @@ export type PriceAlertEmail = {
 export async function sendPriceAlert(
   recipient: string,
   alert: PriceAlertEmail,
-): Promise<string> {
+  idempotencyKey: string,
+): Promise<DeliveryOutcome> {
   if (!alert.gameTitle.trim()) {
     throw new Error("Price alert game title is required");
   }
@@ -128,7 +203,7 @@ export async function sendPriceAlert(
   const formatUsd = (cents: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
-  const { data, error } = await resend.emails.send({
+  return sendWithOutcome({
     from: process.env.EMAIL_FROM ?? "onboarding@resend.dev",
     to: recipient,
     template: {
@@ -140,14 +215,5 @@ export async function sendPriceAlert(
         PURCHASE_URL: purchaseUrl.toString(),
       },
     },
-  });
-
-  if (error) {
-    throw new Error(`Resend rejected the request: ${error.message}`);
-  }
-  if (!data?.id) {
-    throw new Error("Resend did not return a message ID");
-  }
-
-  return data.id;
+  }, idempotencyKey);
 }
