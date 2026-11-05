@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import type { SteamOffer } from './cheapshark.js';
+import { cheapSharkPurchaseUrl, type SteamOffer } from './cheapshark.js';
 import { ProductModel, type ProductRecord } from './models/product.js';
 import { PriceHistoryModel, TrackedItemModel, HISTORY_RETENTION_DAYS } from './models/tracking.js';
 
@@ -32,7 +32,7 @@ export async function recordObservation(productId: string, checkId: string, leas
       offer.identity.currency !== 'USD' || offer.currentPrice.currency !== 'USD' ||
       !Number.isSafeInteger(offer.currentPrice.amountMinor) || offer.currentPrice.amountMinor < 0 ||
       (offer.retailPrice !== null && (offer.retailPrice.currency !== 'USD' || !Number.isSafeInteger(offer.retailPrice.amountMinor) || offer.retailPrice.amountMinor < 0)) ||
-      offer.purchaseUrl !== `https://www.cheapshark.com/redirect?dealID=${encodeURIComponent(offer.dealId)}` ||
+      offer.purchaseUrl !== cheapSharkPurchaseUrl(offer.dealId) ||
       offer.canonicalSteamUrl !== `https://store.steampowered.com/app/${offer.steamAppId}/`) {
     throw new Error('Invalid successful Steam observation.');
   }
