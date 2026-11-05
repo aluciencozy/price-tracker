@@ -26,6 +26,11 @@ CheapShark purchase redirect and a local success younger than 24 hours. It accep
 real zero, rejects future/stale/missing/invalid prices, and never substitutes a
 historical low or other store. No outbound request is made by this service.
 
+The adapter and writer use the same `cheapSharkPurchaseUrl` builder. It decodes
+provider deal-ID escapes once before URL query encoding, so valid adapter results
+are accepted without double-encoding. The original deal ID remains stored as
+provider metadata; purchase redirects remain human links and are never fetched.
+
 It updates the shared cache and inserts history in one replica-set transaction,
 fenced by the refresh token and expiry. A lost lease or newer stored observation
 rejects the write. Exact replay returns the existing row; conflicting data under
