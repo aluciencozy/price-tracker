@@ -162,18 +162,18 @@ export const ResendVerificationHandler = (
 
             return resendResponse(res);
 
-        } catch (error: unknown) {
-
-            // handles unexpected errors
-            console.error('Resending verification email failed');
-
-            return sendError(
-                res,
-                500,
-                'INTERNAL_ERROR',
-                'An unexpected error occurred.'
-            );
-        }
+            } catch {
+            
+                // handles unexpected errors
+                console.error('Resending verification email failed');
+            
+                return sendError(
+                    res,
+                    500,
+                    'INTERNAL_ERROR',
+                    'An unexpected error occurred.'
+                );
+            }
     };
 
     return resendVerification;
