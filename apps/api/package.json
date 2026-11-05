@@ -9,12 +9,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify:cheapshark-adapter": "tsx scripts/verify-cheapshark-adapter.ts",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "db:indexes": "tsx src/databaseSetupCli.ts indexes",
+    "db:seed": "tsx src/databaseSetupCli.ts seed",
+    "db:verify": "tsx src/databaseSetupCli.ts verify"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.3.0",
+    "firebase-admin": "^14.5.0",
     "helmet": "^8.1.0",
     "mongoose": "^9.11.3",
     "zod": "^4.6.7"
