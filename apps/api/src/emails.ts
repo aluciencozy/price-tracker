@@ -1,10 +1,14 @@
 import "dotenv/config";
 import { Resend } from "resend";
 
-const apiKey = process.env.RESEND_SEND_API_KEY;
-if (!apiKey) throw new Error("RESEND_SEND_API_KEY is not set");
+let resend: Resend | undefined;
 
-const resend = new Resend(apiKey);
+function getResend(): Resend | undefined {
+  const apiKey = process.env.RESEND_SEND_API_KEY;
+  if (!apiKey) return undefined;
+  resend ??= new Resend(apiKey);
+  return resend;
+}
 
 export type DeliveryOutcome =
   | { status: "success"; messageId: string; attempts: number }
@@ -16,8 +20,8 @@ function permanentFailure(code: string): DeliveryOutcome {
   return { status: "permanent_failure", code, attempts: 0 };
 }
 
-type EmailPayload = Parameters<typeof resend.emails.send>[0];
-type EmailResponse = Awaited<ReturnType<typeof resend.emails.send>>;
+type EmailPayload = Parameters<Resend["emails"]["send"]>[0];
+type EmailResponse = Awaited<ReturnType<Resend["emails"]["send"]>>;
 export type EmailSender = (
   payload: EmailPayload,
   options: { idempotencyKey: string; signal: AbortSignal },
@@ -43,16 +47,22 @@ function getRetryAfterMs(response: EmailResponse): number | undefined {
 export async function sendWithOutcome(
   payload: EmailPayload,
   idempotencyKey: string,
-  sender: EmailSender = (message, options) => resend.emails.send(message, options),
+  sender?: EmailSender,
 ): Promise<DeliveryOutcome> {
   if (!idempotencyKey.trim() || idempotencyKey.length > 256) {
     return { status: "permanent_failure", code: "invalid_idempotency_key", attempts: 0 };
   }
 
+  const client = sender ? undefined : getResend();
+  if (!sender && !client) {
+    return permanentFailure("resend_api_key_missing");
+  }
+  const send = sender ?? ((message, options) => client!.emails.send(message, options));
+
   for (let attempts = 1; attempts <= MAX_SEND_ATTEMPTS; attempts += 1) {
     let response: EmailResponse;
     try {
-      response = await sender(payload, {
+      response = await send(payload, {
         idempotencyKey,
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
