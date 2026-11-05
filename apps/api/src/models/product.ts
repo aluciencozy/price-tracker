@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 
-type ProductRecord = {
+export type ProductRecord = {
   provider: 'cheapshark';
   providerGameId: string;
   steamAppId: string;
@@ -36,8 +36,8 @@ const productSchema = new Schema<ProductRecord>(
     title: { type: String, required: true, trim: true, maxlength: 300 },
     dealId: { type: String, default: null },
     purchaseUrl: { type: String, default: null },
-    currentPriceMinor: { type: Number, default: null, min: 0 },
-    retailPriceMinor: { type: Number, default: null, min: 0 },
+    currentPriceMinor: { type: Number, default: null, min: 0, validate: (value: number | null) => value === null || Number.isSafeInteger(value) },
+    retailPriceMinor: { type: Number, default: null, min: 0, validate: (value: number | null) => value === null || Number.isSafeInteger(value) },
     lastSuccessfulCheckAt: { type: Date, default: null },
     providerChangedAt: { type: Date, default: null },
     nextCheckAt: { type: Date, default: null },

@@ -383,7 +383,8 @@ async function requestJson(path: string, deadline: number): Promise<unknown> {
   });
 }
 
-function purchaseUrl(dealId: string): string {
+/** Build a human purchase link only; never fetch this redirect automatically. */
+export function cheapSharkPurchaseUrl(dealId: string): string {
   // CheapShark's dealID may already contain percent escapes. Decode once and
   // let URLSearchParams encode it once for the human purchase link.
   let rawDealId: string;
@@ -469,7 +470,7 @@ export async function lookupSteamOffer(input: string): Promise<SteamOffer> {
       ? null
       : { amountMinor: retailPriceCents, currency: 'USD' },
     dealId: offer.dealID,
-    purchaseUrl: purchaseUrl(offer.dealID),
+    purchaseUrl: cheapSharkPurchaseUrl(offer.dealID),
     observedAt: new Date().toISOString(),
     providerChangedAt: null,
   };
