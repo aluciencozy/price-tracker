@@ -3,12 +3,12 @@ import { Request, Response } from 'express';
 import { randomBytes, createHash, scrypt } from 'node:crypto';
 import { UserModel, AuthTokenModel } from '../models/account.js';
 import { sendError } from '../helpers/response.js';
+import type { DeliveryOutcome } from '../emails.js';
 
 type SendVerificationEmail = (details: {
     email: string;
-    name: string;
     token: string;
-}) => Promise<void>;
+}) => Promise<DeliveryOutcome>;
 
 // hashes the password for safe storage
 const hashPassword = async (password: string): Promise<string> => {
@@ -199,11 +199,14 @@ export const RegisterHandler = (
             });
 
             // sends verification email
-            await sendVerificationEmail({
+            const delivery = await sendVerificationEmail({
                 email: user.email,
-                name: normalName ?? '',
                 token: verificationToken
             });
+            
+            if (delivery.status !== 'success') {
+                console.error('Verification email delivery outcome:', delivery.status);
+            }
 
             // registration request accepted
             return registrationResponse(res);
