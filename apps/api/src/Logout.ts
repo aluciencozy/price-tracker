@@ -64,7 +64,7 @@ export const LogoutHandler = () => {
 
             return res.status(204).send();
 
-        } catch (error: unknown) {
+        } catch {
 
             console.error('Logout failed');
 
