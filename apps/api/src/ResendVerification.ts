@@ -3,13 +3,12 @@ import { Request, Response } from 'express';
 import { randomBytes, createHash } from 'node:crypto';
 import { UserModel, AuthTokenModel } from '../models/account.js';
 import { sendError } from '../helpers/response.js';
+import type { DeliveryOutcome } from '../emails.js';
 
-// pending issue #7
 type SendVerificationEmail = (details: {
     email: string;
-    name: string;
     token: string;
-}) => Promise<void>;
+}) => Promise<DeliveryOutcome>;
 
 // hashes the verification token
 const hashToken = (token: string): string => {
@@ -146,11 +145,14 @@ export const ResendVerificationHandler = (
 
             // sends the new verification email
             try {
-                await sendVerificationEmail({
+                const delivery = await sendVerificationEmail({
                     email: user.email,
-                    name: user.name ?? '',
                     token: verificationToken
                 });
+                
+                if (delivery.status !== 'success') {
+                    console.error('Verification email delivery outcome:', delivery.status);
+                }
             } catch {
                 // does not expose email provider errors or verification tokens
                 console.error('Verification email delivery failed');
