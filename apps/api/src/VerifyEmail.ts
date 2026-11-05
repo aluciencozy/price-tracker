@@ -111,18 +111,18 @@ export const VerifyEmailHandler = () => {
 
             return res.status(204).send();
 
-        } catch (error: unknown) {
-
-            // handles unexpected errors
-            console.error('Email verification failed');
-
-            return sendError(
-                res,
-                500,
-                'INTERNAL_ERROR',
-                'An unexpected error occurred.'
-            );
-        }
+            } catch {
+            
+                // handles unexpected errors
+                console.error('Email verification failed');
+            
+                return sendError(
+                    res,
+                    500,
+                    'INTERNAL_ERROR',
+                    'An unexpected error occurred.'
+                );
+            }
     };
 
     return verifyEmail;
