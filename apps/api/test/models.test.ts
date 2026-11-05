@@ -30,6 +30,19 @@ describe('database contract validation', () => {
   it('requires SHA-256 token hashes, never raw verification tokens', async () => {
     await expect(new AuthTokenModel({ userId: owner, purpose: 'verify_email', tokenHash: 'raw-token', expiresAt: new Date() }).validate()).rejects.toThrow();
   });
+  it.each([
+    '019a50a0-0000-7000-8000-000000000001',
+    '019a50a0-0000-8000-8000-000000000001',
+    'A19A50A0-0000-4000-8000-000000000001',
+  ])('accepts and normalizes installation UUID %s', async installationId => {
+    const device = new DeviceModel({ userId: owner, sessionId: new Types.ObjectId(), installationId, platform: 'android', pushToken: 'offline-fixture' });
+    await expect(device.validate()).resolves.toBeUndefined();
+    expect(device.installationId).toBe(installationId.toLowerCase());
+  });
+  it.each(['not-a-uuid', '019a50a0-0000-9000-8000-000000000001', '019a50a0-0000-7000-0000-000000000001'])('rejects malformed installation UUID %s', async installationId => {
+    const device = new DeviceModel({ userId: owner, sessionId: new Types.ObjectId(), installationId, platform: 'android', pushToken: 'offline-fixture' });
+    await expect(device.validate()).rejects.toThrow();
+  });
   it('retains nullable prices while rejecting fractional and unsafe product prices', async () => {
     const base = { provider: 'cheapshark', providerGameId: '36', steamAppId: '620', storeId: '1', market: 'US', currency: 'USD', canonicalSteamUrl: 'https://store.steampowered.com/app/620/', title: 'Portal 2' };
     await expect(new ProductModel(base).validate()).resolves.toBeUndefined();
