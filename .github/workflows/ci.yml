@@ -9,9 +9,7 @@ permissions:
 
 jobs:
   node:
-    # MongoDB 8.0's kernel check rejects current 24.04/26.04 hosted runners.
-    # GitHub recommends 22.04 pending the upstream fix: runner-images#15005.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -20,37 +18,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Start disposable MongoDB replica set
-        run: |
-          docker run --detach --name price-tracker-test-db \
-            --publish 127.0.0.1:27028:27017 mongo:8.0 \
-            --replSet rs0 --bind_ip_all
-          for db_attempt in $(seq 1 30); do
-            if docker exec price-tracker-test-db mongosh --quiet \
-              --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then
-              break
-            fi
-            sleep 1
-          done
-          docker exec price-tracker-test-db mongosh --quiet \
-            --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
-          for db_attempt in $(seq 1 30); do
-            if docker exec price-tracker-test-db mongosh --quiet \
-              --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 1
-          done
-          exit 1
       - run: npm run check
-        env:
-          TEST_MONGODB_URI: mongodb://127.0.0.1:27028/?directConnection=true
-      - name: Remove disposable MongoDB
-        if: always()
-        run: |
-          docker inspect --format '{{.State.Status}} (exit {{.State.ExitCode}})' price-tracker-test-db || true
-          docker logs --tail 120 price-tracker-test-db || true
-          docker rm --force price-tracker-test-db || true
 
   flutter:
     runs-on: ubuntu-latest

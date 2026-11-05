@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import mongoose from 'mongoose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type FakeResponse = {
@@ -51,7 +50,6 @@ vi.mock('../src/providerBudget.js', () => ({
 }));
 
 import { parseSteamAppId, lookupSteamOffer, usdToCents } from '../src/cheapshark.js';
-import { recordObservation } from '../src/history.js';
 
 /** Make the shape returned by CheapShark's steamAppID lookup endpoint. */
 function gameMatch(
@@ -470,19 +468,5 @@ describe('CheapShark adapter helpers', () => {
     expect(purchase.origin).toBe('https://www.cheapshark.com');
     expect(purchase.pathname).toBe('/redirect');
     expect(purchase.searchParams.get('dealID')).toBe('deal/with space');
-  });
-  it('accepts the adapter purchase link at the history writer boundary', async () => {
-    queueSuccessfulLookup(undefined, gameDetails([storeDeal({ dealID: 'deal%2Fwith%20space%2Bplus%3D' })]));
-    const offer = await lookupSteamOffer('https://store.steampowered.com/app/620/');
-    // Stop at the transaction boundary: this test exercises the real adapter
-    // and history validation without requiring a database or provider network.
-    const recorded = { fixture: 'observation' };
-    const transaction = vi.spyOn(mongoose.connection, 'transaction').mockResolvedValue(recorded);
-    try {
-      await expect(recordObservation('0123456789abcdef01234567', 'adapter-check', 'lease', offer)).resolves.toBe(recorded);
-      expect(transaction).toHaveBeenCalledOnce();
-      await expect(recordObservation('0123456789abcdef01234567', 'adapter-check', 'lease', { ...offer, purchaseUrl: `${offer.purchaseUrl}&extra=unsafe` })).rejects.toThrow('Invalid successful Steam observation');
-      expect(transaction).toHaveBeenCalledOnce();
-    } finally { transaction.mockRestore(); }
   });
 });

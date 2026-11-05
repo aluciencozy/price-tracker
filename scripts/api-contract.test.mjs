@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import SwaggerParser from '@apidevtools/swagger-parser';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -33,7 +32,7 @@ const operations = Object.entries(contract.paths).flatMap(([path, entry]) => Obj
   .filter(([method]) => methods.has(method)).map(([method, operation]) => ({ path, method, operation, entry })));
 
 test('OpenAPI 3.1 document resolves and passes structural validation', async () => {
-  const parsed = await SwaggerParser.validate(fileURLToPath(file), { resolve: { external: false, http: false } });
+  const parsed = await SwaggerParser.validate(file.pathname, { resolve: { external: false, http: false } });
   assert.equal(parsed.openapi, '3.1.0');
   assert.equal(new Set(operations.map(({ operation }) => operation.operationId)).size, operations.length);
   assert.equal(operations.length, 29);
