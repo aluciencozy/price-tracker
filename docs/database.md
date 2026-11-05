@@ -23,6 +23,11 @@ No client-supplied user ID, role, session, episode, or price history is authorit
 | PriceHistory / pricehistories | Immutable Product + check ID, successful price in cents, USD, local observation date, nullable provider change date, CheapShark attribution and observed deal ID. No user settings or raw provider payload. |
 | NotificationDelivery / notificationdeliveries | Tracker/user/product/observation, stable episode ID and channel, status, attempts, availability, claim token/lease, sanitized error code and optional provider message ID. Independent email and push rows. |
 | Device / devices | User + active Session, installation UUID, Android platform, private push token, active flag and timestamps. One binding per token and installation. |
+
+Device installation IDs use the shared `installationIdSchema` UUID validator,
+including modern UUID versions such as v7. Store and compare lowercase UUIDs so
+letter case cannot create a different installation binding. Request handlers must
+use that same parser before lookups and equality checks.
 | ProviderBudget / providerbudgets | Existing singleton CheapShark pacing/cooldown/lease state; shared by preview and scheduled/manual checks. |
 
 `select:false` omits password/token/claim secrets in ordinary queries; it does not
