@@ -36,3 +36,34 @@ export async function sendVerificationEmail(
 
   return data.id;
 }
+
+export async function sendPasswordReset(
+  recipient: string,
+  passwordResetURL: string,
+): Promise<string> {
+  const templateId = process.env.TEMPLATE_PASSWORD_RESET_ID;
+  if (!templateId) {
+    throw new Error("TEMPLATE_PASSWORD_RESET_ID is not set");
+  }
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.EMAIL_FROM ?? "onboarding@resend.dev",
+    to: recipient,
+    template: {
+      id: templateId,
+      variables: {
+        PASSWORD_RESET_URL: passwordResetURL,
+      },
+    },
+  });
+
+  if (error) {
+    throw new Error(`Resend rejected the request: ${error.message}`);
+  }
+
+  if (!data?.id) {
+    throw new Error("Resend did not return a message ID");
+  }
+
+  return data.id;
+}

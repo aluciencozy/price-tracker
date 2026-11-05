@@ -65,3 +65,34 @@ export async function validationEmailTemplate( ): Promise<string>{
     return data.id;
 }
 
+export async function passwordResetTemplate( ): Promise<string>{
+    const { data, error } = await fullResend.templates.create({
+    name: 'password-reset',
+    subject: "Price Tracker Password Reset",
+        html: '<p><a href="{{{PASSWORD_RESET_URL}}}">Reset your password</a></p>',
+        variables: [
+            {
+                key: "PASSWORD_RESET_URL",
+                type: "string",
+            },
+        ],
+    });
+
+    if (error) {
+        throw new Error(`Could not create template: ${error.message}`);
+    }
+
+    if (!data){
+        throw new Error("Resend did not return a template.");
+    }
+
+    const{error: publishError } = await
+    fullResend.templates.publish(data.id);
+
+    if(publishError){
+        throw new Error(`Could not publish template: ${publishError.message}`);
+    }
+
+    return data.id;
+}
+
