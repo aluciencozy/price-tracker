@@ -2,8 +2,21 @@
 import { Request, Response } from 'express';
 import { randomBytes, createHash, scrypt } from 'node:crypto';
 import { UserModel, AuthTokenModel } from './models/account.js';
-import { sendError } from './helpers/response.js';
 import type { DeliveryOutcome } from './emails.js';
+
+const sendError = (
+    res: Response,
+    status: number,
+    code: string,
+    message: string
+) => {
+    return res.status(status).json({
+        error: {
+            code,
+            message
+        }
+    });
+};
 
 type SendVerificationEmail = (details: {
     email: string;
