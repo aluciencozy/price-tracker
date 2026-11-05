@@ -42,6 +42,11 @@ The [systemd unit](../deploy/vm/price-tracker-api.service) and
 credentials. TLS private keys and the database URI remain only in protected server
 configuration. The temporary deployment SSH key is not committed.
 
+After obtaining the certificate, the actual port-80 site uses the dedicated
+[HTTPS redirect vhost](../deploy/vm/price-tracker-redirect.conf). Keep the frontend
+and API proxy in the generated TLS vhost. A dedicated redirect prevents SPA
+rewrite rules from short-circuiting the HTTP-to-HTTPS redirect.
+
 ## Build and redeploy
 
 1. Select an approved commit and run `npm ci` and `npm run build` using Node 24.
@@ -84,6 +89,7 @@ November 5, 2026, from the VM and an external client:
 | API service | Enabled and active under systemd |
 | TLS issuance | Valid certificate, automatic renewal configured |
 | HTTPS homepage | HTTP 200 |
+| Plain HTTP homepage | HTTP 301 to the HTTPS origin |
 | Direct `/watchlist` route | HTTP 200, app renders |
 | `/api/health` | HTTP 200, database `connected` |
 | `/api/ready` | HTTP 200, `ready`, database `connected` |
