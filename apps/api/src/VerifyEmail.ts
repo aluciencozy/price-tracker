@@ -1,7 +1,20 @@
 import { Request, Response } from 'express';
 import { createHash } from 'node:crypto';
-import { UserModel, AuthTokenModel } from '../models/account.js';
-import { sendError } from '../helpers/response.js';
+import { UserModel, AuthTokenModel } from './models/account.js';
+
+const sendError = (
+    res: Response,
+    status: number,
+    code: string,
+    message: string
+) => {
+    return res.status(status).json({
+        error: {
+            code,
+            message
+        }
+    });
+};
 
 // hashes the verification token
 const hashToken = (token: string): string => {
