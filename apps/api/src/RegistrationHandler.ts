@@ -2,7 +2,7 @@
 import { Request, Response } from 'express';
 import { randomBytes, createHash, scrypt } from 'node:crypto';
 import { UserModel, AuthTokenModel } from './models/account.js';
-import type { DeliveryOutcome } from './emails.js';
+import type { DeliveryOutcome } from './emails.ts';
 
 const sendError = (
     res: Response,
