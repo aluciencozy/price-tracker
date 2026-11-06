@@ -8,16 +8,15 @@ export default function Home() {
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
-        <p className="hero-context">For the games on your someday list.</p>
         <h1 id="hero-title" tabIndex={-1}>
-          Good games.
+          Your games.
           <br />
           Your price.
         </h1>
         <p className="hero-description">
-          Keep a little list. Pick your price.
+          Save a Steam game and set your target.
           <br />
-          Let the next Steam deal come to you.
+          Keep the price that matters in view.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">

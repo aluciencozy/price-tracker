@@ -100,7 +100,7 @@ describe('sample navigation, watchlist and CRUD', () => {
     vi.stubGlobal('fetch', vi.fn());
     open();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Good games.Your price.',
+      'Your games.Your price.',
     );
     expect(screen.getByText('Sample mode')).toBeVisible();
     fireEvent.click(screen.getByRole('link', { name: 'Try sample' }));
@@ -449,7 +449,7 @@ describe('history and useful preview states', () => {
   });
   it.each([
     ['loading', 'Loading games'],
-    ['empty', 'Make room for your next game'],
+    ['empty', 'Your watchlist is empty'],
     ['offline', 'Offline preview'],
     ['expired', 'Session-expired preview'],
   ] as const)('supports %s state', async (value, text) => {

@@ -7,8 +7,8 @@ References #10, #19, #21 and #24. This is visual/sample work, not completed API 
 The reference image informed whitespace, compact navigation, alignment, and monospace hierarchy—not its dark/orange palette or terminal decoration. The memorable element is the spacious two-line landing headline; the rest stays quiet. Roomy rows and small game art replace cover grids and dashboard statistics. No sidebar, gradients, fake savings, dark theme, or theme switch.
 
 - Approximate palette anchors: off-white `#f9fdff`, ink `#031a1e`, teal `#00bba7`, white `#ffffff`, pale cool surfaces/borders. Exact supplied OKLCH tokens live in `apps/web/src/styles.css`.
-- JetBrains Mono, locally bundled through Fontsource, weights 400/500/600/700. The OFL copyright/license ships at `/licenses/JetBrainsMono-OFL.txt`.
-- Centered 1088px content; centered landing, left-aligned application pages; 8px base radius. Dividers structure rows, cool low-opacity layered shadows elevate forms and confirmations.
+- System UI typography for readable interface text. JetBrains Mono remains bundled locally; its OFL copyright/license ships at `/licenses/JetBrainsMono-OFL.txt`.
+- Centered 1088px content; centered landing, left-aligned application pages; 8px base radius. A bordered watchlist surface groups search and game rows; dividers and restrained shadows structure other content.
 - Primary buttons use dark text. Essential control edges, focus rings, and error text use darker semantic derivatives rather than the pale brand border or white-on-teal. Components use semantic variables, not scattered palette values.
 - Feedback: 150ms press response; occasional dialog entry uses 200ms opacity/scale with the shared strong ease-out. Routine typing, rows, navigation and prices never move. Reduced motion removes scale and skeleton pulsing. Radix owns confirmation focus trapping/restoration; exits unmount immediately.
 

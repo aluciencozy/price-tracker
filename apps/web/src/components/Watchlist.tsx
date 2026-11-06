@@ -36,7 +36,7 @@ export default function Watchlist({
           <h1 tabIndex={-1}>
             Your watchlist<span className="title-period">.</span>
           </h1>
-          <p>A place for games worth waiting for.</p>
+          <p>Track Steam prices against the targets you choose.</p>
         </div>
         <Button asChild>
           <Link to="/add">
@@ -76,7 +76,7 @@ export default function Watchlist({
               title={
                 query
                   ? 'No saved games match'
-                  : 'Make room for your next game'
+                  : 'Your watchlist is empty'
               }
               description="Add a Steam link, choose your target, and keep it on your list."
             >

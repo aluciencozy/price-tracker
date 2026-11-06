@@ -139,7 +139,7 @@ describe('real cookie session screens', () => {
     expect(screen.queryByText('Sign in to continue')).not.toBeInTheDocument();
     click('Retry session');
     expect(
-      await screen.findByText('Make room for your next game'),
+      await screen.findByText('Your watchlist is empty'),
     ).toBeVisible();
     expect(
       fetch.mock.calls.filter(([url]) => String(url).endsWith('/me')),
@@ -478,7 +478,7 @@ describe('live tracker screens', () => {
       ).toBe(true),
     );
     fireEvent.click(screen.getByRole('link', { name: 'Watchlist' }));
-    await screen.findByText('Make room for your next game');
+    await screen.findByText('Your watchlist is empty');
     expect(
       fetch.mock.calls.find(([url]) => url === '/api/product-previews')?.[1]
         ?.signal?.aborted,
@@ -857,7 +857,7 @@ describe('live tracker screens', () => {
     ).toBe(false);
     click('Remove from watchlist');
     expect(
-      await screen.findByText('Make room for your next game'),
+      await screen.findByText('Your watchlist is empty'),
     ).toBeVisible();
     const removal = fetch.mock.calls.find(
       ([, init]) => init?.method === 'DELETE',
