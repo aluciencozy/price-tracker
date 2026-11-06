@@ -95,8 +95,37 @@ cp apps/web/.env.example apps/web/.env
 | `PORT`, `HOST` | API `.env` | Defaults to `4000`, `127.0.0.1`. |
 | `WEB_ORIGINS` | API `.env` | Comma-separated allowed web origins; localhost/127.0.0.1 port 5173 by default. |
 | `MONGODB_URI` | API `.env` | Optional for the starter health screen. Use the team's remote MongoDB URI once configured; never commit credentials. |
+| `RESEND_SEND_API_KEY` | API `.env` and deployment secret | Resend Sending Access key used by the API to send email. Keep it server-side. |
+| `EMAIL_FROM` | API `.env` and deployment secret | Sender address on a verified domain, for example `Price Tracker <alerts@mail.example.com>`. |
+| `TEMPLATE_VERIFICATION_EMAIL_ID` | API `.env` and deployment secret | ID of the published verification template in Resend. |
+| `TEMPLATE_PASSWORD_RESET_ID` | API `.env` and deployment secret | ID of the published password-reset template in Resend. |
+| `TEMPLATE_PRICE_ALERT_ID` | API `.env` and deployment secret | ID of the published price-alert template in Resend. |
+| `RESEND_FULL_ACCESS_API_KEY` | Local API `.env` only, during template setup | Temporary Full Access key for creating/publishing templates. Never deploy it; revoke it after setup. |
 | `API_PROXY_TARGET` | Web `.env` | Local Vite proxy target, default `http://127.0.0.1:4000`. |
 | `VITE_API_BASE_URL` | Web `.env` | Leave blank locally. For a separately hosted API, use its HTTPS **origin**, without `/api`. All `VITE_` values are public. |
+
+### Resend email setup
+
+Issue [#7](https://github.com/aluciencozy/price-tracker/issues/7) uses Resend for account and price-alert email. The confirmed Free plan limit is **100 emails per day and 3,000 per month**. Keep the account on the free plan, leave billing/overages disabled, and stop or reduce sending at the limit.
+
+The initial test used Resend's `onboarding@resend.dev` sender and delivered to the account owner's mailbox. That confirms the test send only; it does not prove delivery to other users. To send to other recipients, configure and verify a sender domain the team already owns. Add the DNS records Resend provides, wait until the dashboard marks the domain verified, set `EMAIL_FROM` to an address on that domain, and send a real test to a team-controlled mailbox. Record the verified sender and any account-specific recipient restrictions before promising delivery for the demo. Do not buy a new domain or enable paid overages.
+
+Use a **Sending Access** API key for the running API. For template setup only, the scripts need a **Full Access** key as well as the sending key. Put both in the local `apps/api/.env`; never commit them. Do not put the Full Access key in deployment secrets, and revoke it after setup. Keep the sending key in the deployment secret store.
+
+Create and publish each template once, then copy its returned ID into `apps/api/.env` and deployment secrets:
+
+```powershell
+cd apps/api
+npx tsx .\scripts\create-email-templates.ts
+npx tsx .\scripts\create-password-reset-template.ts
+npx tsx .\scripts\create-price-alert-template.ts
+```
+
+These scripts create and publish new templates; do not rerun them if the corresponding template already exists. They use Resend's documented triple-brace variables. HTML values are passed separately after escaping, while plain-text values remain readable. Creating templates in this checkout does not update any already-published remote template: publish corrected templates and set all three matching `TEMPLATE_*_ID` values before enabling sends. Preview the published templates in Resend before activation; offline tests do not verify provider rendering. The setup scripts do not send an email. The `test-resend.ts` script sends a real test price-alert email to `RESEND_TEST_RECIPIENT` in the local environment; it uses sample values and does not require MongoDB. Never log verification/reset URLs or their tokens.
+
+The email adapter confirms success only with a nonblank SDK message ID and no SDK error. Resend 6.37 exposes HTTP headers but drops the actual HTTP status for JSON errors; body `statusCode` and `name` are not transport evidence. All unconfirmed sends therefore return `unknown`, including apparent 400/429 responses. Only validation/configuration failures before sending return `permanent_failure`; `retryable_failure` is reserved for a future transport with verified rejection evidence. No production fetch monkey-patching is used.
+
+Each call makes at most three attempts, each with a five-second timeout, always using the same caller-supplied idempotency key and payload. Real `Retry-After` seconds or HTTP dates pace retries; delays over one second stop the call and are returned as `retryAfterMs` on the unknown outcome, not slept through or ignored. Later errors cannot erase uncertainty; a confirmed same-key success can resolve it. Callers must persist the delivery/key and first-attempt time, honor returned delays, and reconcile unknown outcomes rather than blindly retry beyond [Resend's 24-hour idempotency window](https://resend.com/docs/dashboard/emails/idempotency-keys). This adapter does not implement durable delivery claims, restart recovery, or mailbox-delivery confirmation.
 
 `GET /api/health` checks API liveness and reports database state. `GET /api/ready` returns **503 until MongoDB is connected**. A working health screen does not mean authentication, persistence, or price tracking exists. Remote MongoDB is required for the finished course project, even though it is not required to run this starter.
 
@@ -107,7 +136,7 @@ npm run build
 npm run start --workspace @price-tracker/api
 ```
 
-The React production output is in `apps/web/dist`; deploy it as static files with same-origin `/api` routing or set the public API origin at build time. This starter does not configure a cloud host, production scheduler, SMTP service, or Firebase project yet.
+The React production output is in `apps/web/dist`; deploy it as static files with same-origin `/api` routing or set the public API origin at build time. This starter does not configure a cloud host, production scheduler, verified Resend sender domain, or Firebase project yet.
 
 ### Flutter / Android
 
@@ -144,7 +173,7 @@ flutter test
 
 **Initial validation, October 23, 2026:** lint/typecheck/build passed, **14 API tests + 4 React tests + 4 Flutter tests passed**, and Flutter analysis/format checks passed. These cover the starter and health behavior, not the planned features. GitHub Actions runs the Node and Flutter checks.
 
-**Not verified locally:** Android APK compilation/device execution, live MongoDB, cloud deployment, or real email/push. Java and the Android SDK were not installed on the initialization machine. The feature issues include the required end-to-end evidence.
+**Not verified locally:** Android APK compilation/device execution, live MongoDB, cloud deployment, or email delivery from a verified team domain to other recipients. A real Resend test email was received using the test sender and the account owner's mailbox; that does not prove general recipient delivery. Push delivery also remains unverified. Java and the Android SDK were not installed on the initialization machine.
 
 ## Game stores and price data
 
