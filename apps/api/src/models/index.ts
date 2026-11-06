@@ -1,4 +1,4 @@
-import { UserModel, SessionModel, AuthTokenModel } from './account.js';
+import { UserModel, SessionModel, AuthTokenModel, PreloginModel, AuthLimitModel } from './account.js';
 import { DeviceModel } from './device.js';
 import { ProductModel } from './product.js';
 import { ProviderBudgetModel } from './providerBudget.js';
@@ -6,7 +6,7 @@ import { TrackedItemModel, PriceHistoryModel, NotificationDeliveryModel } from '
 
 /** Explicit additive index creation; never drops indexes or data. Run before accepting traffic. */
 export async function createDatabaseIndexes(): Promise<void> {
-  for (const model of [UserModel, SessionModel, AuthTokenModel, DeviceModel, ProductModel,
+  for (const model of [UserModel, SessionModel, AuthTokenModel, PreloginModel, AuthLimitModel, DeviceModel, ProductModel,
     ProviderBudgetModel, TrackedItemModel, PriceHistoryModel, NotificationDeliveryModel]) {
     await model.createIndexes();
   }

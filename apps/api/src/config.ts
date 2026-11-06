@@ -37,5 +37,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid environment: ${keys.join(', ')}`);
   }
 
+  if (result.data.NODE_ENV === 'production' && result.data.WEB_ORIGINS.some(origin => !origin.startsWith('https://'))) {
+    throw new Error('Production WEB_ORIGINS must use HTTPS');
+  }
+  if (result.data.NODE_ENV !== 'production' && result.data.WEB_ORIGINS.some(origin => {
+    const url = new URL(origin);
+    return url.protocol === 'http:' && !['localhost', '127.0.0.1'].includes(url.hostname);
+  })) throw new Error('HTTP WEB_ORIGINS must use exact loopback hosts');
   return result.data;
 }
