@@ -14,15 +14,10 @@ export type DeliveryOutcome =
   | { status: "success"; messageId: string; attempts: number }
   | { status: "retryable_failure"; code: string; attempts: number; retryAfterMs?: number }
   | { status: "permanent_failure"; code: string; attempts: number }
-  | { status: "unknown"; code: string; attempts: number };
+  | { status: "unknown"; code: string; attempts: number; retryAfterMs?: number };
 
 function permanentFailure(code: string): DeliveryOutcome {
   return { status: "permanent_failure", code, attempts: 0 };
-}
-
-function isTrustedHttpErrorStatus(statusCode: unknown): statusCode is number {
-  return typeof statusCode === "number" && Number.isInteger(statusCode) &&
-    statusCode >= 400 && statusCode <= 599;
 }
 
 function escapeHtml(value: string): string {
@@ -54,14 +49,24 @@ function getRetryAfterMs(response: EmailResponse): number | undefined {
   const value = response.headers?.["retry-after"];
   if (!value) return undefined;
 
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const seconds = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  if (Number.isFinite(seconds) && Number.isFinite(seconds * 1_000)) return seconds * 1_000;
 
+  // Do not interpret malformed numeric delays (e.g. "-1") as calendar dates.
+  if (!/^[A-Za-z]{3}, /.test(value)) return undefined;
   const date = Date.parse(value);
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
-/** Shared bounded send logic. Tests can pass a fake sender as the third argument. */
+/**
+ * Shared bounded send logic; the optional sender has the same trust boundary as Resend.
+ * Resend 6.x exposes response headers, but JSON error.statusCode is only body data:
+ * the SDK neither verifies it against HTTP status nor exposes that status separately.
+ * There is no scoped transport hook. Never infer a definite provider rejection from
+ * that field (or error.name). All unconfirmed sends are unknown, even apparent 4xx.
+ * Only local pre-send validation/configuration failures are permanent. The outcome
+ * union retains retryable_failure for future transports with verified HTTP evidence.
+ */
 export async function sendWithOutcome(
   payload: EmailPayload,
   idempotencyKey: string,
@@ -77,7 +82,6 @@ export async function sendWithOutcome(
   }
   const send = sender ?? ((message, options) => client!.emails.send(message, options));
 
-  let uncertain = false;
   for (let attempts = 1; attempts <= MAX_SEND_ATTEMPTS; attempts += 1) {
     let response: EmailResponse;
     try {
@@ -86,7 +90,6 @@ export async function sendWithOutcome(
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
     } catch {
-      uncertain = true;
       // The provider may have accepted the email before the connection failed.
       // Retry only with this same idempotency key.
       if (attempts < MAX_SEND_ATTEMPTS) {
@@ -96,40 +99,20 @@ export async function sendWithOutcome(
       return { status: "unknown", code: "network_outcome_unknown", attempts };
     }
 
-    if (typeof response.data?.id === "string" && response.data.id.length > 0) {
+    if (!response?.error && typeof response?.data?.id === "string" && response.data.id.trim().length > 0) {
       return { status: "success", messageId: response.data.id, attempts };
     }
 
-    const error = response.error;
-    if (!error) {
-      return { status: "unknown", code: "provider_response_missing_id", attempts };
-    }
-
-    const code = typeof error.name === "string" && error.name ? error.name : "provider_error";
-    const statusCode = error.statusCode;
-    if (!isTrustedHttpErrorStatus(statusCode)) {
-      uncertain = true;
-      if (attempts < MAX_SEND_ATTEMPTS) {
-        await wait(Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
-        continue;
-      }
-      return { status: "unknown", code, attempts };
-    }
-
-    const retryable = statusCode === 408 || statusCode === 429 || statusCode >= 500 ||
-      code === "concurrent_idempotent_requests";
-    if (statusCode === 408 || statusCode >= 500 || code === "concurrent_idempotent_requests") {
-      uncertain = true;
-    }
-    if (!retryable) {
-      if (uncertain) return { status: "unknown", code: "prior_outcome_unknown", attempts };
-      return { status: "permanent_failure", code, attempts };
-    }
-
-    const retryAfterMs = getRetryAfterMs(response);
+    // Headers survive the SDK's JSON-error path and can pace retries. They do
+    // not establish non-delivery. Malformed/missing results are uncertain too.
+    const retryAfterMs = response ? getRetryAfterMs(response) : undefined;
     if (attempts === MAX_SEND_ATTEMPTS || (retryAfterMs !== undefined && retryAfterMs > MAX_RETRY_WAIT_MS)) {
-      if (uncertain) return { status: "unknown", code: "prior_outcome_unknown", attempts };
-      return { status: "retryable_failure", code, attempts, retryAfterMs };
+      return {
+        status: "unknown",
+        code: "provider_outcome_unknown",
+        attempts,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      };
     }
 
     await wait(retryAfterMs ?? Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
