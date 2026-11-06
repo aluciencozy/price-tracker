@@ -184,6 +184,28 @@ describe('API presentation repository', () => {
     expect(fetch.mock.calls[1]?.[1]?.body).toBe(JSON.stringify(create));
     expect(fetch).toHaveBeenCalledTimes(3);
   });
+  it('issues a new save key after preferences change, even when values later return to an earlier payload', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) =>
+      String(path) === '/api/auth/web/csrf'
+        ? json(csrf())
+        : Promise.reject(new TypeError('offline')),
+    );
+    const repository = createApiRepository(new WebClient({ fetch }));
+    const changed = { ...create, targetPrice: { amountMinor: 250, currency: 'USD' as const } };
+
+    await expect(repository.create(create)).rejects.toMatchObject({ code: 'offline' });
+    await expect(repository.create(changed)).rejects.toMatchObject({ code: 'offline' });
+    await expect(repository.create(create)).rejects.toMatchObject({ code: 'offline' });
+
+    const requests = fetch.mock.calls.filter(([, init]) => init?.method === 'POST');
+    const keys = requests.map(([, init]) => (init?.headers as Record<string, string>)['Idempotency-Key']);
+    expect(requests.map(([, init]) => init?.body)).toEqual([
+      JSON.stringify(create),
+      JSON.stringify(changed),
+      JSON.stringify(create),
+    ]);
+    expect(new Set(keys).size).toBe(3);
+  });
   it('cancels route requests and hides late errors on disposal', async () => {
     let resolve!: (value: Response) => void;
     const fetch = vi.fn<typeof globalThis.fetch>().mockReturnValueOnce(
