@@ -11,6 +11,15 @@ const payload = {
 };
 
 describe("sendWithOutcome", () => {
+  it.each([403, 429, 500])("preserves an uncertain send before a later %i", async (statusCode) => {
+    let calls = 0;
+    const fakeSender: EmailSender = async () => {
+      if (++calls === 1) throw new Error("timeout");
+      return { data: null, error: { name: "validation_error", statusCode, message: "failure" }, headers: { "retry-after": "10" } };
+    };
+    expect(await sendWithOutcome(payload, "delivery-uncertain", fakeSender)).toMatchObject({ status: "unknown" });
+  });
+
   it("retries a 429 with the same idempotency key, then succeeds", async () => {
     let calls = 0;
     const keys: string[] = [];

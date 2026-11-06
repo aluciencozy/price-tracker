@@ -2,7 +2,8 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { sendPriceAlert } from "../src/emails.js";
 
-const recipient = "nickwesterfeld@gmail.com";
+const recipient = process.env.RESEND_TEST_RECIPIENT;
+if (!recipient) throw new Error("RESEND_TEST_RECIPIENT is not set");
 
 const outcome = await sendPriceAlert(recipient, {
   // The title marks this as a test message; the amounts are sample values.

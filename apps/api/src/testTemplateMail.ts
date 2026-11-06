@@ -15,10 +15,9 @@ const fullResend = new Resend(fullAPIKey)
 export async function testEmail(): Promise<string> {
   const { data, error } = await resend.emails.send({
     from: "onboarding@resend.dev",
-    to: "nickwesterfeld@gmail.com",
+    to: process.env.RESEND_TEST_RECIPIENT ?? (() => { throw new Error("RESEND_TEST_RECIPIENT is not set"); })(),
     subject: "Price Tracker email test",
     html: "<p>This is a test email from Price Tracker.</p>",
-    replyTo: "nickwesterfeld@gmail.com",
   });
 
   if (error) {
@@ -38,7 +37,7 @@ export async function validationEmailTemplate( ): Promise<string>{
     const { data, error } = await fullResend.templates.create({
     name: 'verification-email',
     subject: "Verify your Price Tracker Account",
-        html: '<p><a href="{{{VALIDATION_EMAIL_URL}}}">Verify your email</a></p>',
+        html: '<p><a href="{{VALIDATION_EMAIL_URL}}">Verify your email</a></p>',
         variables: [
             {
                 key: "VALIDATION_EMAIL_URL",
@@ -69,7 +68,7 @@ export async function passwordResetTemplate( ): Promise<string>{
     const { data, error } = await fullResend.templates.create({
     name: 'password-reset',
     subject: "Price Tracker Password Reset",
-        html: '<p><a href="{{{PASSWORD_RESET_URL}}}">Reset your password</a></p>',
+        html: '<p><a href="{{PASSWORD_RESET_URL}}">Reset your password</a></p>',
         variables: [
             {
                 key: "PASSWORD_RESET_URL",
@@ -99,11 +98,11 @@ export async function passwordResetTemplate( ): Promise<string>{
 export async function priceAlertTemplate(): Promise<string> {
   const { data, error } = await fullResend.templates.create({
     name: "price-alert",
-    subject: "{{{GAME_TITLE}}} on Steam is on sale!",
+    subject: "{{{GAME_TITLE}}} on Steam qualifies for your target",
     html: [
-      "<p>The latest successful check found <strong>{{{GAME_TITLE}}}</strong> on Steam at {{{CURRENT_PRICE}}}.</p>",
-      "<p>That qualifies for your target of {{{TARGET_PRICE}}}.</p>",
-      '<p><a href="{{{PURCHASE_URL}}}">View the Steam offer</a></p>',
+      "<p>The latest successful check found <strong>{{GAME_TITLE}}</strong> on Steam at {{CURRENT_PRICE}}.</p>",
+      "<p>That qualifies for your target of {{TARGET_PRICE}}.</p>",
+      '<p><a href="{{PURCHASE_URL}}">View the Steam offer</a> via CheapShark.</p>',
     ].join(""),
     text: "The latest successful check found {{{GAME_TITLE}}} on Steam at {{{CURRENT_PRICE}}}. This qualifies for your target of {{{TARGET_PRICE}}}. View the Steam offer: {{{PURCHASE_URL}}}",
     variables: [
@@ -124,4 +123,3 @@ export async function priceAlertTemplate(): Promise<string> {
 
   return data.id;
 }
-

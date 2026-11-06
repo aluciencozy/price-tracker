@@ -121,7 +121,7 @@ npx tsx .\scripts\create-password-reset-template.ts
 npx tsx .\scripts\create-price-alert-template.ts
 ```
 
-These scripts create new templates; do not rerun them if the corresponding template already exists. Use the ID for each template in its matching `TEMPLATE_*_ID` setting. The setup scripts do not send an email. The `test-resend.ts` script sends a real test price-alert email to the mailbox configured in that script; it uses sample values and does not require MongoDB. Never log verification/reset URLs or their tokens.
+These scripts create new templates; do not rerun them if the corresponding template already exists. Use the ID for each template in its matching `TEMPLATE_*_ID` setting. Update and republish any existing price-alert template to describe a target match, not a sale, and escape HTML variables. The setup scripts do not send an email. The `test-resend.ts` script sends a real test price-alert email to `RESEND_TEST_RECIPIENT` in the local environment; it uses sample values and does not require MongoDB. Never log verification/reset URLs or their tokens.
 
 `GET /api/health` checks API liveness and reports database state. `GET /api/ready` returns **503 until MongoDB is connected**. A working health screen does not mean authentication, persistence, or price tracking exists. Remote MongoDB is required for the finished course project, even though it is not required to run this starter.
 

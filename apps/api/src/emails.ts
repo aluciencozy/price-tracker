@@ -59,6 +59,7 @@ export async function sendWithOutcome(
   }
   const send = sender ?? ((message, options) => client!.emails.send(message, options));
 
+  let uncertain = false;
   for (let attempts = 1; attempts <= MAX_SEND_ATTEMPTS; attempts += 1) {
     let response: EmailResponse;
     try {
@@ -67,6 +68,7 @@ export async function sendWithOutcome(
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
     } catch {
+      uncertain = true;
       // The provider may have accepted the email before the connection failed.
       // Retry only with this same idempotency key.
       if (attempts < MAX_SEND_ATTEMPTS) {
@@ -88,6 +90,7 @@ export async function sendWithOutcome(
     const code = error.name || "provider_error";
     const statusCode = error.statusCode;
     if (statusCode === null) {
+      uncertain = true;
       if (attempts < MAX_SEND_ATTEMPTS) {
         await wait(Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
         continue;
@@ -97,12 +100,17 @@ export async function sendWithOutcome(
 
     const retryable = statusCode === 408 || statusCode === 429 || statusCode >= 500 ||
       code === "concurrent_idempotent_requests";
+    if (statusCode === 408 || statusCode >= 500 || code === "concurrent_idempotent_requests") {
+      uncertain = true;
+    }
     if (!retryable) {
+      if (uncertain) return { status: "unknown", code: "prior_outcome_unknown", attempts };
       return { status: "permanent_failure", code, attempts };
     }
 
     const retryAfterMs = getRetryAfterMs(response);
     if (attempts === MAX_SEND_ATTEMPTS || (retryAfterMs !== undefined && retryAfterMs > MAX_RETRY_WAIT_MS)) {
+      if (uncertain) return { status: "unknown", code: "prior_outcome_unknown", attempts };
       return { status: "retryable_failure", code, attempts, retryAfterMs };
     }
 
