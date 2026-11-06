@@ -3,7 +3,6 @@ import express, { type ErrorRequestHandler } from 'express';
 import helmet from 'helmet';
 import type { Config } from './config.js';
 import { registrationRouter } from './registrationRouter.js';
-import type { VerificationSender } from './registration.js';
 import { accountError } from './accountError.js';
 
 export type DatabaseStatus =
@@ -12,7 +11,7 @@ export type DatabaseStatus =
   | 'connected'
   | 'disconnected';
 
-export function createApp(config: Config, databaseStatus: () => DatabaseStatus, sendVerification?: VerificationSender) {
+export function createApp(config: Config, databaseStatus: () => DatabaseStatus) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -35,7 +34,7 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus, 
 
   app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '16kb' }));
-  app.use('/api/auth', registrationRouter(config, () => databaseStatus() === 'connected', sendVerification));
+  app.use('/api/auth', registrationRouter(config, () => databaseStatus() === 'connected'));
 
   // Liveness stays available even when MongoDB has not been configured.
   app.get('/api/health', (_request, response) => {

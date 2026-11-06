@@ -6,7 +6,9 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { AuthLimitModel, AuthTokenModel, PreloginModel, SessionModel, UserModel } from '../src/models/account.js';
 import { createDatabaseIndexes } from '../src/models/index.js';
-import { hashSecret, register, resend, verify } from '../src/registration.js';
+import { hashSecret, register as enqueueRegister, resend as enqueueResend, verify, type VerificationSender } from '../src/registration.js';
+import { VerificationMailModel } from '../src/models/verificationMail.js';
+import { dispatchVerificationMail, recoverVerificationMail, startVerificationDispatcher } from '../src/verificationDispatch.js';
 
 const uri = process.env.TEST_MONGODB_URI;
 describe.skipIf(!uri)('registration routes with real MongoDB transactions', () => {
@@ -17,15 +19,25 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     return { status: 'success' as const, messageId: 'fixture', attempts: 1 };
   });
   const config = loadConfig({ NODE_ENV: 'test' });
-  const app = createApp(config, () => 'connected', send);
+  const app = createApp(config, () => 'connected');
   const credentials = { email: 'fixture@example.invalid', password: '  fixture password  ', name: 'Player' };
   const post = (action: string, body: object) => request(app).post(`/api/auth/mobile/${action}`).send(body);
+  // Service tests explicitly dispatch; the HTTP app never calls a provider.
+  const register = async (input: typeof credentials, sender: VerificationSender) => {
+    await enqueueRegister(input);
+    await dispatchVerificationMail(sender);
+  };
+  const resend = async (email: string, sender: VerificationSender) => {
+    await enqueueResend(email);
+    await dispatchVerificationMail(sender);
+  };
   beforeAll(async () => {
     await mongoose.connect(uri!, { dbName, autoIndex: false, serverSelectionTimeoutMS: 5000 });
     await createDatabaseIndexes();
   }, 30000);
   beforeEach(async () => {
     await Promise.all([UserModel.deleteMany({}), AuthTokenModel.deleteMany({}), SessionModel.deleteMany({}), AuthLimitModel.deleteMany({}), PreloginModel.deleteMany({})]);
+    await VerificationMailModel.deleteMany({});
     sent.length = 0;
     send.mockClear();
   });
@@ -36,6 +48,7 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
   });
   it('registers normalized accounts, stores only hashes, verifies once, and never logs in', async () => {
     const res = await post('register', { ...credentials, email: ' FIXTURE@Example.Invalid ' }).expect(202);
+    await dispatchVerificationMail(send);
     expect(res.headers['set-cookie']).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toContain('token');
     const user = await UserModel.findOne().select('+passwordHash').orFail();
@@ -57,6 +70,7 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     const first = await post('register', credentials).expect(202);
     const duplicate = await post('register', { ...credentials, password: 'different password' }).expect(202);
     const unknown = await post('resend-verification', { email: 'absent@example.invalid' }).expect(202);
+    await dispatchVerificationMail(send);
     expect(duplicate.body).toEqual(first.body);
     expect(unknown.body).toEqual(first.body);
     expect(sent).toHaveLength(1);
@@ -71,6 +85,7 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
   });
   it('enforces expiry even before MongoDB TTL cleanup and never consumes via GET', async () => {
     await post('register', credentials).expect(202);
+    await dispatchVerificationMail(send);
     const token = sent[0]!.token;
     await request(app).get(`/api/auth/mobile/verify-email?token=${token}`).expect(404);
     expect((await AuthTokenModel.findOne())!.consumedAt).toBeNull();
@@ -100,10 +115,12 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
   it('does not delete an account/token after a thrown or uncertain email result', async () => {
     send.mockRejectedValueOnce(new Error('fixture send failure'));
     await post('register', credentials).expect(202);
+    await dispatchVerificationMail(send);
     expect(await UserModel.countDocuments()).toBe(1);
     expect(await AuthTokenModel.countDocuments()).toBe(1);
     await UserModel.updateOne({}, { $set: { verificationEmailSentAt: new Date(0) } });
     await post('resend-verification', { email: credentials.email }).expect(202);
+    await dispatchVerificationMail(send);
     await post('verify-email', { token: sent[0]!.token }).expect(204);
   });
   it('serializes concurrent registration and sends exactly one initial email', async () => {
@@ -170,7 +187,7 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     const results = await Promise.all(Array.from({ length: 8 }, () => post('resend-verification', { email: 'absent@example.invalid' })));
     expect(results.filter(result => result.status === 202)).toHaveLength(5);
     expect(results.filter(result => result.status === 429)).toHaveLength(3);
-    const second = createApp(config, () => 'connected', send);
+    const second = createApp(config, () => 'connected');
     const response = await request(second).post('/api/auth/mobile/register').send(credentials).expect(429);
     expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
   });
@@ -183,6 +200,7 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     await agent.post('/api/auth/web/register').set('Origin', config.WEB_ORIGINS[0]!).send(credentials).expect(403);
     await request(app).post('/api/auth/web/register').set('Origin', config.WEB_ORIGINS[0]!).set('X-CSRF-Token', first.body.csrfToken).send(credentials).expect(403);
     const response = await agent.post('/api/auth/web/register').set('Origin', config.WEB_ORIGINS[0]!).set('X-CSRF-Token', first.body.csrfToken).send(credentials).expect(202);
+    await dispatchVerificationMail(send);
     expect(response.headers['set-cookie']).toBeUndefined();
     await PreloginModel.updateMany({}, { $set: { expiresAt: new Date(0) } });
     await agent.post('/api/auth/web/verify-email').set('Origin', config.WEB_ORIGINS[0]!).set('X-CSRF-Token', first.body.csrfToken).send({ token: sent[0]!.token }).expect(403);
@@ -210,5 +228,173 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     expect(res.body).toEqual({ message: 'If eligible, you will receive an email with next steps.' });
     expect(await UserModel.countDocuments()).toBe(0);
     expect(res.headers['retry-after']).toBeUndefined();
+  });
+  it('completes eligible and duplicate registration responses while provider delivery is blocked', async () => {
+    await enqueueRegister(credentials);
+    let release!: () => void;
+    let entered!: () => void;
+    const providerEntered = new Promise<void>(resolve => { entered = resolve; });
+    const providerRelease = new Promise<void>(resolve => { release = resolve; });
+    let providerCompleted = false;
+    const blocked = dispatchVerificationMail(async () => {
+      entered();
+      await providerRelease;
+      providerCompleted = true;
+      return { status: 'success', messageId: 'fixture', attempts: 1 };
+    });
+    await providerEntered;
+    try {
+      const eligible = await post('register', { ...credentials, email: 'second@example.invalid' }).expect(202);
+      const duplicate = await post('register', credentials).expect(202);
+      expect(eligible.body).toEqual(duplicate.body);
+      expect(providerCompleted).toBe(false);
+      expect(await VerificationMailModel.countDocuments({ status: 'pending' })).toBe(1);
+    } finally { release(); await blocked; }
+  });
+  it('completes eligible, unknown, verified and cooldown resend responses without waiting on a blocked provider', async () => {
+    await enqueueRegister(credentials);
+    await UserModel.create({ email: 'verified@example.invalid', passwordHash: 'fixture', emailVerifiedAt: new Date() });
+    let release!: () => void;
+    let entered!: () => void;
+    const providerEntered = new Promise<void>(resolve => { entered = resolve; });
+    const providerRelease = new Promise<void>(resolve => { release = resolve; });
+    let providerCompleted = false;
+    const blocked = dispatchVerificationMail(async () => {
+      entered(); await providerRelease; providerCompleted = true;
+      return { status: 'unknown', code: 'fixture_uncertain', attempts: 1 };
+    });
+    await providerEntered;
+    try {
+      await UserModel.updateOne({ email: credentials.email }, { $set: { verificationEmailSentAt: new Date(0) } });
+      const responses = await Promise.all([
+        post('resend-verification', { email: credentials.email }).expect(202),
+        post('resend-verification', { email: 'absent@example.invalid' }).expect(202),
+        post('resend-verification', { email: 'verified@example.invalid' }).expect(202),
+      ]);
+      const cooldown = await post('resend-verification', { email: credentials.email }).expect(202);
+      for (const response of responses) expect(response.body).toEqual(cooldown.body);
+      expect(providerCompleted).toBe(false);
+      expect(await VerificationMailModel.countDocuments()).toBe(1);
+    } finally { release(); await blocked; }
+    // Old in-flight completion cannot finalize the explicitly rotated pending job.
+    expect((await VerificationMailModel.findOne())!.status).toBe('pending');
+    await dispatchVerificationMail(send);
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it('rolls back user and token when enqueue storage fails', async () => {
+    vi.spyOn(VerificationMailModel, 'findOneAndUpdate').mockImplementationOnce(() => { throw new Error('fixture outbox failure'); });
+    await post('register', credentials).expect(503);
+    expect(await UserModel.countDocuments()).toBe(0);
+    expect(await AuthTokenModel.countDocuments()).toBe(0);
+    expect(await VerificationMailModel.countDocuments()).toBe(0);
+  });
+  it('recovers a pending job after reconnect, stores no raw secrets, and dispatches it once', async () => {
+    await enqueueRegister(credentials);
+    const before = await AuthTokenModel.findOne().select('+tokenHash').orFail();
+    await mongoose.disconnect();
+    await mongoose.connect(uri!, { dbName, autoIndex: false });
+    expect(await dispatchVerificationMail(send)).toBe(true);
+    expect(await dispatchVerificationMail(send)).toBe(false);
+    expect(sent).toHaveLength(1);
+    const stored = await AuthTokenModel.findOne().select('+tokenHash').orFail();
+    expect(stored.tokenHash).not.toBe(before.tokenHash);
+    expect(stored.expiresAt).toEqual(before.expiresAt);
+    const job = await VerificationMailModel.findOne().lean();
+    expect(JSON.stringify(job)).not.toContain(sent[0]!.token);
+    expect(job!.deliveryKey).toBe(`verify-email:${hashSecret(sent[0]!.token)}`);
+    expect(job!.providerMessageId).toBe('fixture');
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it.each(['unknown', 'retryable_failure', 'permanent_failure'] as const)('never automatically replays a %s outcome', async status => {
+    await enqueueRegister(credentials);
+    const sender: VerificationSender = vi.fn(async details => {
+      sent.push(details);
+      return { status, code: 'fixture', attempts: 1 };
+    });
+    await dispatchVerificationMail(sender);
+    await recoverVerificationMail(new Date(Date.now() + 120000));
+    expect(await dispatchVerificationMail(sender)).toBe(false);
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect((await VerificationMailModel.findOne())!.status).toBe(status === 'unknown' ? 'unknown' : 'failed');
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it('marks interrupted sends unknown without reclaiming, even if an old provider call later completes', async () => {
+    await enqueueRegister(credentials);
+    let entered!: () => void;
+    let release!: () => void;
+    const providerEntered = new Promise<void>(resolve => { entered = resolve; });
+    const providerRelease = new Promise<void>(resolve => { release = resolve; });
+    const blocked = dispatchVerificationMail(async details => {
+      sent.push(details); entered(); await providerRelease;
+      return { status: 'success', messageId: 'fixture', attempts: 1 };
+    });
+    await providerEntered;
+    try {
+      await recoverVerificationMail(new Date(Date.now() + 120000));
+      expect((await VerificationMailModel.findOne())!.status).toBe('unknown');
+      expect(await dispatchVerificationMail(send)).toBe(false);
+    } finally { release(); await blocked; }
+    expect((await VerificationMailModel.findOne())!.status).toBe('unknown');
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it('does not resend after an accepted provider response whose status write failed', async () => {
+    await enqueueRegister(credentials);
+    const write = vi.spyOn(VerificationMailModel, 'updateOne').mockImplementationOnce(() => { throw new Error('fixture finalization failure'); });
+    await expect(dispatchVerificationMail(send)).rejects.toThrow('fixture finalization failure');
+    write.mockRestore();
+    await recoverVerificationMail(new Date(Date.now() + 120000));
+    expect(await dispatchVerificationMail(send)).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect((await VerificationMailModel.findOne())!.status).toBe('unknown');
+  });
+  it('expires pending jobs instead of minting a later token with extended lifetime', async () => {
+    await enqueueRegister(credentials);
+    await VerificationMailModel.updateMany({}, { $set: { expiresAt: new Date(0) } });
+    await recoverVerificationMail();
+    expect(await dispatchVerificationMail(send)).toBe(false);
+    expect(sent).toHaveLength(0);
+    expect((await VerificationMailModel.findOne())!.status).toBe('superseded');
+  });
+  it('rolls back a failed claim before sending, so pending work is safely recoverable', async () => {
+    await enqueueRegister(credentials);
+    const before = await AuthTokenModel.findOne().select('+tokenHash').orFail();
+    const write = vi.spyOn(AuthTokenModel, 'updateOne').mockImplementationOnce(() => { throw new Error('fixture claim failure'); });
+    await expect(dispatchVerificationMail(send)).rejects.toThrow('fixture claim failure');
+    write.mockRestore();
+    expect(send).not.toHaveBeenCalled();
+    expect((await VerificationMailModel.findOne())!.status).toBe('pending');
+    expect((await AuthTokenModel.findOne().select('+tokenHash'))!.tokenHash).toBe(before.tokenHash);
+    expect(await dispatchVerificationMail(send)).toBe(true);
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it('rolls back resend cooldown and token rotation if its outbox update fails', async () => {
+    await register(credentials, send);
+    await UserModel.updateOne({}, { $set: { verificationEmailSentAt: new Date(0) } });
+    vi.spyOn(VerificationMailModel, 'findOneAndUpdate').mockImplementationOnce(() => { throw new Error('fixture outbox failure'); });
+    await post('resend-verification', { email: credentials.email }).expect(503);
+    expect((await UserModel.findOne())!.verificationEmailSentAt).toEqual(new Date(0));
+    expect((await VerificationMailModel.findOne())!.status).toBe('sent');
+    expect(await verify(sent[0]!.token)).toBe(true);
+  });
+  it('bounds the managed dispatcher to one active provider call and stops without claiming more work', async () => {
+    await enqueueRegister(credentials);
+    await enqueueRegister({ ...credentials, email: 'second@example.invalid' });
+    let entered!: () => void;
+    let release!: () => void;
+    const providerEntered = new Promise<void>(resolve => { entered = resolve; });
+    const providerRelease = new Promise<void>(resolve => { release = resolve; });
+    const sender = vi.fn(async () => {
+      entered(); await providerRelease;
+      return { status: 'success' as const, messageId: 'fixture', attempts: 1 };
+    });
+    const stop = startVerificationDispatcher(sender, () => true);
+    await providerEntered;
+    const stopped = stop();
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(await VerificationMailModel.countDocuments({ status: 'pending' })).toBe(1);
+    release();
+    await stopped;
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(await VerificationMailModel.countDocuments({ status: 'pending' })).toBe(1);
   });
 });

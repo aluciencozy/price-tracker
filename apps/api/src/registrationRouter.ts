@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Config } from './config.js';
 import { AuthLimitModel, PreloginModel, SessionModel, UserModel } from './models/account.js';
-import { accepted, hashSecret, register, resend, verify, verificationSender, type VerificationSender } from './registration.js';
+import { accepted, hashSecret, register, resend, verify } from './registration.js';
 import { accountError as fail } from './accountError.js';
 
 const email = z.string().trim().toLowerCase().max(254).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
@@ -36,9 +36,8 @@ async function limited(scope: string, value: string, maximum = 5, windowMs = 900
   return { blocked: row!.attempts > maximum, retry: Math.ceil((start + windowMs - now) / 1000) };
 }
 
-export function registrationRouter(config: Config, connected: () => boolean, sender?: VerificationSender) {
+export function registrationRouter(config: Config, connected: () => boolean) {
   const router = Router();
-  const send = sender ?? verificationSender(config.WEB_ORIGINS[0]!);
   const production = config.NODE_ENV === 'production';
   const preloginName = production ? '__Host-price_tracker_prelogin' : 'price_tracker_prelogin_dev';
   const sessionName = production ? '__Host-price_tracker_session' : 'price_tracker_session_dev';
@@ -128,8 +127,8 @@ export function registrationRouter(config: Config, connected: () => boolean, sen
             if (action !== 'verify-email') return res.status(202).json(accepted);
             return fail(res.set('Retry-After', String(accountRate.retry)), 429, 'RATE_LIMITED', 'Try again later.');
           }
-          if (action === 'register') await register(input as z.infer<typeof registration>, send);
-          else if (action === 'resend-verification') await resend((input as z.infer<typeof emailBody>).email, send);
+          if (action === 'register') await register(input as z.infer<typeof registration>);
+          else if (action === 'resend-verification') await resend((input as z.infer<typeof emailBody>).email);
           else {
             if (!await verify((input as z.infer<typeof tokenBody>).token)) {
               return fail(res, 400, 'TOKEN_INVALID', 'This link is invalid or expired.');

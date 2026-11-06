@@ -3,6 +3,8 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { connectDatabase, databaseStatus, disconnectDatabase } from './database.js';
 import { createDatabaseIndexes } from './models/index.js';
+import { startVerificationDispatcher } from './verificationDispatch.js';
+import { verificationSender } from './registration.js';
 
 const config = loadConfig();
 let indexesReady = false;
@@ -31,6 +33,10 @@ if (config.MONGODB_URI) {
 }
 
 let stopping = false;
+const stopVerificationDispatcher = startVerificationDispatcher(
+  verificationSender(config.WEB_ORIGINS[0]!),
+  () => indexesReady && databaseStatus(config.MONGODB_URI) === 'connected',
+);
 
 function shutdown() {
   if (stopping) {
@@ -45,7 +51,7 @@ function shutdown() {
   timeout.unref();
 
   server.close(() => {
-    void disconnectDatabase()
+    void stopVerificationDispatcher().then(disconnectDatabase)
       .then(() => {
         clearTimeout(timeout);
         process.exitCode = 0;
