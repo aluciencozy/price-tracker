@@ -6,7 +6,8 @@ import {
   type SubmitEvent,
 } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, Link2 } from 'lucide-react';
+import { ArrowLeft, Link2 } from 'lucide-react';
+import { LazyMotion, m, useReducedMotion } from 'motion/react';
 import {
   RepositoryError,
   type ProductPreview,
@@ -32,6 +33,8 @@ import { useApiMode } from '../data/mode';
 import { isAborted } from '../client/sessionContext';
 import { RequestError } from './RequestError';
 import { useRetryWait } from '../data/useRetryWait';
+const loadMotionFeatures = () =>
+  import('./motionFeatures').then((module) => module.default);
 
 export function TrackerEditor({
   repository,
@@ -58,7 +61,8 @@ export default function TrackerForm({
 }) {
   const navigate = useNavigate();
   const api = useApiMode();
-  const heading = item ? 'Make it your price.' : 'Add your next game.';
+  const reducedMotion = useReducedMotion();
+  const heading = item ? 'Edit tracker' : 'Add game';
   useEffect(() => {
     document.title = `${heading} / Price Tracker${api ? '' : ' sample'}`;
   }, [heading, api]);
@@ -71,6 +75,10 @@ export default function TrackerForm({
   }, []);
   const [url, setUrl] = useState('');
   const [preview, setPreview] = useState<ProductPreview | null>(null);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (preview) previewHeading.current?.focus();
+  }, [preview]);
   const product = item?.product ?? preview?.product;
   const [target, setTarget] = useState(
     item ? (item.targetPrice.amountMinor / 100).toFixed(2) : '',
@@ -80,19 +88,50 @@ export default function TrackerForm({
     item?.alerts ?? { email: true, push: false },
   );
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [lookupFailed, setLookupFailed] = useState(false);
   const [error, setError] = useState<unknown>();
   const [invalidTarget, setInvalidTarget] = useState(false);
+  const invalidUrl = !lookupFailed && error instanceof RepositoryError &&
+    ['validation', 'unsupported'].includes(error.code);
+  const targetInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (invalidTarget && !busy) targetInput.current?.focus();
+  }, [invalidTarget, busy]);
+  function changeTarget(value: string) {
+    setTarget(value);
+    if (invalidTarget) {
+      try {
+        parseTarget(value);
+        setInvalidTarget(false);
+        setError(undefined);
+      } catch {
+        // Keep the error until the correction is valid.
+      }
+    }
+  }
   const wait = useRetryWait(error);
   const cancelTo = item ? `/watchlist/${item.id}` : '/watchlist';
+  function changeUrl(value: string) {
+    repository.clearPreview?.();
+    setUrl(value);
+    setError(undefined);
+    setLookupFailed(false);
+  }
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || wait) return;
     setBusy(true);
+    setLookupFailed(false);
     setError(undefined);
     setInvalidTarget(false);
+    let checked = false;
     try {
       if (!product) {
-        const result = await repository.preview(url);
+        const result = await repository.preview(url, () => {
+          checked = true;
+          if (mounted.current) setChecking(true);
+        });
         if (mounted.current) setPreview(result);
         return;
       }
@@ -120,9 +159,18 @@ export default function TrackerForm({
           },
         });
     } catch (error) {
-      if (mounted.current && !isAborted(error)) setError(error);
+      if (mounted.current && !isAborted(error)) {
+        setError(error);
+        setLookupFailed(
+          checked && !(error instanceof RepositoryError &&
+            ['duplicate', 'expired'].includes(error.code)),
+        );
+      }
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current) {
+        setBusy(false);
+        setChecking(false);
+      }
     }
   }
   return (
@@ -136,11 +184,6 @@ export default function TrackerForm({
       <div className="page-heading">
         <div>
           <h1 tabIndex={-1}>{heading}</h1>
-          <p>
-            {item
-              ? 'One game. Your target and preferences.'
-              : 'A Steam link is all you need to start.'}
-          </p>
         </div>
       </div>
       <div className="form-layout">
@@ -151,19 +194,18 @@ export default function TrackerForm({
           {!item ? (
             <ol className="form-steps" aria-label="Add game progress">
               <li aria-current={!product ? 'step' : undefined}>
-                <span>{product ? <Check aria-label="Complete" /> : '1'}</span>
                 Preview offer
               </li>
               <li aria-current={product ? 'step' : undefined}>
-                <span>2</span>Set your target
+                Set your target
               </li>
             </ol>
           ) : null}
-          <form onSubmit={(event) => void submit(event)}>
+          <form id="tracker-form" onSubmit={(event) => void submit(event)}>
             <FieldSet disabled={busy || wait > 0} aria-busy={busy}>
               {!product ? (
                 <FieldGroup>
-                  <Field data-invalid={Boolean(error)}>
+                  <Field data-invalid={invalidUrl}>
                     <FieldLabel htmlFor="steam-url">
                       Steam base-game URL
                     </FieldLabel>
@@ -171,12 +213,11 @@ export default function TrackerForm({
                       id="steam-url"
                       value={url}
                       onChange={(event) => {
-                        setUrl(event.target.value);
-                        setError(undefined);
+                        changeUrl(event.target.value);
                       }}
                       placeholder="https://store.steampowered.com/app/620/"
                       required
-                      aria-invalid={Boolean(error)}
+                      aria-invalid={invalidUrl}
                       aria-describedby="url-help"
                     />
                     <FieldDescription id="url-help">
@@ -185,12 +226,12 @@ export default function TrackerForm({
                         : 'Parsed locally; never fetched. This sample recognizes Portal 2 and Half-Life 2.'}
                     </FieldDescription>
                   </Field>
-                  <div className="flex flex-wrap gap-2">
+                  {!api ? <div className="flex flex-wrap gap-2">
                     <Button
                       variant="secondary"
                       type="button"
                       onClick={() =>
-                        setUrl('https://store.steampowered.com/app/620/')
+                        changeUrl('https://store.steampowered.com/app/620/')
                       }
                     >
                       Use Portal 2 link
@@ -199,15 +240,15 @@ export default function TrackerForm({
                       variant="secondary"
                       type="button"
                       onClick={() =>
-                        setUrl('https://store.steampowered.com/app/220/')
+                        changeUrl('https://store.steampowered.com/app/220/')
                       }
                     >
                       Use Half-Life 2 link
                     </Button>
-                  </div>
+                  </div> : null}
                   <Button type="submit" disabled={busy}>
                     <Link2 data-icon="inline-start" aria-hidden="true" />
-                    {busy ? 'Previewing…' : 'Preview offer'}
+                    {busy ? checking ? 'Checking your watchlist…' : 'Previewing…' : 'Preview offer'}
                   </Button>
                   <Button
                     type="button"
@@ -218,7 +259,13 @@ export default function TrackerForm({
                   </Button>
                 </FieldGroup>
               ) : (
-                <>
+                <LazyMotion features={loadMotionFeatures}>
+                  <m.div
+                    initial={item || reducedMotion ? false : { opacity: 0.65, transform: 'translateY(10px)' }}
+                    animate={{ opacity: 1, transform: 'translateY(0px)' }}
+                    transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }}
+                  >
+                  {!item ? <h2 ref={previewHeading} tabIndex={-1} className="preview-heading">Set your target</h2> : null}
                   <div className="offer-preview">
                     <GameArt product={product} />
                     <div>
@@ -243,6 +290,7 @@ export default function TrackerForm({
                       variant="link"
                       onClick={() => {
                         setPreview(null);
+                        repository.clearPreview?.();
                         setError(undefined);
                       }}
                     >
@@ -252,7 +300,8 @@ export default function TrackerForm({
                   <div className="tracker-preferences">
                     <PreferencesFields
                       target={target}
-                      onTarget={setTarget}
+                      onTarget={changeTarget}
+                      targetRef={targetInput}
                       enabled={enabled}
                       onEnabled={setEnabled}
                       alerts={alerts}
@@ -272,14 +321,17 @@ export default function TrackerForm({
                       Cancel
                     </Button>
                   </div>
-                </>
+                  </m.div>
+                </LazyMotion>
               )}
             </FieldSet>
           </form>
-          {error ? (
+          {busy ? <p role="status">{checking ? 'Checking your watchlist…' : product ? 'Saving…' : 'Previewing offer…'}</p> : null}
+          {error && !invalidTarget ? (
             <div className="mt-5">
-              <Status error>
+              <Status error title={lookupFailed ? 'Could not check your watchlist' : undefined}>
                 <RequestError error={error} />
+                {lookupFailed ? <Button type="submit" form="tracker-form" variant="outline" disabled={busy || wait > 0}>Retry</Button> : null}
                 {error instanceof RepositoryError &&
                 error.code === 'duplicate' &&
                 error.resourceId ? (
@@ -315,22 +367,6 @@ export default function TrackerForm({
             <p role="status">Retry available in {wait} seconds.</p>
           ) : null}
         </section>
-        <aside className="form-aside">
-          <h2>One exact offer.</h2>
-          <p>
-            Steam base games, in US dollars. No bundles, DLC, subscriptions,
-            or guessed editions.
-          </p>
-          <p>
-            The planned daily checks compare your chosen Steam offer with your
-            target. A failed check keeps the last successful price.
-          </p>
-          <p>
-            {api
-              ? 'Changes save to your private account. Scheduled checks and alerts require the configured backend; this form does not trigger a price check.'
-              : 'Sample changes stay in memory and reset on refresh. Nothing is sent or scheduled.'}
-          </p>
-        </aside>
       </div>
     </>
   );

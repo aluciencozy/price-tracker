@@ -18,11 +18,11 @@ import { useRetryWait } from '../data/useRetryWait';
 
 export type AuthPage = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 const titles = {
-  login: 'Welcome back.',
-  register: 'Make a little list.',
-  verify: 'Verify your email.',
-  forgot: 'Forgot your password?',
-  reset: 'Choose a new password.',
+  login: 'Sign in',
+  register: 'Create account',
+  verify: 'Verify email',
+  forgot: 'Reset password',
+  reset: 'Reset password',
 };
 export default function ApiAuthScreen({
   page,
@@ -137,10 +137,7 @@ export default function ApiAuthScreen({
         <h1 id="auth-title" tabIndex={-1}>
           {titles[page]}
         </h1>
-        <p>
-          Connected account service. Verification and password reset do not
-          sign you in.
-        </p>
+        {page === 'verify' || page === 'reset' ? <p>Verification and password reset do not sign you in.</p> : null}
       </div>
       <div className="auth-surface">
         {!complete ? (
@@ -279,10 +276,7 @@ export default function ApiAuthScreen({
           </div>
         ) : null}
         <div className="auth-links">
-          <Link to="/login">Back to sign in</Link>
-          <Link to="/register">Create account</Link>
-          <Link to="/forgot">Request password reset</Link>
-          <Link to="/watchlist">Open watchlist</Link>
+          {page === 'login' ? <><Link to="/forgot">Forgot password?</Link><Link to="/register">Create account</Link></> : <><Link to="/login">Back to sign in</Link>{page !== 'forgot' ? <Link to="/forgot">Request password reset</Link> : null}</>}
         </div>
       </div>
     </section>

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowUpRight, Mail, Smartphone } from 'lucide-react';
+import { ChevronRight, Mail, Smartphone } from 'lucide-react';
 import type { Product, TrackedItem } from '../data/types';
 import { formatMoney, trackerStatus } from '../data/validation';
 import { Badge } from './ui/badge';
@@ -69,7 +69,7 @@ export default function GameCard({ item }: { item: TrackedItem }) {
             aria-label={`Details for ${item.product.title}`}
           >
             Details
-            <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+            <ChevronRight data-icon="inline-end" aria-hidden="true" />
           </Link>
         </Button>
       </div>

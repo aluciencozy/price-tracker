@@ -109,12 +109,9 @@ describe('injectable async sample repository', () => {
     await expect(
       repo.create({ previewId: 'invented', ...prefs }),
     ).rejects.toMatchObject({ code: 'preview-expired' });
-    const preview = await repo.preview(
+    await expect(repo.preview(
       'https://store.steampowered.com/app/620/',
-    );
-    await expect(
-      repo.create({ previewId: preview.id, ...prefs }),
-    ).rejects.toMatchObject({
+    )).rejects.toMatchObject({
       code: 'duplicate',
       resourceId: 'tracker-portal-2',
     });
@@ -122,6 +119,10 @@ describe('injectable async sample repository', () => {
       repo.preview('https://store.steampowered.com/app/999/'),
     ).rejects.toMatchObject({ code: 'unsupported' });
     expect(await repo.list()).toHaveLength(2);
+    await repo.remove('tracker-portal-2');
+    const preview = await repo.preview('https://store.steampowered.com/app/620/');
+    await repo.create({ previewId: preview.id, ...prefs });
+    await expect(repo.create({ previewId: preview.id, ...prefs })).rejects.toMatchObject({ code: 'duplicate' });
   });
   it('expires a sample preview without changing its product or creating a tracker', async () => {
     const repo = createSampleRepository({ empty: true });

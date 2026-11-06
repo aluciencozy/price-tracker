@@ -3,21 +3,22 @@ import { Bell, Link2, SlidersHorizontal } from 'lucide-react';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { useApiMode } from '../data/mode';
+import { useApiSession } from '../client/sessionContext';
 export default function Home() {
   const api = useApiMode();
+  const authenticated = useApiSession()?.session.status === 'authenticated';
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
-        <p className="hero-context">For the games on your someday list.</p>
         <h1 id="hero-title" tabIndex={-1}>
-          Good games.
+          Your games.
           <br />
           Your price.
         </h1>
         <p className="hero-description">
-          Keep a little list. Pick your price.
+          Save a Steam game and set your target.
           <br />
-          Let the next Steam deal come to you.
+          Keep the price that matters in view.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">
@@ -26,14 +27,16 @@ export default function Home() {
             </Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link to="/register">
-              {api ? 'Create account' : 'Preview account setup'}
+            <Link to={authenticated ? '/account' : '/register'}>
+              {authenticated ? 'Account' : api ? 'Create account' : 'Preview account setup'}
             </Link>
           </Button>
         </div>
         <p className="hero-note">
           {api
-            ? 'Sign in with a verified account. Saved games use the shared API.'
+            ? authenticated
+              ? 'Saved games use your private account and the shared API.'
+              : 'Sign in with a verified account. Saved games use the shared API.'
             : 'No sign-up needed for the sample. Nothing is saved.'}
         </p>
       </section>

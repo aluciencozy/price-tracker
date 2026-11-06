@@ -86,7 +86,7 @@ function AppContent({
           <span>
             {api
               ? 'Connected data only. Availability and delivery depend on the shared service.'
-              : 'Not live. Changes reset on refresh. No real accounts or alerts.'}
+              : 'Not live. Changes reset on refresh; no real accounts or alerts.'}
           </span>
         </div>
       </div>

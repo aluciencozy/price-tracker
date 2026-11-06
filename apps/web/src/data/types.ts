@@ -70,7 +70,9 @@ export type PriceHistory = {
 export interface TrackerRepository {
   list(query?: string): Promise<TrackedItem[]>;
   get(id: string): Promise<TrackedItem>;
-  preview(url: string): Promise<ProductPreview>;
+  preview(url: string, onChecking?: () => void): Promise<ProductPreview>;
+  clearPreview?(): void;
+  cancelSearch?(): void;
   create(input: Preferences & { previewId: string }): Promise<TrackedItem>;
   update(id: string, input: Preferences): Promise<TrackedItem>;
   remove(id: string): Promise<void>;

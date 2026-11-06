@@ -49,7 +49,7 @@ describe('Steam purchase navigation', () => {
       </MemoryRouter>,
     );
     expect(
-      screen.queryByRole('link', { name: 'Open Steam deal via CheapShark' }),
+      screen.queryByRole('link', { name: 'View Steam offer via CheapShark' }),
     ).not.toBeInTheDocument();
   });
   it('distinguishes a missing offer from a genuine zero price', async () => {
@@ -82,7 +82,7 @@ describe('Steam purchase navigation', () => {
       </MemoryRouter>,
     );
     const link = screen.getByRole('link', {
-      name: 'Open Steam deal via CheapShark',
+      name: 'View Steam offer via CheapShark',
     });
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');

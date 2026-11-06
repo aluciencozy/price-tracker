@@ -220,6 +220,13 @@ export function createSampleRepository(
           'missing-offer',
           'No eligible Steam offer in this preview. Another store’s price or historical low cannot be used.',
         );
+      const duplicate = items.find((item) => item.product.id === product.id);
+      if (duplicate)
+        throw new RepositoryError(
+          'duplicate',
+          'Already in your watchlist. Open the existing tracker to edit its target.',
+          duplicate.id,
+        );
       const preview = {
         id: `preview-sample-${++sequence}`,
         expiresAt: new Date(Date.now() + 600_000).toISOString(),

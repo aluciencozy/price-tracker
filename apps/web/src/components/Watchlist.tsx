@@ -1,14 +1,17 @@
 import { useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
-import type { TrackerRepository } from '../data/types';
+import type { TrackedItem, TrackerRepository } from '../data/types';
 import { useAsync } from '../data/useAsync';
 import GameCard from './GameCard';
 import { Button } from './ui/button';
 import { Field, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
-import { EmptyState, LoadError, LoadingRows } from './Ui';
+import { EmptyState, LoadingRows, Status } from './Ui';
 import { useApiMode } from '../data/mode';
+import { useWatchlistSearch } from '../data/useWatchlistSearch';
+import { useRetryWait } from '../data/useRetryWait';
+import { RequestError } from './RequestError';
 export default function Watchlist({
   repository,
 }: {
@@ -17,26 +20,55 @@ export default function Watchlist({
   const api = useApiMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') ?? '';
-  const serverQuery = api ? query : undefined;
-  const load = useCallback(
-    () => repository.list(serverQuery),
-    [repository, serverQuery],
-  );
-  const { data: items, loading, error, retry } = useAsync(load);
+  return api
+    ? <ApiWatchlist repository={repository} query={query} setQuery={setQuery} />
+    : <SampleWatchlist repository={repository} query={query} setQuery={setQuery} />;
   function setQuery(value: string) {
     setSearchParams(value ? { q: value } : {}, { replace: true });
   }
+}
+
+type Props = {
+  repository: TrackerRepository;
+  query: string;
+  setQuery(value: string): void;
+};
+
+function SampleWatchlist({ repository, query, setQuery }: Props) {
+  const load = useCallback(
+    () => repository.list(),
+    [repository],
+  );
+  const { data: items, loading, error, retry } = useAsync(load);
   const filtered = items?.filter((item) =>
     item.product.title.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  return <WatchlistView query={query} setQuery={setQuery} items={filtered} loading={loading} error={error} retry={retry} />;
+}
+
+function ApiWatchlist({ repository, query, setQuery }: Props) {
+  const result = useWatchlistSearch(repository, query);
+  return <WatchlistView query={query} setQuery={setQuery} {...result} />;
+}
+
+function WatchlistView({ query, setQuery, items, loading, error, retry, previous = false }: {
+  query: string;
+  setQuery(value: string): void;
+  items?: TrackedItem[];
+  loading: boolean;
+  error?: unknown;
+  retry(): void;
+  previous?: boolean;
+}) {
+  const api = useApiMode();
+  const wait = useRetryWait(error);
   return (
     <>
       <div className="page-heading">
         <div>
           <h1 tabIndex={-1}>
-            Your watchlist<span className="title-period">.</span>
+            Watchlist<span className="title-period">.</span>
           </h1>
-          <p>A place for games worth waiting for.</p>
         </div>
         <Button asChild>
           <Link to="/add">
@@ -56,47 +88,44 @@ export default function Watchlist({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your saved games…"
+              placeholder="Search games…"
             />
           </Field>
         </FieldGroup>
         <p role="status">
-          {filtered?.length ?? 0} {filtered?.length === 1 ? 'game' : 'games'}
-          {query ? ' found' : ' saved'}
+          {loading ? 'Searching…' : error ? 'Search unavailable' : `${items?.length ?? 0} ${items?.length === 1 ? 'game' : 'games'}${query ? ' found' : ' saved'}`}
         </p>
       </div>
-      {loading ? (
+      {previous ? <p role="status">Previous results — {loading ? 'searching for updated results.' : 'the latest search failed.'}</p> : null}
+      {error ? (
+        <Status error title={query ? `Could not search for “${query}”` : 'Could not load your watchlist'}>
+          <RequestError error={error} />
+          <Button variant="outline" disabled={wait > 0} onClick={retry}>Retry</Button>
+          {query ? <Button variant="ghost" onClick={() => setQuery('')}>Clear search</Button> : null}
+          {wait ? <p role="status">Retry available in {wait} seconds.</p> : null}
+        </Status>
+      ) : null}
+      {loading && !items ? (
         <LoadingRows />
-      ) : error ? (
-        <LoadError error={error} retry={retry} />
-      ) : (
+      ) : items ? (
         <>
-          {!items?.length ? (
+          {!items.length && !previous ? (
             <EmptyState
               title={
                 query
                   ? 'No saved games match'
-                  : 'Make room for your next game'
+                  : 'Your watchlist is empty'
               }
-              description="Add a Steam link, choose your target, and keep it on your list."
+              description={query ? `Nothing on your list matches “${query}”. Try another title.` : 'Add a Steam link, choose your target, and keep it on your list.'}
             >
-              <Button asChild>
+              {query ? <Button variant="outline" onClick={() => setQuery('')}>Clear search</Button> : <Button asChild>
                 <Link to="/add">Add your first game</Link>
-              </Button>
-            </EmptyState>
-          ) : !filtered?.length ? (
-            <EmptyState
-              title="No saved games match"
-              description={`Nothing on your list matches “${query}”. Try another title.`}
-            >
-              <Button variant="outline" onClick={() => setQuery('')}>
-                Clear search
-              </Button>
+              </Button>}
             </EmptyState>
           ) : (
             <>
-              <ul className="game-list" aria-label="Saved games">
-                {filtered.map((item) => (
+              <ul className="game-list" aria-label={previous ? 'Previous saved-game results' : 'Saved games'} aria-busy={loading}>
+                {items.map((item) => (
                   <GameCard key={item.id} item={item} />
                 ))}
               </ul>
@@ -108,7 +137,7 @@ export default function Watchlist({
             </>
           )}
         </>
-      )}
+      ) : null}
     </>
   );
 }

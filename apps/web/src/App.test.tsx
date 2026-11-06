@@ -100,7 +100,7 @@ describe('sample navigation, watchlist and CRUD', () => {
     vi.stubGlobal('fetch', vi.fn());
     open();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Good games.Your price.',
+      'Your games.Your price.',
     );
     expect(screen.getByText('Sample mode')).toBeVisible();
     fireEvent.click(screen.getByRole('link', { name: 'Try sample' }));
@@ -152,7 +152,7 @@ describe('sample navigation, watchlist and CRUD', () => {
   });
   it.each([
     ['/watchlist/tracker-portal-2', 'Portal 2'],
-    ['/watchlist/tracker-portal-2/edit', 'Make it your price.'],
+    ['/watchlist/tracker-portal-2/edit', 'Edit tracker'],
   ])(
     'updates the document title after %s finishes loading',
     async (path, heading) => {
@@ -181,7 +181,7 @@ describe('sample navigation, watchlist and CRUD', () => {
       ).toBeInTheDocument();
       expect(document.title).toBe(`${heading} / Price Tracker sample`);
       fireEvent.click(screen.getByRole('link', { name: 'Account' }));
-      expect(document.title).toBe('Your space. / Price Tracker sample');
+      expect(document.title).toBe('Account / Price Tracker sample');
     },
   );
   it('loads details from a direct URL and handles browser back navigation', async () => {
@@ -222,7 +222,8 @@ describe('sample navigation, watchlist and CRUD', () => {
     expect(screen.getByText(/No alerts were sent/)).toBeInTheDocument();
   });
   it('rejects invalid targets without losing the offer or input', async () => {
-    open('/add');
+    window.history.replaceState(null, '', '/add');
+    render(<App repository={createSampleRepository({ empty: true })} />);
     await previewPortal();
     fireEvent.change(screen.getByLabelText('Target price (USD)'), {
       target: { value: '-1.001' },
@@ -236,20 +237,24 @@ describe('sample navigation, watchlist and CRUD', () => {
       'true',
     );
     expect(screen.getByLabelText('Target price (USD)')).toHaveValue('-1.001');
+    expect(screen.getByLabelText('Target price (USD)')).toHaveFocus();
+    fireEvent.change(screen.getByLabelText('Target price (USD)'), { target: { value: '-1' } });
+    expect(screen.getByLabelText('Target price (USD)')).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(screen.getByLabelText('Target price (USD)'), { target: { value: '0.00' } });
+    expect(screen.getByLabelText('Target price (USD)')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: 'Portal 2' }),
     ).toBeInTheDocument();
   });
   it('handles duplicates without creating another tracker', async () => {
     open('/add');
-    await previewPortal();
-    fireEvent.change(screen.getByLabelText('Target price (USD)'), {
-      target: { value: '5' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save game' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Portal 2 link' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview offer' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'already in your watchlist',
+      'Already in your watchlist',
     );
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('link', { name: 'Open existing tracker' }),
     );
@@ -407,7 +412,7 @@ describe('history and useful preview states', () => {
       });
       expect(location.pathname).toBe('/account');
       expect(
-        screen.getByRole('heading', { name: 'Your space.', level: 1 }),
+        screen.getByRole('heading', { name: 'Account', level: 1 }),
       ).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
@@ -436,7 +441,7 @@ describe('history and useful preview states', () => {
     open('/watchlist/tracker-portal-2');
     await screen.findByRole('heading', { name: 'Portal 2', level: 1 });
     expect(
-      screen.getByText(/These multi-day values are invented/),
+      screen.getByText(/invented values/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'Illustrative sample price chart' }),
@@ -449,7 +454,7 @@ describe('history and useful preview states', () => {
   });
   it.each([
     ['loading', 'Loading games'],
-    ['empty', 'Make room for your next game'],
+    ['empty', 'Your watchlist is empty'],
     ['offline', 'Offline preview'],
     ['expired', 'Session-expired preview'],
   ] as const)('supports %s state', async (value, text) => {
@@ -479,14 +484,14 @@ describe('history and useful preview states', () => {
       screen.queryByText('$0.00', { selector: 'dd' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('link', { name: 'Open Steam deal via CheapShark' }),
+      screen.queryByRole('link', { name: 'View Steam offer via CheapShark' }),
     ).not.toBeInTheDocument();
     scenario('free');
     expect(
       await screen.findByText('$0.00', { selector: 'dd' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: 'Open Steam deal via CheapShark' }),
+      screen.getByRole('link', { name: 'View Steam offer via CheapShark' }),
     ).toBeInTheDocument();
   });
   it.each([
@@ -529,7 +534,7 @@ describe('honest account flow previews', () => {
       screen.getByRole('button', { name: 'Preview registration' }),
     );
     expect(
-      screen.getByRole('heading', { name: 'Check your inbox.' }),
+      screen.getByRole('heading', { name: 'Verify email' }),
     ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Preview resend email' }),
