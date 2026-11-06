@@ -18,6 +18,9 @@ export default function PriceHistory({
 }) {
   const api = useApiMode();
   const points = history?.items ?? [];
+  const compact = Boolean(history?.illustrative && points.length <= 7);
+  const left = compact ? 48 : 55;
+  const right = compact ? 334 : 655;
   const maximum =
     Math.max(
       target.amountMinor,
@@ -26,7 +29,7 @@ export default function PriceHistory({
     ) * 1.15;
   const y = (value: number) => 160 - (value / maximum) * 130;
   const x = (index: number) =>
-    55 + (index / Math.max(points.length - 1, 1)) * 600;
+    left + (index / Math.max(points.length - 1, 1)) * (right - left);
   return (
     <section className="history-section" aria-labelledby="history-title">
       <div className="section-heading">
@@ -35,7 +38,7 @@ export default function PriceHistory({
       </div>
       <p className="history-disclosure">
         {!api && history?.illustrative !== false
-          ? 'Illustrative sample history. These multi-day values are invented for this chart, not recorded Steam observations or an all-store historical low.'
+          ? 'Illustrative history — invented values, not recorded Steam prices or an all-store historical low.'
           : 'Successful observations of this Steam offer via CheapShark.'}
       </p>
       {api && history?.window ? (
@@ -70,12 +73,12 @@ export default function PriceHistory({
           <div
             className="chart-scroll"
             role="region"
-            aria-label="Price chart, scroll horizontally on small screens"
+            aria-label={compact ? 'Price chart' : 'Price chart, scroll horizontally on small screens'}
             tabIndex={0}
           >
             <svg
-              className="history-chart"
-              viewBox="0 0 700 205"
+              className={`history-chart${compact ? ' history-chart-compact' : ''}`}
+              viewBox={compact ? '0 0 350 205' : '0 0 700 205'}
               role="img"
               aria-labelledby="chart-title"
               aria-describedby="chart-description"
@@ -95,8 +98,8 @@ export default function PriceHistory({
                 <g key={value}>
                   <line
                     className="chart-grid"
-                    x1="55"
-                    x2="655"
+                    x1={left}
+                    x2={right}
                     y1={y(value)}
                     y2={y(value)}
                   />
@@ -110,8 +113,8 @@ export default function PriceHistory({
               ))}
               <line
                 className="chart-target"
-                x1="55"
-                x2="655"
+                x1={left}
+                x2={right}
                 y1={y(target.amountMinor)}
                 y2={y(target.amountMinor)}
               />
@@ -144,9 +147,9 @@ export default function PriceHistory({
               ))}
             </svg>
           </div>
-          <p className="chart-scroll-hint">
+          {!compact ? <p className="chart-scroll-hint">
             Scroll sideways to see every day.
-          </p>
+          </p> : null}
           <details className="history-table">
             <summary>View chart data</summary>
             <div className="table-scroll">

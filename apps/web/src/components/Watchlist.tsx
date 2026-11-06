@@ -34,9 +34,8 @@ export default function Watchlist({
       <div className="page-heading">
         <div>
           <h1 tabIndex={-1}>
-            Your watchlist<span className="title-period">.</span>
+            Watchlist<span className="title-period">.</span>
           </h1>
-          <p>Track Steam prices against the targets you choose.</p>
         </div>
         <Button asChild>
           <Link to="/add">
@@ -56,7 +55,7 @@ export default function Watchlist({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your saved games…"
+              placeholder="Search games…"
             />
           </Field>
         </FieldGroup>

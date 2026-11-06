@@ -152,7 +152,7 @@ describe('sample navigation, watchlist and CRUD', () => {
   });
   it.each([
     ['/watchlist/tracker-portal-2', 'Portal 2'],
-    ['/watchlist/tracker-portal-2/edit', 'Make it your price.'],
+    ['/watchlist/tracker-portal-2/edit', 'Edit tracker'],
   ])(
     'updates the document title after %s finishes loading',
     async (path, heading) => {
@@ -181,7 +181,7 @@ describe('sample navigation, watchlist and CRUD', () => {
       ).toBeInTheDocument();
       expect(document.title).toBe(`${heading} / Price Tracker sample`);
       fireEvent.click(screen.getByRole('link', { name: 'Account' }));
-      expect(document.title).toBe('Your space. / Price Tracker sample');
+      expect(document.title).toBe('Account / Price Tracker sample');
     },
   );
   it('loads details from a direct URL and handles browser back navigation', async () => {
@@ -407,7 +407,7 @@ describe('history and useful preview states', () => {
       });
       expect(location.pathname).toBe('/account');
       expect(
-        screen.getByRole('heading', { name: 'Your space.', level: 1 }),
+        screen.getByRole('heading', { name: 'Account', level: 1 }),
       ).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
@@ -436,7 +436,7 @@ describe('history and useful preview states', () => {
     open('/watchlist/tracker-portal-2');
     await screen.findByRole('heading', { name: 'Portal 2', level: 1 });
     expect(
-      screen.getByText(/These multi-day values are invented/),
+      screen.getByText(/invented values/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'Illustrative sample price chart' }),
@@ -479,14 +479,14 @@ describe('history and useful preview states', () => {
       screen.queryByText('$0.00', { selector: 'dd' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('link', { name: 'Open Steam deal via CheapShark' }),
+      screen.queryByRole('link', { name: 'View Steam offer via CheapShark' }),
     ).not.toBeInTheDocument();
     scenario('free');
     expect(
       await screen.findByText('$0.00', { selector: 'dd' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: 'Open Steam deal via CheapShark' }),
+      screen.getByRole('link', { name: 'View Steam offer via CheapShark' }),
     ).toBeInTheDocument();
   });
   it.each([
@@ -529,7 +529,7 @@ describe('honest account flow previews', () => {
       screen.getByRole('button', { name: 'Preview registration' }),
     );
     expect(
-      screen.getByRole('heading', { name: 'Check your inbox.' }),
+      screen.getByRole('heading', { name: 'Verify email' }),
     ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Preview resend email' }),

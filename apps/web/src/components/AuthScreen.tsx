@@ -9,18 +9,11 @@ import { Status } from './Ui';
 
 type AuthPage = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 const titles = {
-  login: 'Welcome back.',
-  register: 'Make a little list.',
-  verify: 'Check your inbox.',
-  forgot: 'Forgot your password?',
-  reset: 'Choose a new password.',
-};
-const descriptions = {
-  login: 'An account-flow preview, not a real sign-in.',
-  register: 'Preview an account for your next good game.',
-  verify: 'Verification happens in the browser, before sign-in.',
-  forgot: 'Preview the email reset flow. No message will be sent.',
-  reset: 'A browser preview of the final reset step.',
+  login: 'Sign in',
+  register: 'Create account',
+  verify: 'Verify email',
+  forgot: 'Reset password',
+  reset: 'Reset password',
 };
 export default function AuthScreen({ page }: { page: AuthPage }) {
   const navigate = useNavigate();
@@ -84,12 +77,10 @@ export default function AuthScreen({ page }: { page: AuthPage }) {
         <h1 id="auth-title" tabIndex={-1}>
           {titles[page]}
         </h1>
-        <p>{descriptions[page]}</p>
       </div>
       <div className="auth-surface">
         <p className="auth-disclosure">
-          Sample fields only. Don’t enter real credentials. Nothing is stored or
-          transmitted.
+          Preview only. Use made-up credentials; nothing is stored or sent.
         </p>
         {location.state?.signedOut ? (
           <div className="mb-5">
@@ -121,9 +112,6 @@ export default function AuthScreen({ page }: { page: AuthPage }) {
                     readOnly
                     autoComplete="off"
                   />
-                  <FieldDescription>
-                    Fixed example address; no mailbox is used.
-                  </FieldDescription>
                 </Field>
               ) : null}
               {needsPassword ? (

@@ -51,23 +51,24 @@ export function GameDetailsPage({
           <Status>{notice}</Status>
         </div>
       ) : null}
-      <GameDetails item={result.data} repository={repository} />
-      <PriceHistory
+      <GameDetails item={result.data} repository={repository} history={<PriceHistory
         history={history.data}
         target={result.data.targetPrice}
         loading={history.loading}
         error={history.error}
         retry={history.retry}
-      />
+      />} />
     </>
   ) : null;
 }
 export default function GameDetails({
   item,
   repository,
+  history,
 }: {
   item: TrackedItem;
   repository: TrackerRepository;
+  history?: React.ReactNode;
 }) {
   const { product } = item;
   const api = useApiMode();
@@ -151,16 +152,16 @@ export default function GameDetails({
           </div>
         </dl>
         <div className="detail-actions">
-          <Button asChild variant="outline">
+          <Button asChild>
             <Link to={`/watchlist/${item.id}/edit`}>
               <Pencil data-icon="inline-start" aria-hidden="true" />
               Edit tracker
             </Link>
           </Button>
           {purchaseUrl ? (
-            <Button asChild>
+            <Button asChild variant="outline">
               <a href={purchaseUrl} target="_blank" rel="noopener noreferrer">
-                Open Steam deal via CheapShark
+                View Steam offer via CheapShark
                 <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
               </a>
             </Button>
@@ -171,24 +172,17 @@ export default function GameDetails({
           )}
         </div>
       </div>
+      <p className="detail-freshness">
+        {product.currentPrice === null
+          ? 'No Steam price available. Source: CheapShark.'
+          : api
+            ? `${product.freshness} Steam offer via CheapShark. Not a live checkout quote; purchase links may expire.`
+            : 'Recorded Oct 26, 2026 · CheapShark · Not a live quote. Purchase link is dated and unconfirmed.'}
+      </p>
+      {history}
       <div className="detail-meta">
-        <div>
-          <h2>About this price</h2>
-          <p>
-            {api
-              ? `${product.freshness} Steam offer via `
-              : 'Stale recorded Steam offer from 2026-10-26 via '}
-            <a
-              className="text-link"
-              href="https://www.cheapshark.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              CheapShark
-            </a>
-            . Not a live checkout quote. Any retained purchase link is dated
-            and unconfirmed.
-          </p>
+        <details>
+          <summary>Price details</summary>
           <dl>
             <div>
               <dt>Last successful observation</dt>
@@ -224,33 +218,14 @@ export default function GameDetails({
               </>
             ) : null}
           </dl>
-        </div>
+        </details>
         <div>
           <h2>Your preferences</h2>
-          <dl>
-            <div>
-              <dt>Tracking</dt>
-              <dd>{item.enabled ? 'Enabled' : 'Paused'}</dd>
-            </div>
-            <div>
-              <dt>Email</dt>
-              <dd>{item.alerts.email ? 'On' : 'Off'}</dd>
-            </div>
-            <div>
-              <dt>Android push</dt>
-              <dd>
-                {item.alerts.push
-                  ? api
-                    ? 'On / Android registration required'
-                    : 'On / no connected device'
-                  : 'Off'}
-              </dd>
-            </div>
-          </dl>
+          <p>Tracking {item.enabled ? 'on' : 'paused'} · Email {item.alerts.email ? 'on' : 'off'} · Android push {item.alerts.push ? 'on' : 'off'}</p>
           <p>
             {api
-              ? 'Preferences only; delivery is not confirmed here. Daily checks compare a successful Steam price at or below your target. Android push requires an opted-in registered device. No browser push. A target edit creates no price history.'
-              : 'Preferences only. No sample delivery, browser push, or background checks. A target edit does not change price history.'}
+              ? 'Android push needs an opted-in registered device, not browser push. Preferences do not confirm delivery.'
+              : 'Android push needs an opted-in registered device, not browser push. Sample alerts are not delivered.'}
           </p>
         </div>
       </div>

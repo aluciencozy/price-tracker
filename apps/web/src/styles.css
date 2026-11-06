@@ -94,7 +94,7 @@
     margin: 0;
   }
   h1 {
-    font-size: clamp(1.9rem, 4vw, 2.6rem);
+    font-size: 1.75rem;
     line-height: 1.2;
     font-weight: 600;
     letter-spacing: -0.035em;
@@ -153,7 +153,7 @@
   border-bottom: 1px solid var(--border);
 }
 .header-inner {
-  min-height: 86px;
+  min-height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -214,7 +214,7 @@
 }
 .main-content {
   flex: 1;
-  padding-block: 56px 88px;
+  padding-block: 32px 64px;
 }
 .skip-link {
   position: fixed;
@@ -348,7 +348,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  margin-block: 12px 40px;
+  margin-block: 0 20px;
 }
 .page-heading p {
   color: var(--muted-foreground);
@@ -360,8 +360,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 28px;
-  padding-block: 6px 26px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
 }
 .watchlist-toolbar p {
   flex-shrink: 0;
@@ -372,15 +375,21 @@
   padding: 0;
   margin: 0;
   list-style: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
 }
 .game-row {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(230px, 0.7fr) auto;
   align-items: center;
   gap: 24px;
-  padding-block: 32px;
+  padding: 18px 16px;
   border-bottom: 1px solid var(--border);
 }
+.game-row:last-child { border-bottom: 0; }
 .game-identity {
   display: flex;
   align-items: flex-start;
@@ -388,8 +397,8 @@
   min-width: 0;
 }
 .game-art {
-  width: 120px;
-  height: 56px;
+  width: 112px;
+  height: 52px;
   object-fit: cover;
   border-radius: var(--radius);
   outline: 1px solid var(--image-outline);
@@ -455,8 +464,14 @@
 }
 .form-layout {
   display: grid;
-  grid-template-columns: minmax(0, 650px) 1fr;
-  gap: 64px;
+  grid-template-columns: minmax(0, 600px);
+}
+.preview-heading { margin-bottom: 16px; font-size: 1rem; }
+.preference-row [data-slot='field-label'] {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
 }
 .form-surface,
 .auth-surface {
@@ -464,14 +479,15 @@
   border: 1px solid transparent;
   border-radius: calc(var(--radius) * 2);
   padding: 32px;
-  box-shadow: var(--shadow-soft);
+  border-color: var(--border);
+  box-shadow: none;
 }
 .form-steps {
   display: flex;
   gap: 24px;
   list-style: none;
-  margin: 0 0 32px;
-  padding: 0 0 24px;
+  margin: 0 0 20px;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--border);
   font-size: 0.6875rem;
   color: var(--muted-foreground);
@@ -550,7 +566,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 24px;
-  margin-block: 32px 40px;
+  margin-block: 16px 20px;
 }
 .detail-header p {
   color: var(--muted-foreground);
@@ -565,7 +581,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 36px;
-  padding: 32px;
+  padding: 24px;
   background: var(--card);
   border: 1px solid transparent;
   box-shadow: var(--shadow-soft);
@@ -601,10 +617,12 @@
 }
 .detail-meta {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 80px;
-  margin-block: 42px 30px;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin-block: 32px 24px;
 }
+.detail-meta > details { order: 1; }
+.detail-freshness { color: var(--muted-foreground); font-size: 0.75rem; margin-block: 12px 24px; }
 .detail-meta h2 {
   margin-bottom: 14px;
   font-size: 0.9375rem;
@@ -681,6 +699,7 @@
   overflow: visible;
   min-width: 620px;
 }
+.history-chart-compact { min-width: 0; max-width: 520px; }
 .chart-scroll {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
@@ -759,9 +778,10 @@ thead th {
   color: var(--muted-foreground);
 }
 .auth-page {
-  max-width: 500px;
+  max-width: 440px;
   margin: 16px auto 0;
 }
+.account-actions { margin-top: 16px; }
 .auth-intro {
   margin-bottom: 28px;
 }
@@ -815,8 +835,8 @@ thead th {
 }
 .account-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 80px;
+  grid-template-columns: minmax(0, 600px);
+  gap: 32px;
 }
 .account-facts {
   display: flex;
@@ -933,9 +953,6 @@ thead th {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  [data-slot='button']:not(:disabled):active {
-    transform: scale(0.96);
-  }
   [data-slot='alert-dialog-content'][data-state='closed'] {
     scale: 0.96;
   }
@@ -1003,7 +1020,7 @@ thead th {
     width: calc(100% - 36px);
   }
   .header-inner {
-    min-height: 76px;
+    min-height: 64px;
     gap: 12px;
     flex-wrap: wrap;
     padding-block: 16px;
@@ -1028,7 +1045,7 @@ thead th {
     font-size: 0.625rem;
   }
   .main-content {
-    padding-block: 32px 56px;
+    padding-block: 24px 48px;
   }
   .hero {
     padding-block: 30px 46px;
@@ -1086,31 +1103,31 @@ thead th {
     gap: 9px;
   }
   .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 22px;
-    margin-bottom: 28px;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
   }
   .watchlist-toolbar {
-    gap: 14px;
-    flex-wrap: wrap;
+    gap: 12px;
   }
   .watchlist-toolbar [data-slot='field-group'] {
-    max-width: none;
+    min-width: 0;
   }
   .game-row {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 22px;
-    padding-block: 26px;
+    gap: 12px;
+    padding: 16px;
   }
   .game-identity {
     gap: 15px;
   }
   .game-art {
-    width: 90px;
-    height: 43px;
+    width: 88px;
+    height: 42px;
   }
   .game-title h2 {
     font-size: 0.9375rem;
@@ -1145,7 +1162,7 @@ thead th {
   }
   .detail-header {
     gap: 18px;
-    margin-block: 24px 30px;
+    margin-block: 16px 20px;
   }
   .detail-header > [data-slot='badge'] {
     margin-left: 0;
@@ -1173,6 +1190,8 @@ thead th {
   .history-disclosure {
     font-size: 0.6875rem;
   }
+  h1 { font-size: 1.625rem; }
+  input { font-size: 1rem; }
   .auth-page {
     margin-top: 4px;
   }
@@ -1195,137 +1214,5 @@ thead th {
   .chart-point,
   .chart-target {
     stroke: CanvasText;
-  }
-}
-
-/* Workspace: a quiet frame keeps the games and their prices in focus. */
-.site-header {
-  background: var(--card);
-}
-.header-inner {
-  min-height: 76px;
-}
-.brand {
-  font-size: 1rem;
-  letter-spacing: -0.03em;
-}
-.brand svg {
-  width: 30px;
-  height: 30px;
-  padding: 5px;
-  border-radius: 8px;
-  background: var(--accent);
-}
-.site-header nav {
-  font-size: 0.875rem;
-  font-weight: 550;
-}
-.sample-disclosure {
-  font-size: 0.75rem;
-}
-.sample-disclosure .shell {
-  justify-content: flex-start;
-}
-.main-content {
-  padding-top: 52px;
-}
-.page-heading {
-  margin-top: 0;
-}
-.page-heading p {
-  font-size: 0.9375rem;
-}
-.watchlist-toolbar {
-  padding: 20px 24px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px 12px 0 0;
-}
-.watchlist-toolbar p,
-.game-title p,
-.row-prices dt,
-.channel-summary,
-.list-footnote {
-  font-size: 0.75rem;
-}
-.game-list {
-  background: var(--card);
-  border-inline: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  border-radius: 0 0 12px 12px;
-  overflow: hidden;
-}
-.game-row {
-  padding: 24px;
-}
-.game-row:last-child {
-  border-bottom: 0;
-}
-.game-art {
-  width: 144px;
-  height: 68px;
-}
-.game-title h2 {
-  font-size: 1.0625rem;
-  letter-spacing: -0.02em;
-}
-.row-prices dd {
-  font-size: 1.125rem;
-  font-weight: 650;
-}
-.row-prices dd,
-.detail-prices dd,
-.example-price strong {
-  font-variant-numeric: tabular-nums;
-}
-.detail-summary,
-.form-surface,
-.auth-surface {
-  border-color: var(--border);
-}
-.detail-summary {
-  box-shadow: none;
-}
-.detail-header .game-art {
-  width: 170px;
-  height: 80px;
-}
-.hero-description {
-  font-size: 1.0625rem;
-}
-.hero h1 {
-  letter-spacing: -0.04em;
-}
-.site-footer {
-  color: var(--secondary-foreground);
-}
-.skip-link {
-  z-index: 100;
-}
-@media (hover: hover) and (pointer: fine) {
-  .game-row {
-    transition: background-color var(--duration-feedback) ease;
-  }
-  .game-row:hover {
-    background: var(--muted);
-  }
-}
-@media (max-width: 640px) {
-  .header-inner {
-    min-height: 68px;
-  }
-  .watchlist-toolbar {
-    padding: 16px;
-  }
-  .game-row {
-    padding: 20px 16px;
-  }
-  .game-art {
-    width: 104px;
-    height: 49px;
-  }
-  .detail-header .game-art {
-    width: 120px;
-    height: 56px;
   }
 }

@@ -38,12 +38,13 @@ export default function PreferencesFields({
           value={target}
           onChange={(event) => onTarget(event.target.value)}
           aria-invalid={invalid}
-          aria-describedby="target-help"
+          aria-describedby={invalid ? 'target-help target-error' : 'target-help'}
           placeholder="4.99"
         />
         <FieldDescription id="target-help">
-          At or below this price qualifies. $0.00 is a valid target.
+          Notify at this price or lower. $0.00 is allowed.
         </FieldDescription>
+        {invalid ? <p id="target-error" role="alert">Enter a non-negative USD target with at most two decimal places.</p> : null}
       </Field>
       <FieldSet>
         <FieldLegend variant="label">Alerts for this game</FieldLegend>
@@ -53,7 +54,7 @@ export default function PreferencesFields({
             : 'Sample preferences only. Email and Android push are not connected.'}
         </FieldDescription>
         <FieldGroup className="gap-3">
-          <Field orientation="horizontal">
+          <Field orientation="horizontal" className="preference-row">
             <Checkbox
               id="email-alert"
               checked={alerts.email}
@@ -63,7 +64,7 @@ export default function PreferencesFields({
             />
             <FieldLabel htmlFor="email-alert">Email</FieldLabel>
           </Field>
-          <Field orientation="horizontal">
+          <Field orientation="horizontal" className="preference-row">
             <Checkbox
               id="push-alert"
               checked={alerts.push}
@@ -81,7 +82,7 @@ export default function PreferencesFields({
             : 'Needs an opted-in, registered Android device. No device is connected here. This is not browser push.'}
         </FieldDescription>
       </FieldSet>
-      <Field orientation="horizontal">
+      <Field orientation="horizontal" className="preference-row">
         <Checkbox
           id="tracker-enabled"
           checked={enabled}

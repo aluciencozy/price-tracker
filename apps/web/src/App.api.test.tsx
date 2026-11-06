@@ -201,7 +201,7 @@ describe('real cookie session screens', () => {
             : undefined,
       null,
     );
-    await screen.findByRole('heading', { name: 'Welcome back.' });
+    await screen.findByRole('heading', { name: 'Sign in' });
     change('Email', user.email);
     change('Password', 'password');
     click('Sign in');
@@ -469,8 +469,7 @@ describe('live tracker screens', () => {
       if (path.startsWith('/api/tracked-items?'))
         return json({ items: [], page });
     });
-    await screen.findByRole('button', { name: 'Use Portal 2 link' });
-    click('Use Portal 2 link');
+    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await waitFor(() =>
       expect(
@@ -557,8 +556,7 @@ describe('live tracker screens', () => {
         return json(error('RATE_LIMITED', 2), 429, { 'Retry-After': '2' });
       }
     });
-    await screen.findByRole('button', { name: 'Use Portal 2 link' });
-    click('Use Portal 2 link');
+    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');
@@ -638,8 +636,7 @@ describe('live tracker screens', () => {
       if (path === `/api/tracked-items/${item.id}/history?limit=100`)
         return json(history);
     });
-    await screen.findByRole('button', { name: 'Use Portal 2 link' });
-    click('Use Portal 2 link');
+    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');
@@ -658,6 +655,7 @@ describe('live tracker screens', () => {
     expect(screen.getByText(/Observation window/)).toHaveTextContent(
       history.retainedFrom,
     );
+    fireEvent.click(screen.getByText('Price details'));
     expect(screen.getByText('Last attempt')).toBeVisible();
     const save = fetch.mock.calls.find(
       ([url, init]) =>
@@ -674,7 +672,7 @@ describe('live tracker screens', () => {
       'X-CSRF-Token': token,
     });
     expect(
-      screen.getByRole('link', { name: /Open Steam deal/ }),
+      screen.getByRole('link', { name: /View Steam offer/ }),
     ).toHaveAttribute('href', product.purchaseUrl);
     for (const img of document.querySelectorAll('img'))
       expect(img.getAttribute('src')).toMatch(/^\/art\//);
@@ -715,8 +713,7 @@ describe('live tracker screens', () => {
           409,
         );
     });
-    await screen.findByRole('button', { name: 'Use Portal 2 link' });
-    click('Use Portal 2 link');
+    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     expect(
       await screen.findByText('/url: This base game is not supported.'),
@@ -746,8 +743,7 @@ describe('live tracker screens', () => {
       if (path.startsWith(`/api/tracked-items/${item.id}/history`))
         return json(history);
     });
-    await screen.findByRole('button', { name: 'Use Portal 2 link' });
-    click('Use Portal 2 link');
+    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');

@@ -1,8 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Smartphone } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Separator } from './ui/separator';
 import { Status } from './Ui';
 import { useEffect, useRef, useState } from 'react';
 import { useApiSession, isAborted } from '../client/sessionContext';
@@ -40,11 +38,11 @@ export default function Account() {
     <>
       <div className="page-heading">
         <div>
-          <h1 tabIndex={-1}>Your space.</h1>
+          <h1 tabIndex={-1}>Account</h1>
           <p>
             {auth
               ? 'Your verified account and current browser session.'
-              : 'A sample account, with nothing behind the curtain.'}
+              : 'Preview account settings.'}
           </p>
         </div>
         <Badge variant="secondary">
@@ -64,7 +62,7 @@ export default function Account() {
       ) : null}
       <div className="account-layout">
         <section>
-          <h2>Account</h2>
+          <h2>Profile</h2>
           <dl className="account-facts">
             <div>
               <dt>Name</dt>
@@ -84,12 +82,13 @@ export default function Account() {
               <dt>Session</dt>
               <dd>
                 {auth
-                  ? 'Persistent HttpOnly cookie / server-revocable'
+                  ? 'Signed in on this browser'
                   : 'Preview only / not authenticated'}
               </dd>
             </div>
           </dl>
-          <div className="flex flex-wrap gap-3">
+          <h2>Security</h2>
+          <div className="account-actions flex flex-wrap gap-3">
             <Button asChild variant="outline">
               <Link to="/forgot">
                 {auth ? 'Reset password' : 'Preview password reset'}
@@ -118,28 +117,17 @@ export default function Account() {
           ) : null}
         </section>
         <section className="android-note">
-          <Smartphone aria-hidden="true" />
-          <h2>Alerts belong to each game.</h2>
+          <h2>Notifications</h2>
           <p>
-            Set email and Android push from a game’s tracker. Android push
-            requires permission and a registered Android device. This website
-            does not register devices or check device delivery readiness.
-          </p>
-          <p>
-            This website does not request browser notification permission.
-            Saving a preference is not proof of delivery.
+            Manage alerts per game. Android push requires an opted-in registered
+            device; this website does not register devices or check readiness.
+            Browser push is not supported, and preferences do not confirm delivery.
           </p>
           <Button asChild variant="outline">
             <Link to="/watchlist">Open watchlist</Link>
           </Button>
         </section>
       </div>
-      <Separator className="my-10" />
-      <p className="muted-copy">
-        {auth
-          ? 'Watchlists are private. Alert preferences are not proof of delivery; the server schedules checks and sends eligible alerts.'
-          : 'All sample changes reset on refresh. Real accounts, persistent sessions, shared watchlists, and alert delivery need the shared API.'}
-      </p>
     </>
   );
 }
