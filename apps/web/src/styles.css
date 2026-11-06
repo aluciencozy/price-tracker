@@ -967,7 +967,10 @@ thead th {
     transition-property: background-color;
   }
   [data-slot='alert-dialog-content'] {
-    transition-property: opacity;
+    transition: none;
+  }
+  [data-slot='alert-dialog-overlay'] {
+    transition: none;
   }
   [data-slot='skeleton'] {
     animation: none;

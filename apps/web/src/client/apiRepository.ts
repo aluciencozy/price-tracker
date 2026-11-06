@@ -3,6 +3,7 @@ import {
   type TrackerRepository,
   type Product,
   type Preferences,
+  type ProductPreview,
 } from '../data/types';
 import { parseSteamUrl } from '../data/validation';
 import { ClientError } from './http';
@@ -58,6 +59,7 @@ export function createApiRepository(
   let generation = 0;
   let retryAt = 0;
   let listController: AbortController | undefined;
+  let pendingPreview: { url: string; value: ProductPreview } | undefined;
   const keys = new Map<string, string>();
   async function run<T>(
     operation: (signal: AbortSignal) => Promise<T>,
@@ -87,12 +89,40 @@ export function createApiRepository(
     ...item,
     product: localProduct(item.product),
   });
+  async function* watchlistPages(signal: AbortSignal, query?: string) {
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page++) {
+      const response = await client.listTrackedItems(
+        {
+          ...(query?.trim() ? { q: query.trim() } : {}),
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        },
+        { signal },
+      );
+      yield response.items;
+      if (response.page.nextCursor === null) return;
+      if (seen.has(response.page.nextCursor))
+        throw new ClientError('invalid-response', 'Invalid watchlist pagination.');
+      cursor = response.page.nextCursor;
+      seen.add(cursor);
+    }
+    throw new ClientError('invalid-response', 'Watchlist exceeds the bounded page limit.');
+  }
   return {
+    clearPreview() {
+      pendingPreview = undefined;
+    },
+    cancelSearch() {
+      listController?.abort();
+    },
     cancelPending() {
       generation++;
       controller.abort();
       controller = new AbortController();
       keys.clear();
+      pendingPreview = undefined;
     },
     list(query) {
       listController?.abort();
@@ -101,42 +131,46 @@ export function createApiRepository(
       return run(async (signal) => {
         signal = AbortSignal.any([signal, currentList.signal]);
         const result = [];
-        const seen = new Set<string>();
-        let cursor: string | undefined;
-        for (let page = 0; page < 100; page++) {
-          const response = await client.listTrackedItems(
-            {
-              ...(query?.trim() ? { q: query.trim() } : {}),
-              limit: 100,
-              ...(cursor ? { cursor } : {}),
-            },
-            { signal },
-          );
-          result.push(...response.items.map(itemView));
-          if (response.page.nextCursor === null) return result;
-          if (seen.has(response.page.nextCursor))
-            throw new ClientError(
-              'invalid-response',
-              'Invalid watchlist pagination.',
-            );
-          cursor = response.page.nextCursor;
-          seen.add(cursor);
-        }
-        throw new ClientError(
-          'invalid-response',
-          'Watchlist exceeds the bounded page limit. Narrow your search.',
-        );
+        for await (const items of watchlistPages(signal, query))
+          result.push(...items.map(itemView));
+        return result;
       });
     },
     get: (id) =>
       run(async (signal) =>
         itemView(await client.getTrackedItem(id, { signal })),
       ),
-    preview(url) {
+    preview(url, onChecking) {
       parseSteamUrl(url);
-      return run(async (signal) =>
-        itemView(await client.preview(url.trim(), { signal })),
-      );
+      const input = url.trim();
+      if (pendingPreview?.url !== input) pendingPreview = undefined;
+      return run(async (signal) => {
+        const current = generation;
+        const value = pendingPreview && Date.parse(pendingPreview.value.expiresAt) > Date.now()
+          ? pendingPreview.value
+          : itemView(await client.preview(input, { signal }));
+        if (current !== generation || signal.aborted)
+          throw new ClientError('aborted', 'View changed.');
+        pendingPreview = { url: input, value };
+        onChecking?.();
+        for await (const items of watchlistPages(signal)) {
+          const duplicate = items.find(({ product }) => {
+            const existing = product.identity;
+            const offer = value.product.identity;
+            return existing.provider === offer.provider &&
+              existing.providerGameId === offer.providerGameId &&
+              existing.storeId === offer.storeId && existing.market === offer.market &&
+              existing.currency === offer.currency;
+          });
+          if (duplicate)
+            throw new RepositoryError(
+              'duplicate',
+              'Already in your watchlist. Open the existing tracker to edit its target.',
+              duplicate.id,
+            );
+        }
+        return value;
+      });
     },
     create(input) {
       const signature = JSON.stringify([

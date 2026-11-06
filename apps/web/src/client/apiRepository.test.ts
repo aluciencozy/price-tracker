@@ -9,10 +9,89 @@ import {
   item,
   json,
   page,
+  product,
   token,
 } from './testFixtures';
 
 describe('API presentation repository', () => {
+  const url = 'https://store.steampowered.com/app/620/';
+  const preview = { id: 'preview_example', expiresAt: csrf().expiresAt, product };
+  function previewRepository(list: (path: string) => Response | Promise<Response>) {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
+      if (String(path) === '/api/auth/web/csrf') return json(csrf());
+      if (String(path) === '/api/product-previews') return json({ ...preview, expiresAt: new Date(Date.now() + 600_000).toISOString() }, 201);
+      return list(String(path));
+    });
+    return { fetch, repository: createApiRepository(new WebClient({ fetch })) };
+  }
+  it('finds an owned duplicate on a later page before returning a preview', async () => {
+    const { repository, fetch } = previewRepository((path) => json(path.includes('cursor=')
+      ? { items: [item], page: { limit: 100, nextCursor: 'unused' } }
+      : { items: [], page: { limit: 100, nextCursor: 'next' } }));
+    const checking = vi.fn();
+    await expect(repository.preview(url, checking)).rejects.toMatchObject({ code: 'duplicate', resourceId: item.id });
+    expect(checking).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.filter(([path]) => String(path).startsWith('/api/tracked-items'))).toHaveLength(2);
+    expect(fetch.mock.calls.some(([path]) => String(path).includes('q='))).toBe(false);
+  });
+  it('compares exact offer identity rather than matching titles or product IDs', async () => {
+    const sameTitle = { ...item, product: { ...product, identity: { ...product.identity, providerGameId: '59' } } };
+    const { repository } = previewRepository(() => json({ items: [sameTitle], page }));
+    await expect(repository.preview(url)).resolves.toMatchObject({ id: preview.id });
+    const { repository: sameIdentity } = previewRepository(() => json({ items: [{ ...item, product: { ...product, id: 'different_id' } }], page }));
+    await expect(sameIdentity.preview(url)).rejects.toMatchObject({ code: 'duplicate' });
+  });
+  it('requires a successful lookup and reuses a valid preview after lookup failure', async () => {
+    let lookups = 0;
+    const { repository, fetch } = previewRepository(() => ++lookups <= 3
+      ? Promise.reject(new TypeError('offline')) : json({ items: [], page }));
+    await expect(repository.preview(url)).rejects.toMatchObject({ code: 'offline' });
+    await expect(repository.preview(url)).resolves.toMatchObject({ id: preview.id });
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(1);
+    expect(lookups).toBe(4);
+  });
+  it('refreshes an expired preview on retry and discards it when the URL is edited', async () => {
+    const { repository, fetch } = previewRepository(() => Promise.reject(new TypeError('offline')));
+    await expect(repository.preview(url)).rejects.toMatchObject({ code: 'offline' });
+    const time = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
+    try {
+      await expect(repository.preview(url)).rejects.toMatchObject({ code: 'offline' });
+    } finally { time.mockRestore(); }
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(2);
+    repository.clearPreview?.();
+    await expect(repository.preview(url)).rejects.toMatchObject({ code: 'offline' });
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(3);
+  });
+  it('does not treat repeated cursors or an exhausted page budget as a successful duplicate check', async () => {
+    const repeated = previewRepository(() => json({ items: [], page: { limit: 100, nextCursor: 'same' } }));
+    await expect(repeated.repository.preview(url)).rejects.toThrow('pagination');
+    let cursor = 0;
+    const bounded = previewRepository(() => json({ items: [], page: { limit: 100, nextCursor: `page${++cursor}` } }));
+    await expect(bounded.repository.preview(url)).rejects.toThrow('bounded page limit');
+    expect(cursor).toBe(100);
+  });
+  it('honors Retry-After before retrying a duplicate lookup', async () => {
+    const { repository, fetch } = previewRepository(() => json(error('RATE_LIMITED', 2), 429, { 'Retry-After': '2' }));
+    await expect(repository.preview(url)).rejects.toMatchObject({ details: { retryAfterSeconds: 2 } });
+    const calls = fetch.mock.calls.length;
+    await expect(repository.preview(url)).rejects.toMatchObject({ details: { retryAfterSeconds: 2 } });
+    expect(fetch).toHaveBeenCalledTimes(calls);
+  });
+  it('aborts duplicate lookups on disposal and never revives the cached preview', async () => {
+    let resolve!: (value: Response) => void;
+    const pending = new Promise<Response>((r) => { resolve = r; });
+    const { repository, fetch } = previewRepository(() => pending);
+    const checking = vi.fn();
+    const result = repository.preview(url, checking);
+    await vi.waitFor(() => expect(checking).toHaveBeenCalled());
+    repository.cancelPending();
+    const lookup = fetch.mock.calls.find(([path]) => String(path).startsWith('/api/tracked-items'));
+    expect(lookup?.[1]?.signal?.aborted).toBe(true);
+    resolve(json({ items: [], page }));
+    await expect(result).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(repository.preview(url)).resolves.toMatchObject({ id: preview.id });
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(2);
+  });
   it('loads every watchlist page with literal search and only local art', async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

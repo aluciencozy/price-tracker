@@ -1,4 +1,5 @@
 import type { Alerts } from '../data/types';
+import type { Ref } from 'react';
 import { Checkbox } from './ui/checkbox';
 import {
   Field,
@@ -18,6 +19,7 @@ export default function PreferencesFields({
   alerts,
   onAlerts,
   invalid,
+  targetRef,
 }: {
   target: string;
   onTarget: (value: string) => void;
@@ -26,6 +28,7 @@ export default function PreferencesFields({
   alerts: Alerts;
   onAlerts: (value: Alerts) => void;
   invalid?: boolean;
+  targetRef?: Ref<HTMLInputElement>;
 }) {
   const api = useApiMode();
   return (
@@ -34,6 +37,7 @@ export default function PreferencesFields({
         <FieldLabel htmlFor="target">Target price (USD)</FieldLabel>
         <Input
           id="target"
+          ref={targetRef}
           inputMode="decimal"
           value={target}
           onChange={(event) => onTarget(event.target.value)}

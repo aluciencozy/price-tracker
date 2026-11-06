@@ -19,7 +19,7 @@ export default function Header() {
           </span>
         </Link>
         <nav aria-label="Main navigation">
-          {location.pathname === '/' || authPage || signedOut ? (
+          {(session ? signedOut : location.pathname === '/' || authPage) ? (
             <>
               <NavLink to="/watchlist">Watchlist</NavLink>
               {location.pathname !== '/login' ? (

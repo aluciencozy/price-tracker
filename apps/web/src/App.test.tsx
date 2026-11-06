@@ -222,7 +222,8 @@ describe('sample navigation, watchlist and CRUD', () => {
     expect(screen.getByText(/No alerts were sent/)).toBeInTheDocument();
   });
   it('rejects invalid targets without losing the offer or input', async () => {
-    open('/add');
+    window.history.replaceState(null, '', '/add');
+    render(<App repository={createSampleRepository({ empty: true })} />);
     await previewPortal();
     fireEvent.change(screen.getByLabelText('Target price (USD)'), {
       target: { value: '-1.001' },
@@ -236,20 +237,24 @@ describe('sample navigation, watchlist and CRUD', () => {
       'true',
     );
     expect(screen.getByLabelText('Target price (USD)')).toHaveValue('-1.001');
+    expect(screen.getByLabelText('Target price (USD)')).toHaveFocus();
+    fireEvent.change(screen.getByLabelText('Target price (USD)'), { target: { value: '-1' } });
+    expect(screen.getByLabelText('Target price (USD)')).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(screen.getByLabelText('Target price (USD)'), { target: { value: '0.00' } });
+    expect(screen.getByLabelText('Target price (USD)')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: 'Portal 2' }),
     ).toBeInTheDocument();
   });
   it('handles duplicates without creating another tracker', async () => {
     open('/add');
-    await previewPortal();
-    fireEvent.change(screen.getByLabelText('Target price (USD)'), {
-      target: { value: '5' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save game' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Portal 2 link' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview offer' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'already in your watchlist',
+      'Already in your watchlist',
     );
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('link', { name: 'Open existing tracker' }),
     );

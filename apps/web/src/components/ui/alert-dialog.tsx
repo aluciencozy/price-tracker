@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { cn } from 'cn';
 import { AlertDialog as AlertDialogPrimitive } from 'radix-ui';
-import { LazyMotion, m } from 'motion/react';
+import { LazyMotion, m, useReducedMotion } from 'motion/react';
 
 import { Button } from '@/components/ui/button';
 const loadMotionFeatures = () =>
@@ -52,6 +52,7 @@ function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: 'default' | 'sm';
 }) {
+  const reducedMotion = useReducedMotion();
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -67,8 +68,8 @@ function AlertDialogContent({
         <LazyMotion features={loadMotionFeatures}>
           <m.div
             className="grid gap-4"
-            initial={{ opacity: 0.7, transform: 'translateY(8px)' }}
-            animate={{ opacity: 1, transform: 'translateY(0px)' }}
+            initial={reducedMotion ? false : { opacity: 0.7 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
           >
             {children}

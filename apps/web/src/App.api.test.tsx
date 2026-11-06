@@ -109,6 +109,25 @@ describe('explicit sample/API selection', () => {
 });
 
 describe('real cookie session screens', () => {
+  it('adapts homepage actions and the header to an authenticated session', async () => {
+    open('/');
+    await screen.findByText('Saved games use your private account and the shared API.');
+    const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
+    expect(nav.getByRole('link', { name: 'Watchlist' })).toBeVisible();
+    expect(nav.getByRole('link', { name: 'Account' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create account' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
+  });
+
+  it('keeps signed-out homepage actions available', async () => {
+    const { client } = open('/', () => undefined, null);
+    await waitFor(() => expect(client.getSession().status).toBe('anonymous'));
+    const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
+    expect(nav.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    expect(nav.getByRole('link', { name: 'Create account' })).toBeVisible();
+    expect(nav.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument();
+  });
   it('waits for /me before private requests, then shows sign-in on 401', async () => {
     const me = deferred<Response>();
     const { fetch } = open('/watchlist', (path) =>
@@ -546,6 +565,7 @@ describe('live tracker screens', () => {
   it('shows Retry-After and blocks an explicit save retry until the wait passes', async () => {
     let saves = 0;
     const { fetch, unexpected } = open('/add', (path) => {
+      if (path === '/api/tracked-items?limit=100') return json({ items: [], page });
       if (path === '/api/product-previews')
         return json(
           { id: 'preview_example', expiresAt: csrf().expiresAt, product },
@@ -588,6 +608,67 @@ describe('live tracker screens', () => {
     );
     expect(unexpected).toEqual([]);
   });
+  it('blocks API preferences for a duplicate discovered during preview', async () => {
+    const lookup = deferred<Response>();
+    const { fetch, unexpected } = open('/add', (path) => {
+      if (path === '/api/product-previews') return json({ id: 'preview_example', expiresAt: csrf().expiresAt, product }, 201);
+      if (path === '/api/tracked-items?limit=100') return lookup.promise;
+    });
+    await screen.findByLabelText('Steam base-game URL');
+    change('Steam base-game URL', 'https://store.steampowered.com/app/620/');
+    click('Preview offer');
+    await screen.findByRole('button', { name: 'Checking your watchlist…' });
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
+    await act(async () => lookup.resolve(json({ items: [item], page })));
+    expect(await screen.findByRole('link', { name: 'Open existing tracker' })).toHaveAttribute('href', `/watchlist/${item.id}`);
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([path]) => path === '/api/tracked-items')).toBe(false);
+    expect(unexpected).toEqual([]);
+  });
+
+  it('requires retry after duplicate lookup failure and reuses the offer preview', async () => {
+    let lookups = 0;
+    const { fetch, unexpected } = open('/add', (path) => {
+      if (path === '/api/product-previews') return json({ id: 'preview_example', expiresAt: csrf().expiresAt, product }, 201);
+      if (path === '/api/tracked-items?limit=100') return ++lookups === 1
+        ? json(error('VALIDATION_ERROR'), 422) : json({ items: [], page });
+    });
+    await screen.findByLabelText('Steam base-game URL');
+    change('Steam base-game URL', 'https://store.steampowered.com/app/620/');
+    click('Preview offer');
+    await screen.findByRole('button', { name: 'Retry' });
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Steam base-game URL')).toHaveValue('https://store.steampowered.com/app/620/');
+    click('Retry');
+    await screen.findByLabelText('Target price (USD)');
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(1);
+    expect(unexpected).toEqual([]);
+  });
+
+  it('retains previous search results on failure and clears private results on expiry', async () => {
+    let fail = true;
+    const { client, unexpected } = open('/watchlist', (path) => {
+      if (path === '/api/tracked-items?limit=100') return json({ items: [item], page });
+      if (path === '/api/tracked-items?limit=100&q=missing') return fail
+        ? json(error('VALIDATION_ERROR'), 422) : json({ items: [], page });
+      if (path === '/api/tracked-items?limit=100&q=expired') return json(error('SESSION_EXPIRED'), 401);
+    });
+    await screen.findByRole('list', { name: 'Saved games' });
+    change('Search saved games', 'missing');
+    await screen.findByRole('button', { name: 'Retry' });
+    expect(screen.getByRole('list', { name: 'Previous saved-game results' })).toBeVisible();
+    expect(screen.getByLabelText('Search saved games')).toHaveValue('missing');
+    fail = false;
+    click('Retry');
+    await screen.findByText('No saved games match');
+    click('Clear search');
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    change('Search saved games', 'expired');
+    await screen.findByText('Sign in to continue');
+    expect(screen.queryByRole('heading', { name: 'Portal 2' })).not.toBeInTheDocument();
+    expect(client.getSession().status).toBe('anonymous');
+    expect(unexpected).toEqual([]);
+  });
   it('retains API search field focus, cancels superseded searches, and never displays stale results', async () => {
     const pending = deferred<Response>();
     const { fetch, unexpected } = open('/watchlist', (path) => {
@@ -601,6 +682,9 @@ describe('live tracker screens', () => {
     const input = screen.getByLabelText('Search saved games');
     input.focus();
     change('Search saved games', 'P');
+    expect(screen.getByText('Searching…')).toBeVisible();
+    expect(screen.getByText(/Previous results/)).toBeVisible();
+    expect(screen.getByRole('list', { name: 'Previous saved-game results' })).toBeVisible();
     await waitFor(() =>
       expect(
         fetch.mock.calls.some(([url]) => String(url).endsWith('&q=P')),
@@ -610,6 +694,8 @@ describe('live tracker screens', () => {
     expect(input).toHaveFocus();
     change('Search saved games', 'Portal');
     expect(await screen.findByText('No saved games match')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Add your first game' })).not.toBeInTheDocument();
     await act(async () => pending.resolve(json({ items: [item], page })));
     expect(
       screen.queryByRole('heading', { name: 'Portal 2' }),
@@ -618,6 +704,7 @@ describe('live tracker screens', () => {
   });
   it('previews, saves a zero target, and shows real retained history/metadata, with no remote image or invented series', async () => {
     const { fetch, unexpected } = open('/add', (path, init) => {
+      if (path === '/api/tracked-items?limit=100') return json({ items: [], page });
       if (path === '/api/product-previews')
         return json(
           {
@@ -681,6 +768,7 @@ describe('live tracker screens', () => {
   it('surfaces server validation fields and an owned duplicate with a useful link', async () => {
     let attempts = 0;
     const { unexpected } = open('/add', (path) => {
+      if (path === '/api/tracked-items?limit=100') return json({ items: [], page });
       if (path === '/api/product-previews')
         return ++attempts === 1
           ? json(
@@ -730,6 +818,7 @@ describe('live tracker screens', () => {
   it('reuses the same UUID and body for an explicit uncertain-save retry', async () => {
     let saves = 0;
     const { fetch, unexpected } = open('/add', (path) => {
+      if (path === '/api/tracked-items?limit=100') return json({ items: [], page });
       if (path === '/api/product-previews')
         return json(
           { id: 'preview_example', expiresAt: csrf().expiresAt, product },
