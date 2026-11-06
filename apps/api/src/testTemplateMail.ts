@@ -37,10 +37,15 @@ export async function validationEmailTemplate( ): Promise<string>{
     const { data, error } = await fullResend.templates.create({
     name: 'verification-email',
     subject: "Verify your Price Tracker Account",
-        html: '<p><a href="{{VALIDATION_EMAIL_URL}}">Verify your email</a></p>',
+        html: '<p><a href="{{{VALIDATION_EMAIL_URL_HTML}}}">Verify your email</a></p>',
+        text: 'Verify your email: {{{VALIDATION_EMAIL_URL}}}',
         variables: [
             {
                 key: "VALIDATION_EMAIL_URL",
+                type: "string",
+            },
+            {
+                key: "VALIDATION_EMAIL_URL_HTML",
                 type: "string",
             },
         ],
@@ -54,8 +59,7 @@ export async function validationEmailTemplate( ): Promise<string>{
         throw new Error("Resend did not return a template.");
     }
 
-    const{error: publishError } = await
-    fullResend.templates.publish(data.id);
+    const { error: publishError } = await fullResend.templates.publish(data.id);
 
     if(publishError){
         throw new Error(`Could not publish template: ${publishError.message}`);
@@ -68,10 +72,15 @@ export async function passwordResetTemplate( ): Promise<string>{
     const { data, error } = await fullResend.templates.create({
     name: 'password-reset',
     subject: "Price Tracker Password Reset",
-        html: '<p><a href="{{PASSWORD_RESET_URL}}">Reset your password</a></p>',
+        html: '<p><a href="{{{PASSWORD_RESET_URL_HTML}}}">Reset your password</a></p>',
+        text: 'Reset your password: {{{PASSWORD_RESET_URL}}}',
         variables: [
             {
                 key: "PASSWORD_RESET_URL",
+                type: "string",
+            },
+            {
+                key: "PASSWORD_RESET_URL_HTML",
                 type: "string",
             },
         ],
@@ -85,8 +94,7 @@ export async function passwordResetTemplate( ): Promise<string>{
         throw new Error("Resend did not return a template.");
     }
 
-    const{error: publishError } = await
-    fullResend.templates.publish(data.id);
+    const { error: publishError } = await fullResend.templates.publish(data.id);
 
     if(publishError){
         throw new Error(`Could not publish template: ${publishError.message}`);
@@ -98,18 +106,20 @@ export async function passwordResetTemplate( ): Promise<string>{
 export async function priceAlertTemplate(): Promise<string> {
   const { data, error } = await fullResend.templates.create({
     name: "price-alert",
-    subject: "{{{GAME_TITLE}}} on Steam qualifies for your target",
+    subject: "A Steam game qualifies for your Price Tracker target",
     html: [
-      "<p>The latest successful check found <strong>{{GAME_TITLE}}</strong> on Steam at {{CURRENT_PRICE}}.</p>",
-      "<p>That qualifies for your target of {{TARGET_PRICE}}.</p>",
-      '<p><a href="{{PURCHASE_URL}}">View the Steam offer</a> via CheapShark.</p>',
+      "<p>The latest successful check found <strong>{{{GAME_TITLE_HTML}}}</strong> on Steam at {{{CURRENT_PRICE}}}.</p>",
+      "<p>That qualifies for your target of {{{TARGET_PRICE}}}.</p>",
+      '<p><a href="{{{PURCHASE_URL_HTML}}}">View the Steam offer</a> via CheapShark.</p>',
     ].join(""),
     text: "The latest successful check found {{{GAME_TITLE}}} on Steam at {{{CURRENT_PRICE}}}. This qualifies for your target of {{{TARGET_PRICE}}}. View the Steam offer: {{{PURCHASE_URL}}}",
     variables: [
       { key: "GAME_TITLE", type: "string" },
+      { key: "GAME_TITLE_HTML", type: "string" },
       { key: "CURRENT_PRICE", type: "string" },
       { key: "TARGET_PRICE", type: "string" },
       { key: "PURCHASE_URL", type: "string" },
+      { key: "PURCHASE_URL_HTML", type: "string" },
     ],
   });
 

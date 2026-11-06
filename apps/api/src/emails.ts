@@ -20,6 +20,24 @@ function permanentFailure(code: string): DeliveryOutcome {
   return { status: "permanent_failure", code, attempts: 0 };
 }
 
+function isTrustedHttpErrorStatus(statusCode: unknown): statusCode is number {
+  return typeof statusCode === "number" && Number.isInteger(statusCode) &&
+    statusCode >= 400 && statusCode <= 599;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&": return "&amp;";
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case '"': return "&quot;";
+      case "'": return "&#39;";
+      default: return character;
+    }
+  });
+}
+
 type EmailPayload = Parameters<Resend["emails"]["send"]>[0];
 type EmailResponse = Awaited<ReturnType<Resend["emails"]["send"]>>;
 export type EmailSender = (
@@ -78,7 +96,7 @@ export async function sendWithOutcome(
       return { status: "unknown", code: "network_outcome_unknown", attempts };
     }
 
-    if (response.data?.id) {
+    if (typeof response.data?.id === "string" && response.data.id.length > 0) {
       return { status: "success", messageId: response.data.id, attempts };
     }
 
@@ -87,9 +105,9 @@ export async function sendWithOutcome(
       return { status: "unknown", code: "provider_response_missing_id", attempts };
     }
 
-    const code = error.name || "provider_error";
+    const code = typeof error.name === "string" && error.name ? error.name : "provider_error";
     const statusCode = error.statusCode;
-    if (statusCode === null) {
+    if (!isTrustedHttpErrorStatus(statusCode)) {
       uncertain = true;
       if (attempts < MAX_SEND_ATTEMPTS) {
         await wait(Math.min(200 * 2 ** (attempts - 1), MAX_RETRY_WAIT_MS));
@@ -159,6 +177,7 @@ export async function sendVerificationEmail(
       id: templateId,
       variables: {
         VALIDATION_EMAIL_URL: verificationUrl,
+        VALIDATION_EMAIL_URL_HTML: escapeHtml(verificationUrl),
       },
     },
   }, idempotencyKey);
@@ -188,6 +207,7 @@ export async function sendPasswordReset(
       id: templateId,
       variables: {
         PASSWORD_RESET_URL: passwordResetURL,
+        PASSWORD_RESET_URL_HTML: escapeHtml(passwordResetURL),
       },
     },
   }, idempotencyKey);
@@ -250,9 +270,11 @@ export async function sendPriceAlert(
       id: templateId,
       variables: {
         GAME_TITLE: alert.gameTitle,
+        GAME_TITLE_HTML: escapeHtml(alert.gameTitle),
         CURRENT_PRICE: formatUsd(alert.currentPriceCents),
         TARGET_PRICE: formatUsd(alert.targetPriceCents),
         PURCHASE_URL: purchaseUrl.toString(),
+        PURCHASE_URL_HTML: escapeHtml(purchaseUrl.toString()),
       },
     },
   }, idempotencyKey);
