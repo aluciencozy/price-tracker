@@ -85,7 +85,7 @@ Game/store offers are shared across users, but watchlists and notification setti
 
 ## API boundaries
 
-Use `/api` as the common prefix. Only health/readiness endpoints are implemented in the starter; business endpoints below are planned. The [proposed shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors. It awaits team review and actual SwaggerHub publication; it does not implement these routes.
+Use `/api` as the common prefix. Health/readiness plus registration, email verification/resend and pre-login CSRF are mounted; see [registration setup](registration.md). Other business endpoints below remain planned. The [proposed shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors. It awaits team review and actual SwaggerHub publication; the contract alone does not implement routes.
 
 Planned groups:
 

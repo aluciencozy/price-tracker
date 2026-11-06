@@ -74,7 +74,7 @@ Inside Development tools, expand **API connection (manual diagnostic)** and clic
 
 Set `VITE_DATA_SOURCE=api` in `apps/web/.env` and restart Vite (or rebuild for deployment) to connect account forms and the private watchlist to the [shared contract proposed in PR #36](https://github.com/aluciencozy/price-tracker/pull/36). The default is `sample`; invalid values show a configuration error without starting either source. API mode never uploads sample records or falls back to sample success. It uses persistent browser-managed HttpOnly cookies and CSRF protection, not JavaScript-stored JWTs.
 
-**The starter API still implements only health/readiness.** This frontend boundary does not implement those business endpoints or prove real accounts, ownership, mailbox delivery or alerts. API mode will show errors until the backend implements the agreed routes.
+The API now mounts registration, email verification/resend and pre-login CSRF under the shared web/mobile namespaces. See [registration setup and transaction tests](docs/registration.md). Login/session issuance, password reset and the remaining business routes are not mounted by this work. API mode still cannot complete a full authenticated watchlist flow. Neither generic registration acceptance nor local fixture tests prove mailbox delivery or alerts.
 
 Leave `VITE_API_BASE_URL` blank for same-origin `/api` routing. A separate API must use an approved **same-site HTTPS origin**, without `/api`, and exact credentialed CORS configuration; HTTPS alone does not make cross-site cookies work. HTTP is development-only on exact `localhost`/`127.0.0.1`. No credentials belong in public `VITE_` values.
 

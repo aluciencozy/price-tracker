@@ -2,6 +2,8 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler } from 'express';
 import helmet from 'helmet';
 import type { Config } from './config.js';
+import { registrationRouter } from './registrationRouter.js';
+import { accountError } from './accountError.js';
 
 export type DatabaseStatus =
   | 'not_configured'
@@ -15,18 +17,24 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus) 
   app.disable('x-powered-by');
   app.use(helmet());
 
+  app.use('/api/auth/web', cors({
+    origin: config.WEB_ORIGINS, credentials: true, methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'], exposedHeaders: ['Retry-After'],
+  }));
   app.use(
     cors({
       origin(origin, callback) {
         // Native clients and CLI requests have no Origin; browsers must match exactly.
         callback(null, !origin || config.WEB_ORIGINS.includes(origin));
       },
-      methods: ['GET', 'HEAD'],
+      methods: ['GET', 'HEAD', 'POST'],
       credentials: false,
     }),
   );
 
+  app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '16kb' }));
+  app.use('/api/auth', registrationRouter(config, () => databaseStatus() === 'connected'));
 
   // Liveness stays available even when MongoDB has not been configured.
   app.get('/api/health', (_request, response) => {
@@ -52,12 +60,17 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus) 
     response.status(404).json({ error: 'Not found' });
   });
 
-  const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+  const errorHandler: ErrorRequestHandler = (error: unknown, request, response, _next) => {
     const status =
       typeof error === 'object' && error !== null && 'status' in error
         ? error.status
         : undefined;
 
+    if (request.path.startsWith('/api/auth/')) {
+      const code = status === 413 ? 'PAYLOAD_TOO_LARGE' : status === 400 ? 'MALFORMED_REQUEST' : 'INTERNAL_ERROR';
+      accountError(response, status === 413 ? 413 : status === 400 ? 400 : 500, code, 'Invalid account request.');
+      return;
+    }
     // Send safe messages instead of exposing parser errors or internal details.
     if (status === 413) {
       response.status(413).json({ error: 'Request body too large' });

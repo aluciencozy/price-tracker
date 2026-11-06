@@ -6,6 +6,7 @@ const userSchema = new Schema({
   passwordHash: { type: String, required: true, select: false },
   name: { type: String, default: null, maxlength: 100 },
   emailVerifiedAt: { type: Date, default: null },
+  verificationEmailSentAt: { type: Date, default: null },
   role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
 }, options);
 userSchema.index({ email: 1 }, { unique: true });
@@ -36,3 +37,16 @@ authTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 export const UserModel = mongoose.model('User', userSchema);
 export const SessionModel = mongoose.model('Session', sessionSchema);
 export const AuthTokenModel = mongoose.model('AuthToken', authTokenSchema);
+
+const preloginSchema = new Schema({
+  secretHash: { type: String, required: true, unique: true },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, options);
+export const PreloginModel = mongoose.model('Prelogin', preloginSchema);
+
+const authLimitSchema = new Schema({
+  key: { type: String, required: true, unique: true },
+  attempts: { type: Number, required: true },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, options);
+export const AuthLimitModel = mongoose.model('AuthLimit', authLimitSchema);
