@@ -31,7 +31,7 @@ the unimplemented login route is not proof of credential-checked login refusal.
 
 ## Safety and concurrency
 
-Passwords use salted scrypt (`N=32768,r=8,p=1`, 64-byte derived key). Tokens
+Passwords use salted scrypt (`N=32768,r=8,p=3`, 64-byte derived key). Tokens
 contain 32 random bytes and only their SHA-256 hashes are stored. Links use
 `/verify-email#token=...`; GET never consumes them. Tokens expire after 24 hours.
 

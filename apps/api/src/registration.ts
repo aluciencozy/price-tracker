@@ -25,9 +25,9 @@ export function verificationSender(origin: string): VerificationSender {
 export function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
   return new Promise((resolve, reject) => {
-    scrypt(password, salt, 64, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, key) => {
+    scrypt(password, salt, 64, { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }, (error, key) => {
       if (error) reject(error);
-      else resolve(`scrypt$32768$8$1$${salt.toString('hex')}$${key.toString('hex')}`);
+      else resolve(`scrypt$32768$8$3$${salt.toString('hex')}$${key.toString('hex')}`);
     });
   });
 }

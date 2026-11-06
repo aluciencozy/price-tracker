@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { scryptSync } from 'node:crypto';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
@@ -39,8 +40,12 @@ describe('registration offline boundaries', () => {
   });
   it('salts strong password hashes without trimming passwords', async () => {
     const hashes = await Promise.all([hashPassword('  fixture password  '), hashPassword('  fixture password  ')]);
-    expect(hashes[0]).toMatch(/^scrypt\$32768\$8\$1\$[a-f0-9]{32}\$[a-f0-9]{128}$/);
+    expect(hashes[0]).toMatch(/^scrypt\$32768\$8\$3\$[a-f0-9]{32}\$[a-f0-9]{128}$/);
     expect(hashes[0]).not.toBe(hashes[1]);
+    const parts = hashes[0]!.split('$');
+    const derive = (password: string) => scryptSync(password, Buffer.from(parts[4]!, 'hex'), 64, { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }).toString('hex');
+    expect(derive('  fixture password  ')).toBe(parts[5]);
+    expect(derive('fixture password')).not.toBe(parts[5]);
   });
   it('uses safe plain-text links and stable per-token idempotency, not remote templates', async () => {
     const send = vi.spyOn(emails, 'sendWithOutcome').mockResolvedValue({ status: 'success', messageId: 'fixture', attempts: 1 });
