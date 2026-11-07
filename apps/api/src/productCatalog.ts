@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { ProductModel } from './models/product.js';
+import { PriceHistoryModel } from './models/tracking.js';
 import {
   lookupSteamOffer,
   parseSteamAppIdFromUrl,
+  type SteamOffer,
 } from './cheapshark.js';
 import {
   ProviderDeferredError,
@@ -14,7 +16,29 @@ const REFRESH_LEASE_MS = 35_000;
 const FAILURE_BACKOFF_BASE_MS = 60_000;
 const FAILURE_BACKOFF_MAX_MS = 6 * 60 * 60 * 1_000;
 
-export type RefreshOptions = { force?: boolean };
+export type ObservationWriter = (
+  productId: string,
+  stableCheckId: string,
+  refreshLeaseToken: string,
+  offer: SteamOffer,
+) => Promise<unknown>;
+
+/** Optional success hook for durable checks; legacy preview callers keep the same behavior. */
+export type RefreshOptions = {
+  force?: boolean;
+  checkId?: string;
+  observationWriter?: ObservationWriter;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /** Durable checks may only reuse a cache quote backed by genuine recorded history. */
+  requireObservation?: boolean;
+};
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : Object.assign(new Error('Price refresh was cancelled.'), { name: 'AbortError' });
+}
 
 /** Look up a previously verified/approved Steam game without contacting Steam or CheapShark. */
 export async function findApprovedSteamProduct(inputUrl: string) {
@@ -72,12 +96,20 @@ export async function refreshSteamProductById(
   productId: string,
   options: RefreshOptions = {},
 ) {
-  let product = await ProductModel.findById(productId).lean().exec();
+  options.signal?.throwIfAborted();
+  const dbOptions = options.signal ? { signal: options.signal, timeoutMS: options.timeoutMs ?? 10_000, maxTimeMS: 500 } : {};
+  if (options.observationWriter && (!options.checkId || !/^[A-Za-z0-9_-]{1,128}$/.test(options.checkId))) {
+    throw new Error('A stable check ID is required when recording an observation.');
+  }
+
+  let product = await ProductModel.findById(productId).setOptions(dbOptions).lean().exec();
+  options.signal?.throwIfAborted();
   if (!product) throw new Error('The approved Steam product was not found.');
 
   if (!options.force) {
     deferFailedCheck(product);
-    if (hasFreshPrice(product)) return product;
+    options.signal?.throwIfAborted();
+    if (await canReusePrice(product, options)) return product;
   }
 
   const now = new Date();
@@ -98,16 +130,17 @@ export async function refreshSteamProductById(
         lastAttemptAt: now,
       },
     },
-    { new: true },
+    { returnDocument: 'after', ...dbOptions },
   )
     .lean()
     .exec();
 
   if (!leased) {
-    product = await ProductModel.findById(productId).lean().exec();
+    product = await ProductModel.findById(productId).setOptions(dbOptions).lean().exec();
+    options.signal?.throwIfAborted();
     if (product && !options.force) {
       deferFailedCheck(product);
-      if (hasFreshPrice(product)) return product;
+      if (await canReusePrice(product, options)) return product;
     }
 
     const retryAt = product?.refreshLeaseUntil ?? new Date(Date.now() + 1_000);
@@ -117,6 +150,7 @@ export async function refreshSteamProductById(
   // A concurrent failure may have scheduled a retry before we got the lease.
   // Releasing this unused claim is not another failed provider attempt.
   try {
+    options.signal?.throwIfAborted();
     if (!options.force) deferFailedCheck(leased);
   } catch (error) {
     await releaseProductLease(product._id, leaseToken);
@@ -125,12 +159,16 @@ export async function refreshSteamProductById(
 
   try {
     // Another check may have refreshed the Product before this worker got its lease.
-    if (!options.force && hasFreshPrice(leased)) {
+    if (!options.force && await canReusePrice(leased, options)) {
       await releaseProductLease(product._id, leaseToken);
       return leased;
     }
 
-    const offer = await lookupSteamOffer(leased.canonicalSteamUrl);
+    const offer = await lookupSteamOffer(leased.canonicalSteamUrl, {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    });
+    options.signal?.throwIfAborted();
 
     if (
       offer.steamAppId !== leased.steamAppId ||
@@ -141,38 +179,45 @@ export async function refreshSteamProductById(
     }
 
     const observedAt = new Date(offer.observedAt);
-    const updated = await ProductModel.findOneAndUpdate(
-      {
-        _id: leased._id,
-        refreshLeaseToken: leaseToken,
-        provider: 'cheapshark',
-        providerGameId: leased.providerGameId,
-        storeId: leased.storeId,
-        market: leased.market,
-        currency: leased.currency,
-      },
-      {
-        $set: {
-          title: offer.title,
-          canonicalSteamUrl: offer.canonicalSteamUrl,
-          dealId: offer.dealId,
-          purchaseUrl: offer.purchaseUrl,
-          currentPriceMinor: offer.currentPrice.amountMinor,
-          retailPriceMinor: offer.retailPrice?.amountMinor ?? null,
-          lastSuccessfulCheckAt: observedAt,
-          providerChangedAt: offer.providerChangedAt,
-          nextCheckAt: new Date(observedAt.getTime() + SUCCESS_CACHE_TTL_MS),
-          lastAttemptAt: observedAt,
-          lastError: null,
-          consecutiveFailures: 0,
-          refreshLeaseUntil: null,
-          refreshLeaseToken: null,
+    let updated;
+    if (options.observationWriter) {
+      await options.observationWriter(String(leased._id), options.checkId!, leaseToken, offer);
+      updated = await ProductModel.findById(leased._id).lean().exec();
+    } else {
+      updated = await ProductModel.findOneAndUpdate(
+        {
+          _id: leased._id,
+          refreshLeaseToken: leaseToken,
+          refreshLeaseUntil: { $gt: new Date() },
+          provider: 'cheapshark',
+          providerGameId: leased.providerGameId,
+          storeId: leased.storeId,
+          market: leased.market,
+          currency: leased.currency,
         },
-      },
-      { new: true, runValidators: true },
-    )
-      .lean()
-      .exec();
+        {
+          $set: {
+            title: offer.title,
+            canonicalSteamUrl: offer.canonicalSteamUrl,
+            dealId: offer.dealId,
+            purchaseUrl: offer.purchaseUrl,
+            currentPriceMinor: offer.currentPrice.amountMinor,
+            retailPriceMinor: offer.retailPrice?.amountMinor ?? null,
+            lastSuccessfulCheckAt: observedAt,
+            providerChangedAt: offer.providerChangedAt,
+            nextCheckAt: new Date(observedAt.getTime() + SUCCESS_CACHE_TTL_MS),
+            lastAttemptAt: observedAt,
+            lastError: null,
+            consecutiveFailures: 0,
+            refreshLeaseUntil: null,
+            refreshLeaseToken: null,
+          },
+        },
+        { returnDocument: 'after', runValidators: true, ...dbOptions },
+      )
+        .lean()
+        .exec();
+    }
 
     if (!updated) {
       throw new Error('The approved product changed during its price check.');
@@ -180,12 +225,16 @@ export async function refreshSteamProductById(
 
     return updated;
   } catch (error) {
+    if (options.signal?.aborted) {
+      await releaseProductLease(leased._id, leaseToken);
+      throw abortError(options.signal);
+    }
     const failureCount = leased.consecutiveFailures + 1;
     const retryAt = retryTime(error, failureCount);
 
     // Only failure metadata changes; price, deal, and last-success fields remain intact.
     await ProductModel.updateOne(
-      { _id: leased._id, refreshLeaseToken: leaseToken },
+      { _id: leased._id, refreshLeaseToken: leaseToken, refreshLeaseUntil: { $gt: new Date() } },
       {
         $set: {
           lastError: failureMessage(error),
@@ -196,9 +245,19 @@ export async function refreshSteamProductById(
           refreshLeaseToken: null,
         },
       },
+      { timeoutMS: 500, maxTimeMS: 500 },
     ).exec();
     throw error;
   }
+}
+
+async function canReusePrice(product: { _id: unknown; currentPriceMinor: number | null; lastSuccessfulCheckAt: Date | null; lastError: string | null }, options: RefreshOptions) {
+  if (!hasFreshPrice(product)) return false;
+  if (!options.requireObservation) return true;
+  return Boolean(await PriceHistoryModel.exists({
+    productId: String(product._id), observedAt: product.lastSuccessfulCheckAt,
+    priceMinor: product.currentPriceMinor, currency: 'USD',
+  }));
 }
 
 function hasFreshPrice(product: {
@@ -250,5 +309,6 @@ async function releaseProductLease(productId: unknown, leaseToken: string): Prom
   await ProductModel.updateOne(
     { _id: productId, refreshLeaseToken: leaseToken },
     { $set: { refreshLeaseUntil: null, refreshLeaseToken: null } },
+    { timeoutMS: 500, maxTimeMS: 500 },
   ).exec();
 }

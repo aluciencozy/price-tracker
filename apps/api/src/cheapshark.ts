@@ -1,4 +1,4 @@
-import { lookup as dnsLookup } from 'node:dns/promises';
+import { Resolver } from 'node:dns/promises';
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
 import https from 'node:https';
@@ -15,6 +15,12 @@ const STEAM_STORE_ID = '1';
 const MAX_RESPONSE_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOOKUP_TIMEOUT_MS = 30_000;
+
+function abortError(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : Object.assign(new Error('CheapShark lookup was cancelled.'), { name: 'AbortError' });
+}
 
 const BLOCKED_IPV4_CIDRS: Array<[string, number]> = [
   ['0.0.0.0', 8],
@@ -249,23 +255,38 @@ function isPublicAddress(address: string): boolean {
   return globalUnicast && !documentation && !transitionOrSpecial;
 }
 
-const safeCheapSharkLookup: NonNullable<https.RequestOptions['lookup']> = (
-  hostname,
-  options,
-  callback,
-) => {
-  if (hostname.toLowerCase() !== 'www.cheapshark.com') {
-    const error = Object.assign(new Error('Blocked outbound hostname.'), { code: 'EACCES' });
-    callback(error, '', 0);
-    return;
-  }
+function safeCheapSharkLookup(signal: AbortSignal): NonNullable<https.RequestOptions['lookup']> {
+  return (hostname, options, callback) => {
+    if (hostname.toLowerCase() !== 'www.cheapshark.com') {
+      const error = Object.assign(new Error('Blocked outbound hostname.'), { code: 'EACCES' });
+      callback(error, '', 0);
+      return;
+    }
+    if (signal.aborted) {
+      callback(abortError(signal), '', 0);
+      return;
+    }
 
-  void dnsLookup(hostname, { all: true, verbatim: true }).then(
-    (addresses) => {
+    // Resolver.cancel() actively cancels the A/AAAA queries if a request or
+    // its total deadline is aborted; late DNS results can never open a socket.
+    const resolver = new Resolver();
+    const cancel = () => resolver.cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    const noAddressRecord = (error: unknown) => typeof error === 'object' && error !== null &&
+      'code' in error && (error.code === 'ENODATA' || error.code === 'ENOTFOUND');
+    void Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]).then(results => {
+      if (signal.aborted) throw abortError(signal);
+      const addresses: Array<{ address: string; family: 4 | 6 }> = [];
+      for (const [index, result] of results.entries()) {
+        const family = index === 0 ? 4 : 6;
+        if (result.status === 'fulfilled') {
+          addresses.push(...result.value.map(address => ({ address, family: family as 4 | 6 })));
+        } else if (!noAddressRecord(result.reason)) {
+          throw result.reason;
+        }
+      }
       if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
-        const error = Object.assign(new Error('Blocked non-public DNS destination.'), { code: 'EACCES' });
-        callback(error, '', 0);
-        return;
+        throw Object.assign(new Error('Blocked or unavailable CheapShark DNS destination.'), { code: 'EACCES' });
       }
 
       const requestedFamily = typeof options === 'number' ? options : options.family;
@@ -273,24 +294,22 @@ const safeCheapSharkLookup: NonNullable<https.RequestOptions['lookup']> = (
         ? addresses.filter(({ family }) => family === requestedFamily)
         : addresses;
       if (!candidates.length) {
-        const error = Object.assign(new Error('No safe DNS address for the requested family.'), { code: 'EAI_ADDRFAMILY' });
-        callback(error, '', 0);
-        return;
+        throw Object.assign(new Error('No safe DNS address for the requested family.'), { code: 'EAI_ADDRFAMILY' });
       }
 
-      if (typeof options === 'object' && options.all) {
-        callback(null, candidates);
-      } else {
+      if (typeof options === 'object' && options.all) callback(null, candidates);
+      else {
         const selected = candidates[0]!;
         callback(null, selected.address, selected.family);
       }
-    },
-    () => {
-      const error = Object.assign(new Error('CheapShark DNS lookup failed.'), { code: 'EAI_AGAIN' });
-      callback(error, '', 0);
-    },
-  );
-};
+    }).catch(error => {
+      callback(signal.aborted ? abortError(signal) : Object.assign(
+        new Error('CheapShark DNS lookup failed or resolved to an unsafe address.'),
+        { code: typeof error === 'object' && error !== null && 'code' in error ? error.code : 'EAI_AGAIN' },
+      ), '', 0);
+    }).finally(() => signal.removeEventListener('abort', cancel));
+  };
+}
 
 async function readJsonResponse(response: IncomingMessage): Promise<unknown> {
   if (response.statusCode === 429) {
@@ -337,7 +356,10 @@ async function readJsonResponse(response: IncomingMessage): Promise<unknown> {
   }
 }
 
-async function requestJson(path: string, deadline: number): Promise<unknown> {
+async function requestJson(path: string, deadline: number, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted();
+  const requestController = new AbortController();
+  const requestSignal = signal ? AbortSignal.any([signal, requestController.signal]) : requestController.signal;
   // Callers construct paths only from validated numeric provider IDs.
   const url = new URL(path, API_ORIGIN);
   if (url.origin !== API_ORIGIN || !url.pathname.startsWith('/api/1.0/games')) {
@@ -345,12 +367,26 @@ async function requestJson(path: string, deadline: number): Promise<unknown> {
   }
 
   return withCheapSharkRequestBudget(deadline, async () => {
+    requestSignal.throwIfAborted();
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('CheapShark lookup deadline expired.');
 
     return new Promise<unknown>((resolve, reject) => {
       const timeoutMs = Math.min(REQUEST_TIMEOUT_MS, remaining);
       let responseReceived = false;
+      let activeResponse: IncomingMessage | null = null;
+      let settled = false;
+      const clear = () => {
+        clearTimeout(timer);
+        requestSignal.removeEventListener('abort', onAbort);
+      };
+      const finish = (error?: unknown, value?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clear();
+        if (error !== undefined) reject(error);
+        else resolve(value);
+      };
       const request = https.request(
         url,
         {
@@ -358,29 +394,41 @@ async function requestJson(path: string, deadline: number): Promise<unknown> {
           headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
           agent: false,
           servername: url.hostname,
-          lookup: safeCheapSharkLookup,
+          lookup: safeCheapSharkLookup(requestSignal),
         },
         (response) => {
           responseReceived = true;
-          void readJsonResponse(response).then(resolve, reject).finally(() => clearTimeout(timer));
+          activeResponse = response;
+          void readJsonResponse(response).then(value => finish(undefined, value), error => finish(error));
         },
       );
 
+      const onAbort = () => {
+        const error = abortError(requestSignal);
+        finish(error);
+        request.destroy(error);
+        activeResponse?.destroy(error);
+      };
       const timer = setTimeout(() => {
-        request.destroy(new Error('CheapShark request timed out.'));
+        requestController.abort(new Error('CheapShark request timed out.'));
       }, timeoutMs);
       timer.unref();
 
-      request.once('error', () => {
-        clearTimeout(timer);
+      request.on('error', error => {
         if (!responseReceived) {
-          reject(new Error('CheapShark could not be reached, DNS validation failed, or the request timed out.'));
+          finish(requestSignal.aborted
+            ? abortError(requestSignal)
+            : new Error(error.message.includes('timed out')
+              ? 'CheapShark request timed out.'
+              : 'CheapShark could not be reached or DNS validation failed.'));
         }
       });
 
-      request.end();
+      if (requestSignal.aborted) onAbort();
+      else requestSignal.addEventListener('abort', onAbort, { once: true });
+      if (!settled) request.end();
     });
-  });
+  }, requestSignal);
 }
 
 /** Build a human purchase link only; never fetch this redirect automatically. */
@@ -400,13 +448,40 @@ export function cheapSharkPurchaseUrl(dealId: string): string {
 }
 
 /** Resolve a Steam URL to its current Steam offer through CheapShark. */
-export async function lookupSteamOffer(input: string): Promise<SteamOffer> {
-  const game = parseSteamUrl(input);
-  const deadline = Date.now() + LOOKUP_TIMEOUT_MS;
+export type SteamOfferLookupOptions = { signal?: AbortSignal; timeoutMs?: number };
 
+export async function lookupSteamOffer(input: string, options: SteamOfferLookupOptions = {}): Promise<SteamOffer> {
+  options.signal?.throwIfAborted();
+  const game = parseSteamUrl(input);
+  const requestedTimeout = options.timeoutMs ?? LOOKUP_TIMEOUT_MS;
+  if (!Number.isFinite(requestedTimeout) || requestedTimeout < 1) {
+    throw new Error('CheapShark lookup timeout is invalid.');
+  }
+  const durationMs = Math.min(Math.floor(requestedTimeout), LOOKUP_TIMEOUT_MS);
+  const deadline = Date.now() + durationMs;
+  const deadlineController = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, deadlineController.signal])
+    : deadlineController.signal;
+  const deadlineTimer = setTimeout(
+    () => deadlineController.abort(new Error('CheapShark lookup timed out.')),
+    durationMs,
+  );
+  deadlineTimer.unref();
+
+  try {
+    return await lookupSteamOfferWithinDeadline(game, deadline, signal);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+async function lookupSteamOfferWithinDeadline(game: ReturnType<typeof parseSteamUrl>, deadline: number, signal: AbortSignal): Promise<SteamOffer> {
+  signal.throwIfAborted();
   const rawMatches = await requestJson(
     `/api/1.0/games?steamAppID=${encodeURIComponent(game.steamAppId)}`,
     deadline,
+    signal,
   );
   const matchesResult = z.array(lookupMatchSchema).safeParse(rawMatches);
   if (!matchesResult.success) {
@@ -424,6 +499,7 @@ export async function lookupSteamOffer(input: string): Promise<SteamOffer> {
   const rawDetails = await requestJson(
     `/api/1.0/games?id=${encodeURIComponent(providerGameId)}`,
     deadline,
+    signal,
   );
   const detailsResult = detailsSchema.safeParse(rawDetails);
   if (!detailsResult.success) {

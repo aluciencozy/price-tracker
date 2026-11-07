@@ -33,14 +33,15 @@ function parseRetryAfter(value: string | null, now: number): Date | null {
 
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) {
-    return new Date(now + seconds * 1_000);
+    const at = new Date(now + seconds * 1_000);
+    return Number.isFinite(at.getTime()) ? at : null;
   }
 
   const date = Date.parse(value);
   return Number.isFinite(date) ? new Date(date) : null;
 }
 
-async function ensureBudgetRecord(): Promise<void> {
+async function ensureBudgetRecord(signal?: AbortSignal): Promise<void> {
   try {
     await ProviderBudgetModel.updateOne(
       { _id: PROVIDER_KEY },
@@ -53,7 +54,7 @@ async function ensureBudgetRecord(): Promise<void> {
           rateLimitCount: 0,
         },
       },
-      { upsert: true },
+      { upsert: true, ...(signal ? { signal, timeoutMS: 10_000, maxTimeMS: 500 } : {}) },
     ).exec();
   } catch (error) {
     // Another process may win the singleton upsert. Its document is sufficient.
@@ -63,10 +64,13 @@ async function ensureBudgetRecord(): Promise<void> {
   }
 }
 
-async function acquireRequestSlot(deadline: number): Promise<string> {
-  await ensureBudgetRecord();
+async function acquireRequestSlot(deadline: number, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  await ensureBudgetRecord(signal);
+  signal?.throwIfAborted();
 
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + REQUEST_LEASE_MS);
     const leaseToken = randomUUID();
@@ -78,14 +82,23 @@ async function acquireRequestSlot(deadline: number): Promise<string> {
         cooldownUntil: { $lte: now },
       },
       { $set: { leaseUntil, leaseToken } },
-      { new: true },
+      { returnDocument: 'after', ...(signal ? { signal, timeoutMS: Math.max(1, deadline - Date.now()), maxTimeMS: 500 } : {}) },
     )
       .lean()
       .exec();
 
-    if (lease) return leaseToken;
+    if (lease) {
+      if (signal?.aborted) {
+        await releaseRequestSlot(false, leaseToken);
+        signal.throwIfAborted();
+      }
+      return leaseToken;
+    }
 
-    const budget = await ProviderBudgetModel.findById(PROVIDER_KEY).lean().exec();
+    const budgetQuery = ProviderBudgetModel.findById(PROVIDER_KEY);
+    if (signal) budgetQuery.setOptions({ signal, timeoutMS: Math.max(1, deadline - Date.now()), maxTimeMS: 500 });
+    const budget = await budgetQuery.lean().exec();
+    signal?.throwIfAborted();
     if (!budget) {
       throw new ProviderDeferredError(new Date(Date.now() + 1_000));
     }
@@ -100,7 +113,9 @@ async function acquireRequestSlot(deadline: number): Promise<string> {
       throw new ProviderDeferredError(new Date(availableAt));
     }
 
-    await delay(Math.max(10, Math.min(availableAt - Date.now(), remaining)));
+    const waitMs = Math.max(10, Math.min(availableAt - Date.now(), remaining));
+    if (signal) await delay(waitMs, undefined, { signal });
+    else await delay(waitMs);
   }
 
   throw new ProviderDeferredError(new Date(Date.now() + 1_000));
@@ -118,6 +133,7 @@ async function releaseRequestSlot(success: boolean, leaseToken: string): Promise
       },
       $max: { nextRequestAt: new Date(now.getTime() + MIN_REQUEST_INTERVAL_MS) },
     },
+    { timeoutMS: 250, maxTimeMS: 250 },
   ).exec();
 }
 
@@ -126,7 +142,7 @@ async function recordRateLimit(retryAfter: string | null, leaseToken: string): P
   const state = await ProviderBudgetModel.findOneAndUpdate(
     { _id: PROVIDER_KEY },
     { $inc: { rateLimitCount: 1 } },
-    { new: true },
+    { returnDocument: 'after', timeoutMS: 250, maxTimeMS: 250 },
   )
     .lean()
     .exec();
@@ -149,6 +165,7 @@ async function recordRateLimit(retryAfter: string | null, leaseToken: string): P
     {
       $max: { cooldownUntil: retryAt, nextRequestAt: retryAt },
     },
+    { timeoutMS: 250, maxTimeMS: 250 },
   ).exec();
 
   // A late 429 still extends the shared cooldown, but must not clear a newer
@@ -162,10 +179,12 @@ async function recordRateLimit(retryAfter: string | null, leaseToken: string): P
 export async function withCheapSharkRequestBudget<T>(
   deadline: number,
   request: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const leaseToken = await acquireRequestSlot(deadline);
+  const leaseToken = await acquireRequestSlot(deadline, signal);
 
   try {
+    signal?.throwIfAborted();
     const result = await request();
     await releaseRequestSlot(true, leaseToken);
     return result;

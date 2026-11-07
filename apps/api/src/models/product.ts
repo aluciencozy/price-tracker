@@ -47,7 +47,7 @@ const productSchema = new Schema<ProductRecord>(
     refreshLeaseUntil: { type: Date, default: null },
     refreshLeaseToken: { type: String, default: null },
   },
-  { timestamps: true, versionKey: false },
+  { timestamps: true, versionKey: false, bufferCommands: false },
 );
 
 // Stable provider/store identity: a changing deal ID must not create a new product.

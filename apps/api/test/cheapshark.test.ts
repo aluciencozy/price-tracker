@@ -19,11 +19,21 @@ const mockState = vi.hoisted(() => ({
   responses: [] as FakeResponse[],
   addresses: [] as FakeAddress[],
   httpsRequest: vi.fn(),
-  dnsLookup: vi.fn(),
+  resolve4: vi.fn(),
+  resolve6: vi.fn(),
+  cancelResolver: vi.fn(),
   withBudget: vi.fn(),
+  activeRequests: 0,
+  maximumActiveRequests: 0,
 }));
 
-vi.mock('node:dns/promises', () => ({ lookup: mockState.dnsLookup }));
+vi.mock('node:dns/promises', () => ({
+  Resolver: class {
+    resolve4(hostname: string) { return mockState.resolve4(hostname); }
+    resolve6(hostname: string) { return mockState.resolve6(hostname); }
+    cancel() { mockState.cancelResolver(); }
+  },
+}));
 
 vi.mock('node:https', () => ({
   default: { request: mockState.httpsRequest },
@@ -116,9 +126,21 @@ function usePublicDns(addresses: FakeAddress[] = [{ address: '93.184.216.34', fa
 beforeEach(() => {
   vi.clearAllMocks();
   mockState.responses = [];
+  mockState.activeRequests = 0;
+  mockState.maximumActiveRequests = 0;
   usePublicDns();
 
-  mockState.dnsLookup.mockImplementation(async () => mockState.addresses);
+  mockState.resolve4.mockImplementation(async () => {
+    const addresses = mockState.addresses.filter(address => address.family === 4).map(address => address.address);
+    if (!addresses.length) throw Object.assign(new Error('No A records.'), { code: 'ENODATA' });
+    return addresses;
+  });
+  mockState.resolve6.mockImplementation(async () => {
+    const addresses = mockState.addresses.filter(address => address.family === 6).map(address => address.address);
+    if (!addresses.length) throw Object.assign(new Error('No AAAA records.'), { code: 'ENODATA' });
+    return addresses;
+  });
+  mockState.cancelResolver.mockImplementation(() => undefined);
   mockState.withBudget.mockImplementation(
     async (_deadline: number, request: () => Promise<unknown>) => request(),
   );
@@ -129,8 +151,17 @@ beforeEach(() => {
         end: () => void;
         destroy: (error?: Error) => void;
       };
+      let active = false;
+      const deactivate = () => {
+        if (!active) return;
+        active = false;
+        mockState.activeRequests -= 1;
+      };
 
       request.end = () => {
+        active = true;
+        mockState.activeRequests += 1;
+        mockState.maximumActiveRequests = Math.max(mockState.maximumActiveRequests, mockState.activeRequests);
         const lookup = options.lookup;
         if (!lookup) {
           request.emit('error', new Error('Expected the adapter to install safe DNS lookup.'));
@@ -157,13 +188,15 @@ beforeEach(() => {
           response.statusCode = fixture.statusCode ?? 200;
           response.headers = fixture.headers ?? { 'content-type': 'application/json' };
           onResponse(response);
-          if (!fixture.leaveOpen) response.end(fixture.body);
+          response.once('close', deactivate);
+          if (!fixture.leaveOpen) { response.end(fixture.body); deactivate(); }
         };
 
         lookup('www.cheapshark.com', {}, callback as (...args: unknown[]) => void);
       };
 
       request.destroy = (error?: Error) => {
+        deactivate();
         if (error) request.emit('error', error);
       };
 
@@ -451,6 +484,95 @@ describe('CheapShark adapter helpers', () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     await rejected;
+  });
+
+  it('times out a response body that remains open within the lookup deadline', async () => {
+    vi.useFakeTimers();
+    queueResponses({ body: '{', leaveOpen: true });
+
+    const lookup = lookupSteamOffer('https://store.steampowered.com/app/620/', { timeoutMs: 2_000 });
+    const rejected = expect(lookup).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejected;
+    expect(mockState.httpsRequest).toHaveBeenCalledOnce();
+  });
+
+  it('uses one absolute caller-supplied deadline for both provider requests', async () => {
+    vi.useFakeTimers();
+    queueSuccessfulLookup();
+    const startedAt = Date.now();
+
+    await lookupSteamOffer('https://store.steampowered.com/app/620/', { timeoutMs: 10_000 });
+
+    const deadlines = mockState.withBudget.mock.calls.map(([deadline]) => deadline);
+    expect(deadlines).toHaveLength(2);
+    expect(new Set(deadlines).size).toBe(1);
+    expect(deadlines[0] - startedAt).toBe(10_000);
+  });
+
+  it('cancels an in-flight request and does not continue to the offer endpoint', async () => {
+    queueResponses({ body: '', hangBeforeResponse: true });
+    const controller = new AbortController();
+    const lookup = lookupSteamOffer('https://store.steampowered.com/app/620/', { signal: controller.signal, timeoutMs: 10_000 });
+    const rejected = expect(lookup).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(mockState.httpsRequest).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await rejected;
+    expect(mockState.httpsRequest).toHaveBeenCalledOnce();
+  });
+
+  it('cancels pending A/AAAA DNS queries and produces no late budget or request activity', async () => {
+    queueResponses(jsonResponse([gameMatch()]), jsonResponse(gameDetails()));
+    let cancelDns!: () => void;
+    mockState.resolve4.mockImplementation(() => new Promise((_resolve, reject) => {
+      cancelDns = () => reject(Object.assign(new Error('DNS query cancelled.'), { code: 'ECANCELLED' }));
+    }));
+    mockState.resolve6.mockImplementation(async () => {
+      throw Object.assign(new Error('No AAAA records.'), { code: 'ENODATA' });
+    });
+    mockState.cancelResolver.mockImplementation(() => cancelDns());
+    const controller = new AbortController();
+    const lookup = lookupSteamOffer('https://store.steampowered.com/app/620/', { signal: controller.signal, timeoutMs: 10_000 });
+    const rejected = expect(lookup).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(mockState.resolve4).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await rejected;
+    await Promise.resolve();
+    expect(mockState.cancelResolver).toHaveBeenCalledOnce();
+    expect(mockState.withBudget).toHaveBeenCalledOnce();
+    expect(mockState.httpsRequest).toHaveBeenCalledOnce();
+    expect(mockState.responses).toHaveLength(2);
+  });
+
+  it('terminates concurrent timed-out provider requests without later second requests', async () => {
+    vi.useFakeTimers();
+    queueResponses({ body: '', hangBeforeResponse: true }, { body: '', hangBeforeResponse: true });
+    const first = lookupSteamOffer('https://store.steampowered.com/app/620/', { timeoutMs: 10_000 });
+    const second = lookupSteamOffer('https://store.steampowered.com/app/620/', { timeoutMs: 10_000 });
+    const outcomes = Promise.allSettled([first, second]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await outcomes;
+    expect(results.every(result => result.status === 'rejected')).toBe(true);
+    expect(mockState.maximumActiveRequests).toBe(2);
+    expect(mockState.activeRequests).toBe(0);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
+    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+    expect(mockState.activeRequests).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
+    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start provider work for an already-aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(lookupSteamOffer('https://store.steampowered.com/app/620/', { signal: controller.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(mockState.httpsRequest).not.toHaveBeenCalled();
   });
 
   it('builds only the fixed CheapShark endpoints and encodes the purchase link', async () => {
