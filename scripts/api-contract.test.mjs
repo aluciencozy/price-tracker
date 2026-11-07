@@ -28,6 +28,12 @@ const validate = (schema, value) => {
   assert.ok(validator(value), JSON.stringify({ value, errors: validator.errors }, null, 2));
 };
 const reject = (name, value) => assert.equal(validators.get(name)(value), false, `${name} incorrectly accepted ${JSON.stringify(value)}`);
+// Cross-field rule: JSON Schema can constrain the URL shape but not its deal identity.
+const canonicalPurchaseUrl = (dealId) => {
+  const url = new URL('/redirect', 'https://www.cheapshark.com');
+  url.searchParams.set('dealID', decodeURIComponent(dealId));
+  return url.href;
+};
 const methods = new Set(['get', 'post', 'patch', 'put', 'delete']);
 const operations = Object.entries(contract.paths).flatMap(([path, entry]) => Object.entries(entry)
   .filter(([method]) => methods.has(method)).map(([method, operation]) => ({ path, method, operation, entry })));
@@ -216,7 +222,7 @@ test('product examples keep real proof identity separate from dated observations
   assert.deepEqual(products.map(({ steamAppId, identity }) => [steamAppId, identity.providerGameId]), [['620', '36'], ['220', '59']]);
   for (const product of products) {
     assert.equal(product.canonicalSteamUrl, `https://store.steampowered.com/app/${product.steamAppId}/`);
-    assert.equal(product.purchaseUrl, `https://www.cheapshark.com/redirect?dealID=${encodeURIComponent(product.dealId)}`);
+    assert.equal(product.purchaseUrl, canonicalPurchaseUrl(product.dealId));
     assert.equal(product.freshness, 'stale');
     assert.equal(Date.parse(product.staleAt) - Date.parse(product.observedAt), 86400000);
   }
@@ -235,6 +241,42 @@ test('product examples keep real proof identity separate from dated observations
   reject('Product', missing);
   validate({ $ref: '#/components/schemas/Product' }, { ...products[0], currentPrice: { amountMinor: 0, currency: 'USD' } });
   validate({ $ref: '#/components/schemas/TrackedItem' }, tracker);
+});
+
+test('purchase redirects use one strict decode and canonical form serialization', () => {
+  const prefix = 'https://www.cheapshark.com/redirect?dealID=';
+  for (const [dealId, encoded] of [
+    ['a/b', 'a%2Fb'], ['a%2Fb', 'a%2Fb'], ['space id', 'space+id'],
+    ['space%20and%2Bplus', 'space+and%2Bplus'], ['plus+id', 'plus%2Bid'],
+    ['equals=id', 'equals%3Did'], ['percent%25', 'percent%25'],
+    ['a%252Fb', 'a%252Fb'], ['*~', '*%7E'],
+  ]) {
+    const purchaseUrl = prefix + encoded;
+    assert.equal(canonicalPurchaseUrl(dealId), purchaseUrl);
+    validate({ $ref: '#/components/schemas/Product' }, { ...products[0], dealId, purchaseUrl });
+  }
+  for (const dealId of ['bad%', 'bad%2', 'bad%GG', '%FF']) assert.throws(() => canonicalPurchaseUrl(dealId), URIError);
+  for (const purchaseUrl of [
+    prefix + 'offer&dealID=offer', prefix + 'offer&extra=1', prefix + 'offer#fragment',
+    'https://user@www.cheapshark.com/redirect?dealID=offer',
+    'http://www.cheapshark.com/redirect?dealID=offer',
+    'https://www.cheapshark.com:444/redirect?dealID=offer',
+    prefix + 'bad%2',
+  ]) reject('Product', { ...products[0], dealId: 'offer', purchaseUrl });
+  for (const [dealId, purchaseUrl] of [
+    ['offer', prefix + 'other'], ['a%2Fb', prefix + 'a%252Fb'],
+    ['space id', prefix + 'space%20id'], ['*~', prefix + '%2A~'],
+  ]) {
+    validate({ $ref: '#/components/schemas/Product' }, { ...products[0], dealId, purchaseUrl });
+    assert.notEqual(purchaseUrl, canonicalPurchaseUrl(dealId), 'schema-valid URL must still match deal identity exactly');
+  }
+  for (const dealId of ['x'.repeat(256), '+'.repeat(256), '%2F'.repeat(85) + 'x', 'é'.repeat(256), '😀'.repeat(256)]) {
+    const purchaseUrl = canonicalPurchaseUrl(dealId);
+    assert.ok(purchaseUrl.length <= 4096);
+    validate({ $ref: '#/components/schemas/Product' }, { ...products[0], dealId, purchaseUrl });
+  }
+  for (const dealId of ['x'.repeat(257), '😀'.repeat(257)]) reject('Product', { ...products[0], dealId });
+  reject('Product', { ...products[0], purchaseUrl: prefix + 'x'.repeat(4096) });
 });
 
 test('pagination, dates, account and errors have bounded, strict shapes', () => {
