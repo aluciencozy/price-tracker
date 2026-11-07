@@ -66,7 +66,7 @@ Preview reports an already-saved game before asking for a target and links to it
 
 Prices and human purchase redirects are stale snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. Only these two identities were validated. The multi-day chart is **explicitly labeled illustrative**, with a data table; its invented values are not recorded Steam history. Purchase links can expire and are never fetched automatically. No other store or historical low substitutes for a missing Steam offer.
 
-Registration, verification/resend, login/logout, forgot/reset, and account pages are honest local previews. Use made-up sample credentials only. They do not store/transmit credentials, create sessions, send email, register devices, or deliver alerts. Android push is a per-game preference, not browser push.
+In sample mode, registration, verification/resend, login/logout, forgot/reset, and account pages are honest local previews. Use made-up sample credentials only. They do not store/transmit credentials, create sessions, send email, register devices, or deliver alerts. Android push is a per-game preference, not browser push.
 
 Expand **Development tools** in the footer for loading, empty, offline, expired-session, save-error, failed-check, missing-offer, free-price, unsupported-content and history scenarios. These are local fixtures, not provider-support claims. Account forms have their own expandable scenario controls. Choose **Normal** to leave a scenario; refresh to reset everything.
 
@@ -76,7 +76,7 @@ Inside Development tools, expand **API connection (manual diagnostic)** and clic
 
 Set `VITE_DATA_SOURCE=api` in `apps/web/.env` and restart Vite (or rebuild for deployment) to connect account forms and the private watchlist to the [shared contract proposed in PR #36](https://github.com/aluciencozy/price-tracker/pull/36). The default is `sample`; invalid values show a configuration error without starting either source. API mode never uploads sample records or falls back to sample success. It uses persistent browser-managed HttpOnly cookies and CSRF protection, not JavaScript-stored JWTs.
 
-The API now mounts registration, email verification/resend and pre-login CSRF under the shared web/mobile namespaces. See [registration setup and transaction tests](docs/registration.md). Login/session issuance, password reset and the remaining business routes are not mounted by this work. API mode still cannot complete a full authenticated watchlist flow. Neither generic registration acceptance nor local fixture tests prove mailbox delivery or alerts.
+The API mounts registration, email verification/resend, login/logout, forgot/reset, and web CSRF under the shared web/mobile namespaces. Web uses a persistent HttpOnly cookie; mobile receives a seven-day JWT only when `AUTH_JWT_SECRET` is configured. Sessions are checked against MongoDB on every request. See [account setup and transaction tests](docs/registration.md). Tracking/admin business routes remain unmounted, so API mode cannot yet complete an authenticated watchlist flow. Generic account responses and fixture mail tests do not prove mailbox delivery or alerts.
 
 Leave `VITE_API_BASE_URL` blank for same-origin `/api` routing. A separate API must use an approved **same-site HTTPS origin**, without `/api`, and exact credentialed CORS configuration; HTTPS alone does not make cross-site cookies work. HTTP is development-only on exact `localhost`/`127.0.0.1`. No credentials belong in public `VITE_` values.
 
@@ -97,6 +97,7 @@ cp apps/web/.env.example apps/web/.env
 | `PORT`, `HOST` | API `.env` | Defaults to `4000`, `127.0.0.1`. |
 | `WEB_ORIGINS` | API `.env` | Comma-separated allowed web origins; localhost/127.0.0.1 port 5173 by default. |
 | `MONGODB_URI` | API `.env` | Optional for the starter health screen. Use the team's remote MongoDB URI once configured; never commit credentials. |
+| `AUTH_JWT_SECRET` | API `.env` and deployment secret | Stable random signing key of at least 32 characters; required in production. Keep server-side, use the same value across replicas, and do not rotate without invalidating sessions. |
 | `RESEND_SEND_API_KEY` | API `.env` and deployment secret | Resend Sending Access key used by the API to send email. Keep it server-side. |
 | `EMAIL_FROM` | API `.env` and deployment secret | Sender address on a verified domain, for example `Price Tracker <alerts@mail.example.com>`. |
 | `TEMPLATE_VERIFICATION_EMAIL_ID` | API `.env` and deployment secret | ID of the published verification template in Resend. |

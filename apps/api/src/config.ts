@@ -23,6 +23,8 @@ const schema = z.object({
       ).min(1),
     ),
   MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\//).optional(),
+  // Stable server-side key: never generate a new key at process startup.
+  AUTH_JWT_SECRET: z.string().min(32).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -39,6 +41,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   if (result.data.NODE_ENV === 'production' && result.data.WEB_ORIGINS.some(origin => !origin.startsWith('https://'))) {
     throw new Error('Production WEB_ORIGINS must use HTTPS');
+  }
+  if (result.data.NODE_ENV === 'production' && !result.data.AUTH_JWT_SECRET) {
+    throw new Error('Production AUTH_JWT_SECRET is required');
   }
   if (result.data.NODE_ENV !== 'production' && result.data.WEB_ORIGINS.some(origin => {
     const url = new URL(origin);

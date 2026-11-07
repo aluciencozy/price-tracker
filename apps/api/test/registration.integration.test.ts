@@ -7,6 +7,7 @@ import { loadConfig } from '../src/config.js';
 import { AuthLimitModel, AuthTokenModel, PreloginModel, SessionModel, UserModel } from '../src/models/account.js';
 import { createDatabaseIndexes } from '../src/models/index.js';
 import { hashSecret, register as enqueueRegister, resend as enqueueResend, verify, type VerificationSender } from '../src/registration.js';
+import { csrfForSecret } from '../src/sessionSecurity.js';
 import { VerificationMailModel } from '../src/models/verificationMail.js';
 import { dispatchVerificationMail, recoverVerificationMail, startVerificationDispatcher } from '../src/verificationDispatch.js';
 
@@ -58,8 +59,9 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     const token = await AuthTokenModel.findOne().select('+tokenHash').orFail();
     expect(token.tokenHash).toBe(hashSecret(sent[0]!.token));
     expect(token.expiresAt.getTime() - Date.now()).toBeGreaterThan(86300000);
-    // Login is deliberately outside #8; an unverified account has no login/session path here.
-    await post('login', credentials).expect(404);
+    // Correct credentials remain insufficient until email verification.
+    const unverifiedLogin = await post('login', { email: credentials.email, password: credentials.password }).expect(403);
+    expect(unverifiedLogin.body.error.code).toBe('EMAIL_UNVERIFIED');
     expect(await SessionModel.countDocuments()).toBe(0);
     await post('verify-email', { token: sent[0]!.token }).expect(204);
     await post('verify-email', { token: sent[0]!.token }).expect(400);
@@ -206,8 +208,8 @@ describe.skipIf(!uri)('registration routes with real MongoDB transactions', () =
     await agent.post('/api/auth/web/verify-email').set('Origin', config.WEB_ORIGINS[0]!).set('X-CSRF-Token', first.body.csrfToken).send({ token: sent[0]!.token }).expect(403);
   });
   it('accepts only active verified session-bound CSRF on web account forms', async () => {
-    const secret = 's'.repeat(64);
-    const csrf = 'c'.repeat(64);
+    const secret = 's'.repeat(43);
+    const csrf = csrfForSecret(secret);
     const user = await UserModel.create({ email: credentials.email, passwordHash: 'fixture', emailVerifiedAt: new Date() });
     const session = await SessionModel.create({ userId: user._id, transport: 'web', secretHash: hashSecret(secret), csrfHash: hashSecret(csrf), expiresAt: new Date(Date.now() + 60000) });
     const mutation = () => request(app).post('/api/auth/web/resend-verification').set('Origin', config.WEB_ORIGINS[0]!).set('Cookie', `price_tracker_session_dev=${secret}`).set('X-CSRF-Token', csrf).send({ email: 'absent@example.invalid' });
