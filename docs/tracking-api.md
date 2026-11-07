@@ -93,6 +93,12 @@ provider calls are made by normal tests.
 
 ## Data and tests
 
+The router enforces 120 private requests per minute per verified session using
+the shared MongoDB auth-limit collection. Preview limits are additional. The
+same helper can run in authentication middleware without counting a request
+twice. A blocked request returns matching `Retry-After` and error-envelope
+seconds. Tests cover the threshold, different sessions and composed middleware.
+
 Product previews are owner-bound, expire after 10 minutes, and are retained for
 an additional day so an owned expired preview can return `410 PREVIEW_EXPIRED`
 instead of being confused with a foreign/missing ID. Create responses and their
