@@ -481,6 +481,33 @@ describe('live tracker screens', () => {
       expect(unexpected).toEqual([]);
     },
   );
+  it('does not offer save controls when the API reports no current Steam offer', async () => {
+    const { fetch, unexpected } = open('/add', (path) =>
+      path === '/api/product-previews'
+        ? json(
+            {
+              error: {
+                ...error('STEAM_OFFER_UNAVAILABLE').error,
+                message: 'No current Steam offer is available.',
+              },
+            },
+            422,
+          )
+        : undefined,
+    );
+    const url = 'https://store.steampowered.com/app/620/';
+    await screen.findByLabelText('Steam base-game URL');
+    change('Steam base-game URL', url);
+    click('Preview offer');
+
+    expect(
+      await screen.findByText('No current Steam offer is available.'),
+    ).toBeVisible();
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save game' })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([path]) => path === '/api/tracked-items')).toBe(false);
+    expect(unexpected).toEqual([]);
+  });
   it('cancels an in-flight preview on navigation and never restores its private draft later', async () => {
     const preview = deferred<Response>();
     const { fetch, unexpected } = open('/add', (path) => {
@@ -736,6 +763,9 @@ describe('live tracker screens', () => {
         'Successful observations of this Steam offer via CheapShark.',
       ),
     ).toBeVisible();
+    expect(await screen.findByText('Last-known price preserved')).toBeVisible();
+    expect(screen.getByText('Illustrative failure.')).toBeVisible();
+    expect(screen.getAllByText('$9.99').length).toBeGreaterThan(0);
     expect(
       screen.queryByText(/Illustrative sample history/),
     ).not.toBeInTheDocument();

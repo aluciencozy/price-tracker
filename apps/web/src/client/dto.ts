@@ -107,6 +107,19 @@ function providerId(value: unknown): string {
   if (!/^[1-9][0-9]*$/.test(result)) throw new Error('Unexpected provider ID.');
   return result;
 }
+function cheapSharkPurchaseUrl(dealId: string): string {
+  // Match the API's canonical helper: upstream deal IDs may already contain
+  // percent escapes, so decode exactly once before URLSearchParams encodes it.
+  let rawDealId: string;
+  try {
+    rawDealId = decodeURIComponent(dealId);
+  } catch {
+    throw new Error('Invalid CheapShark deal ID encoding.');
+  }
+  const url = new URL('/redirect', 'https://www.cheapshark.com');
+  url.searchParams.set('dealID', rawDealId);
+  return url.href;
+}
 export const attribution = 'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
 export function product(value: unknown): Product {
   const data = object(value, [
@@ -118,10 +131,10 @@ export function product(value: unknown): Product {
   const steamAppId = providerId(data.steamAppId);
   const canonicalSteamUrl = text(data.canonicalSteamUrl, 200);
   if (canonicalSteamUrl !== `https://store.steampowered.com/app/${steamAppId}/`) throw new Error('Mismatched Steam URL.');
-  const dealId = nullable(data.dealId, (v) => text(v, 1024));
+  const dealId = nullable(data.dealId, (v) => text(v, 256));
   const purchaseUrl = nullable(data.purchaseUrl, (v) => text(v, 4096));
-  // Deal IDs are raw wire strings. Encode exactly once, never fetch this human link.
-  if (purchaseUrl !== (dealId === null ? null : `https://www.cheapshark.com/redirect?dealID=${encodeURIComponent(dealId)}`)) {
+  // Require the exact API-canonical human link; never fetch or follow it here.
+  if (purchaseUrl !== (dealId === null ? null : cheapSharkPurchaseUrl(dealId))) {
     throw new Error('Mismatched purchase redirect.');
   }
   const error = data.lastError === null ? null : object(data.lastError, ['code', 'message', 'occurredAt', 'retryAt']);
