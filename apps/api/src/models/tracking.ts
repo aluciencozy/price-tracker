@@ -45,6 +45,35 @@ historySchema.index({ productId: 1, checkId: 1 }, { unique: true });
 historySchema.index({ productId: 1, observedAt: 1, _id: 1 });
 historySchema.index({ observedAt: 1 }, { expireAfterSeconds: HISTORY_RETENTION_DAYS * 86400 });
 
+const emailAlertSnapshotSchema = new Schema({
+  recipient: { type: String, required: true, maxlength: 254 },
+  gameTitle: { type: String, required: true, maxlength: 300 },
+  currentPriceCents: { ...cents },
+  targetPriceCents: { ...cents },
+  purchaseUrl: { type: String, required: true, maxlength: 4096 },
+}, { _id: false, strict: 'throw' });
+
+const pushAlertSnapshotSchema = new Schema({
+  schemaVersion: { type: String, enum: ['1'], required: true },
+  type: { type: String, enum: ['price_target_reached'], required: true },
+  eventId: { type: String, required: true, maxlength: 128 },
+  deliveryId: { type: String, required: true, maxlength: 128 },
+  trackedItemId: { type: String, required: true, maxlength: 128 },
+  productId: { type: String, required: true, maxlength: 128 },
+  observedAt: { type: String, required: true, maxlength: 40 },
+}, { _id: false, strict: 'throw' });
+
+const pushDeviceDeliverySchema = new Schema({
+  deviceId: ref('Device'),
+  sessionId: ref('Session'),
+  tokenHash: { type: String, required: true, match: /^[a-f0-9]{64}$/ },
+  status: { type: String, enum: ['pending', 'sending', 'accepted', 'retryable', 'permanent_failure', 'unknown', 'cancelled'], required: true, default: 'pending' },
+  attempts: { type: Number, required: true, default: 0, min: 0, validate: Number.isSafeInteger },
+  availableAt: { type: Date, required: true, default: Date.now },
+  providerMessageId: { type: String, default: null, maxlength: 1024 },
+  lastErrorCode: { type: String, default: null, maxlength: 100 },
+}, { _id: false, strict: 'throw' });
+
 const deliverySchema = new Schema({
   trackedItemId: ref('TrackedItem'),
   userId: ref('User'),
@@ -55,8 +84,15 @@ const deliverySchema = new Schema({
   status: { type: String, enum: ['pending', 'sending', 'sent', 'retryable', 'permanent_failure', 'unknown', 'cancelled'], required: true, default: 'pending' },
   attempts: { type: Number, required: true, default: 0, min: 0, validate: Number.isSafeInteger },
   availableAt: { type: Date, required: true, default: Date.now },
+  firstAttemptAt: { type: Date, default: null },
+  // Independent of transient claim status; only same-key confirmation resolves it.
+  emailUncertain: { type: Boolean, required: true, default: false },
   leaseToken: { type: String, default: null, select: false },
   leaseUntil: { type: Date, default: null },
+  idempotencyKey: { type: String, default: null, maxlength: 256, select: false },
+  emailPayload: { type: emailAlertSnapshotSchema, default: null, select: false },
+  pushPayload: { type: pushAlertSnapshotSchema, default: null, select: false },
+  pushDevices: { type: [pushDeviceDeliverySchema], default: null, select: false },
   providerMessageId: { type: String, default: null, select: false },
   lastErrorCode: { type: String, default: null, maxlength: 100 },
   sentAt: { type: Date, default: null },
