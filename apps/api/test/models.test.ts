@@ -57,4 +57,21 @@ describe('database contract validation', () => {
       { trackedItemId: 1, episodeId: 1, channel: 1 }, { unique: true },
     ]);
   });
+  it('stores delivery-only retry snapshots and per-device progress without selecting them by default', async () => {
+    const delivery = new NotificationDeliveryModel({
+      trackedItemId: new Types.ObjectId(), userId: owner, productId: product,
+      observationId: new Types.ObjectId(), episodeId: 'episode_one', channel: 'email',
+      firstAttemptAt: new Date(), idempotencyKey: 'price-alert-delivery_one',
+      emailPayload: {
+        recipient: 'test@example.invalid', gameTitle: 'Portal 2', currentPriceCents: 999,
+        targetPriceCents: 1000, purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=fixture',
+      },
+    });
+    await expect(delivery.validate()).resolves.toBeUndefined();
+    expect(NotificationDeliveryModel.schema.path('idempotencyKey').options.select).toBe(false);
+    expect(NotificationDeliveryModel.schema.path('emailPayload').options.select).toBe(false);
+    expect(NotificationDeliveryModel.schema.path('pushPayload').options.select).toBe(false);
+    expect(NotificationDeliveryModel.schema.path('pushDevices').options.select).toBe(false);
+    expect(NotificationDeliveryModel.schema.path('firstAttemptAt').options.default).toBeNull();
+  });
 });

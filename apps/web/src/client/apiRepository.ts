@@ -60,7 +60,7 @@ export function createApiRepository(
   let retryAt = 0;
   let listController: AbortController | undefined;
   let pendingPreview: { url: string; value: ProductPreview } | undefined;
-  const keys = new Map<string, string>();
+  let pendingCreate: { signature: string; key: string } | undefined;
   async function run<T>(
     operation: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
@@ -121,7 +121,7 @@ export function createApiRepository(
       generation++;
       controller.abort();
       controller = new AbortController();
-      keys.clear();
+      pendingCreate = undefined;
       pendingPreview = undefined;
     },
     list(query) {
@@ -181,11 +181,12 @@ export function createApiRepository(
         input.alerts.email,
         input.alerts.push,
       ]);
-      const key = keys.get(signature) ?? crypto.randomUUID();
-      keys.set(signature, key);
+      if (pendingCreate?.signature !== signature)
+        pendingCreate = { signature, key: crypto.randomUUID() };
+      const attempt = pendingCreate;
       return run(async (signal) => {
-        const item = await client.createTrackedItem(input, key, { signal });
-        keys.delete(signature);
+        const item = await client.createTrackedItem(input, attempt.key, { signal });
+        if (pendingCreate?.key === attempt.key) pendingCreate = undefined;
         return itemView(item);
       });
     },

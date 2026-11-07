@@ -41,6 +41,7 @@ async function storeToken(userId: mongoose.Types.ObjectId, token: string, now: D
     tokenHash: hashSecret(token), expiresAt, consumedAt: null,
   } }, { upsert: true, runValidators: true, session }).exec();
   await VerificationMailModel.findOneAndUpdate({ userId }, { $set: {
+    purpose: 'verify_email',
     generationHash: hashSecret(token), status: 'pending', startedAt: null, deliveryKey: null, providerMessageId: null,
     expiresAt, removeAt: new Date(now.getTime() + 7 * 86400000),
   } }, { upsert: true, runValidators: true, session }).exec();
