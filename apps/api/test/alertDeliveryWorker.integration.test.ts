@@ -229,8 +229,8 @@ describe.skipIf(!uri)('durable price-alert delivery worker', () => {
     expect(emailSender.mock.calls[0]?.[1].purchaseUrl).toBe('https://www.cheapshark.com/redirect?dealID=fixture%2Bencoded%3D');
   });
 
-  it.each(['two_days_old', 'newer_success', 'failed_check', 'missing_offer', 'newer_same_time_success'])(
-    'does not make a first external attempt against a superseded or stale episode: %s', async scenario => {
+  it.each(['two_days_old', 'failed_check', 'missing_offer', 'newer_same_time_success'])(
+    'defers an unsent episode until its recorded offer is current again: %s', async scenario => {
       const data = await fixture({ email: true, push: true });
       await registerDevice(data.user._id, 'freshness-token');
       if (scenario === 'two_days_old') instant = new Date(instant.getTime() + 2 * 86400000);
@@ -257,9 +257,93 @@ describe.skipIf(!uri)('durable price-alert delivery worker', () => {
       expect(pushSender).not.toHaveBeenCalled();
       const rows = await NotificationDeliveryModel.find({}).lean();
       expect(rows).toHaveLength(2);
-      expect(rows.every(row => row.status === 'cancelled' && row.firstAttemptAt === null)).toBe(true);
+      expect(rows.every(row => row.status === 'retryable' && row.firstAttemptAt === null)).toBe(true);
+      expect(rows.every(row => row.attempts === 0)).toBe(true);
     },
   );
+
+  it('sends the newest qualifying observation once after an unsent episode waits across checks', async () => {
+    const data = await fixture({ email: true, push: true });
+    await registerDevice(data.user._id, 'new-quote-token');
+    const deliveryIds = (await NotificationDeliveryModel.find({}).lean()).map(row => String(row._id)).sort();
+    const observedAt = new Date(instant.getTime() + 60_000);
+    instant = observedAt;
+    const newer = await PriceHistoryModel.create({ productId: data.product._id, checkId: randomUUID(),
+      priceMinor: 800, currency: 'USD', observedAt, source: 'CheapShark', dealId: 'newer-deal' });
+    await ProductModel.updateOne({ _id: data.product._id }, { $set: {
+      currentPriceMinor: 800, lastSuccessfulCheckAt: observedAt, dealId: 'newer-deal', purchaseUrl: cheapSharkPurchaseUrl('newer-deal'),
+    } });
+    expect((await evaluateTrackerObservation(String(data.tracker._id), String(newer._id), instant)).status).toBe('below_target');
+    const emailSender = vi.fn().mockResolvedValue({ status: 'success', messageId: 'latest', attempts: 1 });
+    const pushSender = vi.fn().mockResolvedValue({ kind: 'accepted', providerMessageId: 'latest' });
+    await Promise.all([worker({ emailSender, pushSender }).runBatch(), worker({ emailSender, pushSender }).runBatch()]);
+    expect(emailSender).toHaveBeenCalledTimes(1);
+    expect(emailSender.mock.calls[0]?.[1]).toMatchObject({ currentPriceCents: 800, purchaseUrl: cheapSharkPurchaseUrl('newer-deal') });
+    expect(pushSender).toHaveBeenCalledTimes(1);
+    expect(pushSender.mock.calls[0]?.[1]).toMatchObject({ eventId: data.episodeId, observedAt: observedAt.toISOString() });
+    const rows = await NotificationDeliveryModel.find({}).lean();
+    expect(rows.map(row => String(row._id)).sort()).toEqual(deliveryIds);
+    expect(rows.every(row => row.status === 'sent' && String(row.observationId) === String(newer._id))).toBe(true);
+    await worker({ emailSender, pushSender }).runBatch();
+    expect(emailSender).toHaveBeenCalledTimes(1);
+    expect(pushSender).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves unsent channels through a failed check and sends after a fresh success', async () => {
+    const data = await fixture({ email: true, push: true });
+    await registerDevice(data.user._id, 'recovery-token');
+    await ProductModel.updateOne({ _id: data.product._id }, { $set: { lastError: 'CHECK_FAILED' } });
+    const emailSender = vi.fn().mockResolvedValue({ status: 'success', messageId: 'recovered', attempts: 1 });
+    const pushSender = vi.fn().mockResolvedValue({ kind: 'accepted', providerMessageId: 'recovered' });
+    await worker({ emailSender, pushSender }).runBatch();
+    expect(emailSender).not.toHaveBeenCalled();
+    expect(pushSender).not.toHaveBeenCalled();
+    instant = new Date(instant.getTime() + 60_000);
+    await ProductModel.updateOne({ _id: data.product._id }, { $set: { lastError: null, lastSuccessfulCheckAt: instant } });
+    const observation = await PriceHistoryModel.create({ productId: data.product._id, checkId: randomUUID(),
+      priceMinor: 999, currency: 'USD', observedAt: instant, source: 'CheapShark', dealId: 'fixture-deal' });
+    await evaluateTrackerObservation(String(data.tracker._id), String(observation._id), instant);
+    await worker({ emailSender, pushSender }).runBatch();
+    expect(emailSender).toHaveBeenCalledTimes(1);
+    expect(pushSender).toHaveBeenCalledTimes(1);
+    expect(await NotificationDeliveryModel.countDocuments()).toBe(2);
+  });
+
+  it('stores and sends a canonical purchase URL longer than 2048 characters', async () => {
+    const data = await fixture();
+    const dealId = '一'.repeat(256);
+    const purchaseUrl = cheapSharkPurchaseUrl(dealId);
+    expect(purchaseUrl.length).toBeGreaterThan(2048);
+    expect(purchaseUrl.length).toBeLessThanOrEqual(4096);
+    await PriceHistoryModel.collection.updateOne({ _id: data.observation._id }, { $set: { dealId } });
+    await ProductModel.updateOne({ _id: data.product._id }, { $set: { dealId, purchaseUrl } });
+    const emailSender = vi.fn().mockResolvedValue({ status: 'success', messageId: 'long-url', attempts: 1 });
+    await worker({ emailSender }).runBatch();
+    expect(emailSender).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ purchaseUrl }), expect.any(String));
+    expect((await NotificationDeliveryModel.findOne().orFail()).status).toBe('sent');
+  });
+
+  it('preserves an accepted device when freshness changes before another device is invoked', async () => {
+    const data = await fixture({ email: false, push: true });
+    const { session } = await registerDevice(data.user._id, 'freshness-device-a');
+    await registerDevice(data.user._id, 'freshness-device-b', session._id);
+    const pushSender = vi.fn(async () => {
+      await ProductModel.updateOne({ _id: data.product._id }, { $set: { lastError: 'CONCURRENT_FAILURE' } });
+      return { kind: 'accepted' as const, providerMessageId: 'accepted-before-change' };
+    });
+    await worker({ pushSender }).runBatch();
+    expect(pushSender).toHaveBeenCalledTimes(1);
+    const deferred = await NotificationDeliveryModel.findOne().select('+pushDevices').orFail();
+    expect(deferred.status).toBe('retryable');
+    expect(deferred.attempts).toBe(1);
+    expect(deferred.pushDevices?.map(device => device.status).sort()).toEqual(['accepted', 'pending']);
+    expect(deferred.pushDevices?.find(device => device.status === 'pending')?.attempts).toBe(0);
+    instant = new Date(instant.getTime() + 60_000);
+    const retry = vi.fn().mockResolvedValue({ kind: 'accepted', providerMessageId: 'remaining-device' });
+    await worker({ pushSender: retry }).runBatch();
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect((await NotificationDeliveryModel.findOne().orFail()).status).toBe('sent');
+  });
 
   it('persists push outcomes per device and never resends a successful device', async () => {
     const data = await fixture({ email: false, push: true });

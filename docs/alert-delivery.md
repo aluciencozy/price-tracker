@@ -47,13 +47,18 @@ enable a scheduler, or make provider calls during startup.
   device immediately before provider calls. MongoDB cannot make that check
   atomic with an external provider: an already-started external send cannot be
   recalled after a concurrent disable/delete/rebind.
-- Before a delivery's first external attempt, its original observation must be
+- Before a delivery's first external attempt, its selected observation must be
   younger than 24 hours and not future-dated. The Product must still be the
   CheapShark Steam US/USD offer with no latest error, the same last-success time,
   price and deal, and the normalized human purchase redirect. Any newer history
   observation (including a later ObjectId at the same timestamp) supersedes it.
-  Stale/superseded first-dispatch work is cancelled without calling a provider;
-  the worker never invents a replacement episode. A possible earlier email
+  Proven-unsent work selects the newest recorded observation while retaining
+  its episode and channel delivery ID. A stale quote, failed check, or preview
+  without recorded history defers that obligation for a minute; it does not
+  cancel the only alert in an open episode. A later successful qualifying
+  observation can resume delivery. Deleted/disabled trackers and channels still
+  cancel eligible unsent work. Email purchase snapshots allow the same
+  4096-character canonical URLs as the shared contract. A possible earlier email
   acceptance is different: within the safe Resend window, reconciliation uses
   the immutable original payload/key rather than substituting a newer quote.
   A later Product failure does not itself cancel or rewrite uncertain mail.
