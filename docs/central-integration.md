@@ -142,7 +142,7 @@ recovery, checker-to-outbox handoff, partial-device recovery and long URLs.
 
 Validation uses the existing commands and pinned Flutter 3.47.7 / Dart 3.13.5.
 With a disposable MongoDB replica set and a CI-style `directConnection=true`
-URI, `npm run check` passes 16 contract, 368 API and 274 web tests with zero
+URI, `npm run check` passes 16 contract, 371 API and 274 web tests with zero
 skips, lint, typechecks and builds. Flutter analysis, all 188 mobile tests and
 the full formatting check pass. Tests use fixtures; no live provider or delivery
 claim is added.
@@ -152,4 +152,19 @@ after comparing their changes with the included cherry-picked snapshots. This
 preserves the composed implementation and review fixes while avoiding duplicate
 merge conflicts in model registration and worker composition. Merge #60 as the
 cumulative integration path; independently merging source branches into each
-other can still conflict. This changes no protected branch or source PR branch.
+other can still conflict. This changes no protected branch.
+
+The original PR branches now carry their own independently tested fixes:
+
+| PR | Fix commit | Independent Node checks |
+| --- | --- | --- |
+| #54 | `3fbcc86` | 15 contract, 246 API and 241 web tests; lint, types and builds |
+| #57 | `69d9931` | 15 contract, 254 API and 241 web tests; lint, types and builds |
+| #59 | `4373d29` | 16 contract, 242 API and 241 web tests; lint, types and builds |
+
+PR #59 also passes all 188 Flutter tests, analysis and formatting. PR #60 merges
+these exact updated source heads. The tracking router and central authentication
+use the same session-limit helper, so one request consumes one durable attempt.
+Both injectable-router and real composed-session regressions cover this rule.
+Scoped code approval does not close the live-provider, retention, delivery or
+deployment acceptance gates recorded above.
