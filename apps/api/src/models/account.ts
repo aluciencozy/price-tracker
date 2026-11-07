@@ -7,6 +7,9 @@ const userSchema = new Schema({
   name: { type: String, default: null, maxlength: 100 },
   emailVerifiedAt: { type: Date, default: null },
   verificationEmailSentAt: { type: Date, default: null },
+  passwordResetEmailSentAt: { type: Date, default: null },
+  sessionVersion: { type: Number, default: 0, min: 0, required: true },
+  sessionFence: { type: Number, default: 0 },
   role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
 }, options);
 userSchema.index({ email: 1 }, { unique: true });
@@ -14,6 +17,7 @@ userSchema.index({ email: 1 }, { unique: true });
 const sessionSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   transport: { type: String, enum: ['web', 'mobile'], required: true },
+  sessionVersion: { type: Number, default: 0, min: 0, required: true },
   secretHash: { type: String, select: false, default: null },
   csrfHash: { type: String, select: false, default: null },
   expiresAt: { type: Date, required: true },
