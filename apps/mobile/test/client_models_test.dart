@@ -4,6 +4,54 @@ import 'package:price_tracker/client/models.dart';
 import 'client_fixtures.dart';
 
 void main() {
+  test('purchase URLs match strict one-decode form serialization', () {
+    const prefix = 'https://www.cheapshark.com/redirect?dealID=';
+    for (final entry in {
+      'a/b': 'a%2Fb',
+      'a%2Fb': 'a%2Fb',
+      'space id': 'space+id',
+      'space%20and%2Bplus': 'space+and%2Bplus',
+      'plus+id': 'plus%2Bid',
+      'percent%25': 'percent%25',
+      'a%252Fb': 'a%252Fb',
+      '*~': '*%7E',
+      "!'()": '%21%27%28%29',
+    }.entries) {
+      final json = productJson()
+        ..['dealId'] = entry.key
+        ..['purchaseUrl'] = '$prefix${entry.value}';
+      expect(Product.fromJson(json).purchaseUrl, '$prefix${entry.value}');
+    }
+    for (final id in ['bad%', 'bad%2', 'bad%GG', '%FF']) {
+      expect(
+        () => Product.fromJson(productJson()..['dealId'] = id),
+        throwsFormatException,
+      );
+    }
+    for (final suffix in ['other', 'a%252Fb', 'a%2Fb&extra=1', 'a%2Fb#x']) {
+      expect(
+        () => Product.fromJson(
+          productJson()
+            ..['dealId'] = 'a%2Fb'
+            ..['purchaseUrl'] = '$prefix$suffix',
+        ),
+        throwsFormatException,
+      );
+    }
+  });
+  test('deal ID bounds count 256 Unicode codepoints', () {
+    for (final char in ['x', '一', '🎮']) {
+      final id = char * 256;
+      final json = productJson()
+        ..['dealId'] = id
+        ..['purchaseUrl'] = canonicalPurchaseUrl(id);
+      expect(Product.fromJson(json).dealId, id);
+      expect(
+        () => Product.fromJson(json..['dealId'] = char * 257),
+        throwsFormatException,
+      );
+    }
+  });
   test('contract string limits count Unicode characters, not UTF16 units', () {
     expect(User.fromJson(userJson()..['name'] = '🎮' * 100).name, '🎮' * 100);
     expect(
