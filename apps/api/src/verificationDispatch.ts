@@ -4,6 +4,7 @@ import { AuthTokenModel, UserModel } from './models/account.js';
 import { VerificationMailModel } from './models/verificationMail.js';
 import { hashSecret, type VerificationSender } from './registration.js';
 import type { PasswordResetSender } from './passwordReset.js';
+import { EmailSendDeferred } from './emails.js';
 
 type MailPurpose = 'verify_email' | 'reset_password';
 type MailSender = VerificationSender | PasswordResetSender;
@@ -24,6 +25,7 @@ async function dispatchAccountMail(
   const claimed = await mongoose.connection.transaction(async session => {
     const now = new Date();
     const filter: Record<string, unknown> = { status: 'pending', expiresAt: { $gt: now } };
+    filter.$and = [{ $or: [{ availableAt: null }, { availableAt: { $lte: now } }] }];
     if (onlyPurpose === 'verify_email') filter.$or = [{ purpose: 'verify_email' }, { purpose: { $exists: false } }];
     else if (onlyPurpose) filter.purpose = onlyPurpose;
     const candidate = await VerificationMailModel.findOne(filter).sort({ _id: 1 }).session(session).exec();
@@ -59,7 +61,23 @@ async function dispatchAccountMail(
     const result = await claimed.sender({ email: claimed.email, token });
     status = result.status === 'success' ? 'sent' : result.status === 'unknown' ? 'unknown' : 'failed';
     if (result.status === 'success' && result.messageId.length <= 256) providerMessageId = result.messageId;
-  } catch {
+  } catch (error) {
+    if (error instanceof EmailSendDeferred) {
+      // Restore only this proven-unsent generation, atomically with its placeholder.
+      await mongoose.connection.transaction(async session => {
+        const job = await VerificationMailModel.findOne({ _id: claimed.id, generationHash: claimed.generationHash,
+          purpose: claimed.purpose, status: 'sending' }).session(session);
+        if (!job) return;
+        const restored = await AuthTokenModel.updateOne({ userId: job.userId, purpose: claimed.purpose,
+          tokenHash: hashSecret(token), consumedAt: null }, { $set: { tokenHash: claimed.generationHash } }, { session });
+        if (restored.matchedCount !== 1) return;
+        await VerificationMailModel.updateOne({ _id: job._id, generationHash: claimed.generationHash, status: 'sending' }, {
+          $set: { status: job.expiresAt <= new Date() ? 'superseded' : 'pending', startedAt: null, deliveryKey: null,
+            availableAt: new Date(Date.now() + Math.max(1000, error.retryAfterMs)) },
+        }, { session });
+      });
+      return true;
+    }
     // Provider exceptions do not prove that a message was not accepted.
   }
   await VerificationMailModel.updateOne({

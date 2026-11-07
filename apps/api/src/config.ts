@@ -25,6 +25,10 @@ const schema = z.object({
   MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\//).optional(),
   // Stable server-side key: never generate a new key at process startup.
   AUTH_JWT_SECRET: z.string().min(32).optional(),
+  // Live price requests remain explicit opt-ins; email activation has no switch yet.
+  PRICE_TRACKING_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
+  PRICE_SCHEDULER_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
+  TRACKING_CURSOR_SECRET: z.string().min(32).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -44,6 +48,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (result.data.NODE_ENV === 'production' && !result.data.AUTH_JWT_SECRET) {
     throw new Error('Production AUTH_JWT_SECRET is required');
+  }
+  if (result.data.PRICE_TRACKING_ENABLED && !result.data.TRACKING_CURSOR_SECRET) {
+    throw new Error('TRACKING_CURSOR_SECRET is required when tracking is enabled');
+  }
+  if (result.data.PRICE_SCHEDULER_ENABLED && !result.data.PRICE_TRACKING_ENABLED) {
+    throw new Error('Scheduled checks require explicitly enabled tracking');
   }
   if (result.data.NODE_ENV !== 'production' && result.data.WEB_ORIGINS.some(origin => {
     const url = new URL(origin);

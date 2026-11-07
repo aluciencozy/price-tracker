@@ -1,5 +1,12 @@
 import "dotenv/config";
 import { Resend } from "resend";
+import { reserveEmailSend, emailAttemptMayStart, type EmailBudgetDecision } from './emailBudget.js';
+
+/** Only thrown when this invocation made no provider request. Never means an older send was unsent. */
+export class EmailSendDeferred extends Error {
+  constructor(public readonly retryAfterMs: number) { super('Email send deferred before transport.'); }
+}
+export type EmailSendBudget = () => Promise<EmailBudgetDecision>;
 
 let resend: Resend | undefined;
 
@@ -71,6 +78,7 @@ export async function sendWithOutcome(
   payload: EmailPayload,
   idempotencyKey: string,
   sender?: EmailSender,
+  budget?: EmailSendBudget,
 ): Promise<DeliveryOutcome> {
   if (!idempotencyKey.trim() || idempotencyKey.length > 256) {
     return { status: "permanent_failure", code: "invalid_idempotency_key", attempts: 0 };
@@ -81,8 +89,16 @@ export async function sendWithOutcome(
     return permanentFailure("resend_api_key_missing");
   }
   const send = sender ?? ((message, options) => client!.emails.send(message, options));
+  // Injected fake transports may omit the budget for legacy adapter unit tests.
+  // Every real transport invocation reserves anew, including same-key reconciliation.
+  const decision = await (budget ?? (sender ? async () => undefined : reserveEmailSend))();
+  if (decision?.status === 'deferred') throw new EmailSendDeferred(Math.max(1000, decision.retryAfterMs));
 
   for (let attempts = 1; attempts <= MAX_SEND_ATTEMPTS; attempts += 1) {
+    if (decision && !emailAttemptMayStart(decision)) {
+      if (attempts === 1) throw new EmailSendDeferred(60_000);
+      return { status: 'unknown', code: 'email_budget_deadline_expired', attempts: attempts - 1 };
+    }
     let response: EmailResponse;
     try {
       response = await send(payload, {

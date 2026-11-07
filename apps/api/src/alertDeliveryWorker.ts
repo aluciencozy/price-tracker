@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import mongoose, { Types, type InferSchemaType } from 'mongoose';
 import { sendPriceAlert, type DeliveryOutcome, type PriceAlertEmail } from './emails.js';
+import { EmailSendDeferred } from './emails.js';
 import { deactivateInvalidDevice, eligiblePushDevices } from './devices.js';
 import type { PushEvent, PushOutcome } from './fcm.js';
 import { pushEventSchema } from './fcm.js';
@@ -419,7 +420,15 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
     try {
       const { recipient, ...alert } = started.emailPayload;
       outcome = await emailSender(recipient, alert, started.idempotencyKey);
-    } catch {
+    } catch (error) {
+      if (error instanceof EmailSendDeferred) {
+        await finish(started, wasUnknown ? 'unknown' : 'pending', {
+          attempts: delivery.attempts, firstAttemptAt: delivery.firstAttemptAt,
+          emailUncertain: wasUnknown, emailPayload: delivery.emailPayload, idempotencyKey: delivery.idempotencyKey,
+          availableAt: new Date(now().getTime() + Math.max(1000, error.retryAfterMs)), lastErrorCode: 'EMAIL_BUDGET_DEFERRED',
+        });
+        return;
+      }
       outcome = { status: 'unknown', code: 'EMAIL_SEND_OUTCOME_UNKNOWN', attempts: 1 };
     }
 

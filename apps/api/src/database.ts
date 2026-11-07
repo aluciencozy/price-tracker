@@ -19,7 +19,10 @@ export function databaseStatus(uri?: string): DatabaseStatus {
 }
 
 export async function connectDatabase(uri: string): Promise<void> {
-  await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
+  await mongoose.connect(uri, {
+    serverSelectionTimeoutMS: 1000, waitQueueTimeoutMS: 500, connectTimeoutMS: 1000,
+    socketTimeoutMS: 1000, bufferCommands: false,
+  });
 }
 
 export async function disconnectDatabase(): Promise<void> {

@@ -4,6 +4,11 @@ import helmet from 'helmet';
 import type { Config } from './config.js';
 import { registrationRouter } from './registrationRouter.js';
 import { accountError } from './accountError.js';
+import { requireVerifiedUser } from './authMiddleware.js';
+import { createProductPreviewService, type ProductPreviewResolver } from './productPreviews.js';
+import { createTrackingRouter } from './trackingRouter.js';
+import { createAdminPriceCheckRouter } from './adminPriceCheckRouter.js';
+import type { runPriceChecks } from './priceChecks.js';
 
 export type DatabaseStatus =
   | 'not_configured'
@@ -11,30 +16,53 @@ export type DatabaseStatus =
   | 'connected'
   | 'disconnected';
 
-export function createApp(config: Config, databaseStatus: () => DatabaseStatus) {
+export function createApp(config: Config, databaseStatus: () => DatabaseStatus, options?: {
+  tracking?: { resolveProduct: ProductPreviewResolver; cursorSigningSecret: string };
+  runPriceChecks?: typeof runPriceChecks;
+}) {
   const app = express();
 
   app.disable('x-powered-by');
   app.use(helmet());
 
-  app.use('/api/auth/web', cors({
-    origin: config.WEB_ORIGINS, credentials: true, methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'], exposedHeaders: ['Retry-After'],
-  }));
-  app.use(
-    cors({
-      origin(origin, callback) {
-        // Native clients and CLI requests have no Origin; browsers must match exactly.
-        callback(null, !origin || config.WEB_ORIGINS.includes(origin));
-      },
-      methods: ['GET', 'HEAD', 'POST'],
-      credentials: false,
-    }),
-  );
+  app.use(cors((req, callback) => callback(null, {
+    origin: config.WEB_ORIGINS,
+    credentials: !/^\/api\/(?:auth\/mobile|devices)(?:\/|$)/i.test(req.path),
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key', 'Authorization'],
+    exposedHeaders: ['Retry-After', 'Location'],
+    preflightContinue: true,
+  })));
+  app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    // Account routes apply their own transport-aware ordering and origin checks.
+    if ((req.method === 'OPTIONS' || !/^\/auth(?:\/|$)/i.test(req.path)) && req.get('Origin') && !config.WEB_ORIGINS.includes(req.get('Origin')!)) {
+      return accountError(res, 403, 'ORIGIN_DENIED', 'Origin is not allowed.');
+    }
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    return next();
+  });
 
   app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '16kb' }));
   app.use('/api/auth', registrationRouter(config, () => databaseStatus() === 'connected'));
+  if (options?.tracking) {
+    const tracking = createTrackingRouter(requireVerifiedUser(config), options.tracking.cursorSigningSecret, {
+      createPreview: createProductPreviewService({ resolveProduct: options.tracking.resolveProduct }),
+    });
+    // Avoid the router's authentication middleware intercepting unrelated API paths.
+    app.use('/api', (req, res, next) => {
+      if (!/^\/(?:product-previews|tracked-items)(?:\/|$)/i.test(req.path)) return next();
+      if (databaseStatus() !== 'connected') return accountError(res, 503, 'SERVICE_UNAVAILABLE', 'Tracking is unavailable.');
+      return tracking(req, res, next);
+    });
+    const admin = createAdminPriceCheckRouter(requireVerifiedUser(config), { run: options.runPriceChecks });
+    app.use('/api', (req, res, next) => {
+      if (!/^\/admin\/price-checks(?:\/|$)/i.test(req.path)) return next();
+      if (databaseStatus() !== 'connected') return accountError(res, 503, 'SERVICE_UNAVAILABLE', 'Price checks are unavailable.');
+      return admin(req, res, next);
+    });
+  }
 
   // Liveness stays available even when MongoDB has not been configured.
   app.get('/api/health', (_request, response) => {
@@ -56,7 +84,8 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus) 
     });
   });
 
-  app.use((_request, response) => {
+  app.use((request, response) => {
+    if (/^\/api(?:\/|$)/i.test(request.path)) return accountError(response, 404, 'NOT_FOUND', 'Not found.');
     response.status(404).json({ error: 'Not found' });
   });
 
@@ -66,7 +95,7 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus) 
         ? error.status
         : undefined;
 
-    if (request.path.startsWith('/api/auth/')) {
+    if (/^\/api(?:\/|$)/i.test(request.path)) {
       const code = status === 413 ? 'PAYLOAD_TOO_LARGE' : status === 400 ? 'MALFORMED_REQUEST' : 'INTERNAL_ERROR';
       accountError(response, status === 413 ? 413 : status === 400 ? 400 : 500, code, 'Invalid account request.');
       return;
