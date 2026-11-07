@@ -2,7 +2,7 @@ import express, { type RequestHandler } from 'express';
 import mongoose, { Types } from 'mongoose';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -14,6 +14,7 @@ import { ProductPreviewModel, TrackingIdempotencyModel } from '../src/models/tra
 import { createProductPreviewService } from '../src/productPreviews.js';
 import { createTrackingRouter } from '../src/trackingRouter.js';
 import { cheapSharkPurchaseUrl } from '../src/cheapshark.js';
+import { consumePrivateSessionLimit } from '../src/sessionRateLimit.js';
 
 const uri = process.env.TEST_MONGODB_URI;
 const signingSecret = 'tracking-integration-cursor-secret-32-bytes-minimum';
@@ -34,6 +35,7 @@ describe('tracking auth boundary', () => {
 describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
   const dbName = `price_tracker_test_${randomUUID().replaceAll('-', '')}`;
   let principalUserId = String(new Types.ObjectId());
+  let principalSessionId = 'test-session-only';
   let portalId: string;
   let previewResolverCalls = 0;
   let previewResolverFailure: Error | null = null;
@@ -51,7 +53,7 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
   const auth: RequestHandler = (_request, response, next) => {
     response.locals.principal = {
       userId: principalUserId,
-      sessionId: 'test-session-only',
+      sessionId: principalSessionId,
       transport: 'mobile',
       role: 'user',
     };
@@ -105,12 +107,43 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
     await createDatabaseIndexes();
   }, 30_000);
 
+  it('limits all private tracking paths to 120 requests per minute per session', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+    try {
+      for (let index = 0; index < 120; index++) await request(app).get('/api/tracked-items').expect(200);
+      const blocked = await request(app).post('/api/tracked-items').send({}).expect(429);
+      expect(blocked.body.error.code).toBe('RATE_LIMITED');
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+      expect(blocked.body.error.retryAfterSeconds).toBe(Number(blocked.headers['retry-after']));
+      await request(app).get(`/api/tracked-items/${new Types.ObjectId()}/history`).expect(429);
+      principalSessionId = 'another-session';
+      await request(app).get('/api/tracked-items').expect(200);
+    } finally { clock.mockRestore(); }
+  });
+
+  it('counts once when authentication and the router both enforce the session policy', async () => {
+    const composed = express();
+    const prelimited: RequestHandler = async (_request, response, next) => {
+      response.locals.principal = { userId: principalUserId, sessionId: principalSessionId, transport: 'mobile', role: 'user' };
+      if (await consumePrivateSessionLimit(response, principalSessionId)) next();
+    };
+    composed.use('/api', createTrackingRouter(prelimited, signingSecret, {
+      createPreview: createProductPreviewService({ resolveProduct: async () => { throw new Error('Not called'); } }),
+    }));
+    await request(composed).get('/api/tracked-items').expect(200);
+    await request(composed).get('/api/tracked-items').expect(200);
+    const counters = await AuthLimitModel.find({}).lean();
+    expect(counters).toHaveLength(1);
+    expect(counters[0]?.attempts).toBe(2);
+  });
+
   beforeEach(async () => {
     await Promise.all([
       AuthLimitModel.deleteMany({}), ProductPreviewModel.deleteMany({}), TrackingIdempotencyModel.deleteMany({}),
       NotificationDeliveryModel.deleteMany({}), PriceHistoryModel.deleteMany({}), TrackedItemModel.deleteMany({}), ProductModel.deleteMany({}),
     ]);
     principalUserId = String(new Types.ObjectId());
+    principalSessionId = 'test-session-only';
     previewResolverCalls = 0;
     previewResolverFailure = null;
     previewResolverGate = null;

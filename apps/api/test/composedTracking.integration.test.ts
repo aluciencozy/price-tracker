@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { createDatabaseIndexes } from '../src/models/index.js';
 import { ProductModel } from '../src/models/product.js';
-import { UserModel } from '../src/models/account.js';
-import { hashPassword } from '../src/registration.js';
+import { SessionModel, UserModel } from '../src/models/account.js';
+import { hashPassword, hashSecret } from '../src/registration.js';
 import { cheapSharkPurchaseUrl } from '../src/cheapshark.js';
 
 const uri = process.env.TEST_MONGODB_URI;
@@ -62,6 +62,20 @@ describe.skipIf(!uri)('real sessions with offline preview and isolated MongoDB',
   afterAll(async () => {
     if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
+  });
+  it('counts each authenticated tracking request once across both enforcement layers', async () => {
+    const user = await UserModel.findOne({ email: 'one@example.invalid' }).orFail();
+    const credential = 'c'.repeat(43);
+    await SessionModel.create({ userId: user._id, transport: 'web', secretHash: hashSecret(credential),
+      expiresAt: new Date(Date.now() + 5 * 60_000) });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+    try {
+      for (let count = 0; count < 120; count++) {
+        await request(app).get('/api/tracked-items').set('Cookie', `price_tracker_session_dev=${credential}`).expect(200);
+      }
+      const blocked = await request(app).get('/api/tracked-items').set('Cookie', `price_tracker_session_dev=${credential}`).expect(429);
+      expect(blocked.body.error.retryAfterSeconds).toBe(Number(blocked.headers['retry-after']));
+    } finally { clock.mockRestore(); }
   });
   it('enforces web CSRF, ownership and revoked sessions through mounted routes', async () => {
     const one = request.agent(app);

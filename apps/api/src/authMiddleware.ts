@@ -2,7 +2,7 @@ import type { RequestHandler, Response } from 'express';
 import mongoose from 'mongoose';
 import type { Config } from './config.js';
 import { accountError } from './accountError.js';
-import { limitAuthAttempts } from './authRateLimit.js';
+import { consumePrivateSessionLimit } from './sessionRateLimit.js';
 import { allowedOrigin, activeMobileToken, activeWebSession, hasWebAuthCookie, validWebMutationCsrf, webSessionSecret } from './sessionSecurity.js';
 
 export type AuthPrincipal = {
@@ -61,11 +61,7 @@ export function requireVerifiedUser(config: Config, expectedTransport?: 'web' | 
         if (!allowedOrigin(req, config, true)) return accountError(res, 403, 'ORIGIN_DENIED', 'Origin is not allowed.');
         if (!await validWebMutationCsrf(req, config, false)) return accountError(res, 403, 'CSRF_INVALID', 'Obtain a valid CSRF token first.');
       }
-      const rate = await limitAuthAttempts('private-session', principal.sessionId, 120, 60_000);
-      if (rate.blocked) {
-        res.set('Retry-After', String(rate.retry));
-        return accountError(res, 429, 'RATE_LIMITED', 'The session request limit was reached.');
-      }
+      if (!await consumePrivateSessionLimit(res, principal.sessionId)) return;
       res.locals.principal = principal;
       return next();
     } catch {

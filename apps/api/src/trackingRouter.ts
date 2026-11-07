@@ -5,6 +5,7 @@ import { HistoryError, createHistoryService } from './history.js';
 import type { ProductPreviewService } from './productPreviews.js';
 import { createTrackedItemService } from './trackedItems.js';
 import { TrackingError } from './trackingErrors.js';
+import { consumePrivateSessionLimit } from './sessionRateLimit.js';
 
 export type VerifiedPrincipal = {
   userId: string;
@@ -132,6 +133,12 @@ export function createTrackingRouter(
     next();
   });
   router.use(requireVerifiedUser);
+  router.use(async (_request, response, next) => {
+    try {
+      const principal = principalFrom(response);
+      if (await consumePrivateSessionLimit(response, principal.sessionId)) next();
+    } catch (error) { errorEnvelope(response, error); }
+  });
 
   router.post('/product-previews', endpoint(async (request, response) => {
     const principal = principalFrom(response);
