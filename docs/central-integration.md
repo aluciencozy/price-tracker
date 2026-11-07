@@ -124,3 +124,32 @@ and `final-gap-run-report.md` in the same directory.
 Flutter/device behavior, real offers, mailbox/push receipt, remote MongoDB and
 deployed scheduling remain separate acceptance gates. No full-MVP completion or
 live activation is claimed.
+
+## Review fixes for PRs #54, #57, #59 and #60
+
+The cumulative branch fixes the shared session throttle (120 private requests
+per minute), recovery of unsent episode/channel alerts across newer qualifying
+observations and failed checks, the email snapshot's 4096-character URL bound,
+Flutter's strict one-decode canonical purchase URL validation and 256-codepoint
+deal-ID bound, and the HTTP integration test's machine-specific database guard.
+CI explicitly opts into the disposable email-budget database tests.
+
+Proven-unsent alerts retain their delivery and episode IDs when choosing a new
+recorded quote. Attempted email snapshots/keys and accepted push recipients stay
+fixed. A freshness change before a provider call restores only that proven-unsent
+attempt and schedules a retry. Tests cover concurrent claims, failed-check
+recovery, checker-to-outbox handoff, partial-device recovery and long URLs.
+
+Validation uses the existing commands and pinned Flutter 3.47.7 / Dart 3.13.5.
+With a disposable MongoDB replica set and a CI-style `directConnection=true`
+URI, `npm run check` passes 16 contract, 368 API and 274 web tests with zero
+skips, lint, typechecks and builds. Flutter analysis, all 188 mobile tests and
+the full formatting check pass. Tests use fixtures; no live provider or delivery
+claim is added.
+
+The integration branch records the original #53–#59 heads as merged ancestry
+after comparing their changes with the included cherry-picked snapshots. This
+preserves the composed implementation and review fixes while avoiding duplicate
+merge conflicts in model registration and worker composition. Merge #60 as the
+cumulative integration path; independently merging source branches into each
+other can still conflict. This changes no protected branch or source PR branch.

@@ -93,6 +93,11 @@ provider calls are made by normal tests.
 
 ## Data and tests
 
+Central verified-session middleware enforces a shared MongoDB limit of 120
+private requests per minute per session. It runs after authentication and web
+CSRF checks and returns `429` with matching `Retry-After` and error-envelope
+seconds. Preview and admin limits remain additional, stricter limits.
+
 Product previews are owner-bound, expire after 10 minutes, and are retained for
 an additional day so an owned expired preview can return `410 PREVIEW_EXPIRED`
 instead of being confused with a foreign/missing ID. Create responses and their

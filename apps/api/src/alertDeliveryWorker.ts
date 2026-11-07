@@ -78,6 +78,8 @@ type LiveContext = {
   productId: Types.ObjectId;
 };
 
+class FreshObservationUnavailable extends Error {}
+
 export type PriceAlertEmailSender = typeof sendPriceAlert;
 export type PriceAlertPushSender = (token: string, event: unknown) => Promise<PushOutcome>;
 export type AlertDeliveryWorkerOptions = {
@@ -174,7 +176,9 @@ async function loadLiveContext(delivery: Delivery, channel: Channel, freshAt?: D
     PriceHistoryModel.findOne({ _id: delivery.observationId, productId: delivery.productId })
       .select('priceMinor currency observedAt dealId source').lean().exec(),
   ]);
-  if (!tracker || !user || !product || !observation || typeof user.email !== 'string' ||
+  if (!tracker || !user) return null;
+  if ((!product || !observation) && freshAt) throw new FreshObservationUnavailable();
+  if (!product || !observation || typeof user.email !== 'string' ||
       !Number.isSafeInteger(observation.priceMinor) || observation.priceMinor < 0 ||
       !Number.isSafeInteger(tracker.targetPriceMinor) || observation.priceMinor > tracker.targetPriceMinor ||
       tracker.currency !== 'USD' || product.currency !== 'USD' || observation.currency !== 'USD' ||
@@ -182,19 +186,18 @@ async function loadLiveContext(delivery: Delivery, channel: Channel, freshAt?: D
       typeof observation.dealId !== 'string' || observation.dealId.length === 0 ||
       typeof product.title !== 'string' || product.title.trim().length === 0) return null;
   if (freshAt) {
-    // First dispatch must still represent the current, fresh successful Steam
-    // observation. A newer low observation also supersedes this old outbox row;
-    // the checks owner decides episode evaluation, not this sender.
+    // First dispatch must represent a current recorded success. A temporary
+    // failure or a concurrent new quote defers the same channel obligation.
     if (observation.observedAt > freshAt || observation.observedAt.getTime() + 86400000 <= freshAt.getTime() ||
         product.provider !== 'cheapshark' || product.storeId !== '1' || product.market !== 'US' ||
         product.lastError !== null || product.currentPriceMinor !== observation.priceMinor ||
         product.lastSuccessfulCheckAt?.getTime() !== observation.observedAt.getTime() ||
         product.dealId !== observation.dealId || !product.purchaseUrl ||
-        product.purchaseUrl !== cheapSharkPurchaseUrl(observation.dealId)) return null;
+        product.purchaseUrl !== cheapSharkPurchaseUrl(observation.dealId)) throw new FreshObservationUnavailable();
     if (await PriceHistoryModel.exists({ productId: delivery.productId, $or: [
       { observedAt: { $gt: observation.observedAt } },
       { observedAt: observation.observedAt, _id: { $gt: delivery.observationId } },
-    ] })) return null;
+    ] })) throw new FreshObservationUnavailable();
   }
   return {
     recipient: user.email,
@@ -279,6 +282,50 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
       ...deliveryFilter(delivery._id, delivery.leaseToken), leaseUntil: { $gt: at },
     }, { $set: { ...fields, status, leaseToken: null, leaseUntil: null } }).exec();
     return result.matchedCount === 1;
+  }
+
+  async function prepareFirstDispatch(delivery: Delivery): Promise<Delivery> {
+    // Once a transport may have been called, its snapshot and key are immutable.
+    if (delivery.firstAttemptAt || delivery.attempts !== 0) return delivery;
+    if (!await isLiveDelivery(delivery, delivery.channel)) return delivery;
+    const observation = await PriceHistoryModel.findOne({ productId: delivery.productId })
+      .sort({ observedAt: -1, _id: -1 }).select('_id').lean().exec();
+    if (!observation) throw new FreshObservationUnavailable();
+    const updated = await NotificationDeliveryModel.findOneAndUpdate({
+      ...deliveryFilter(delivery._id, delivery.leaseToken!), leaseUntil: { $gt: now() },
+      firstAttemptAt: null, attempts: 0,
+    }, { $set: { observationId: observation._id, emailPayload: null, idempotencyKey: null,
+      pushPayload: null, pushDevices: null } }, { returnDocument: 'after' }).select(projection).lean<Delivery>().exec();
+    return updated ?? delivery;
+  }
+
+  async function deferFreshObservation(delivery: Delivery) {
+    const current = await NotificationDeliveryModel.findOne({
+      ...deliveryFilter(delivery._id, delivery.leaseToken!), leaseUntil: { $gt: now() },
+    }).select(projection).lean<Delivery>().exec();
+    if (!current) return;
+    const fields: Record<string, unknown> = {
+      availableAt: new Date(now().getTime() + BASE_RETRY_DELAY_MS),
+      lastErrorCode: 'AWAITING_FRESH_OBSERVATION',
+    };
+    if (current.channel === 'email') {
+      // This error can only arise before the transport call on first dispatch.
+      Object.assign(fields, { attempts: delivery.attempts, firstAttemptAt: null,
+        emailUncertain: false, emailPayload: null, idempotencyKey: null });
+    } else {
+      // Freshness is checked immediately before each FCM call. Roll back only
+      // the locally marked recipient whose transport has not been invoked.
+      let restored = 0;
+      const devices = current.pushDevices?.map(device => {
+        if (device.status !== 'sending') return device;
+        restored++;
+        return { ...device, status: 'pending' as const, attempts: device.attempts - 1 };
+      }) ?? null;
+      const attempts = current.attempts - restored;
+      Object.assign(fields, { attempts, pushDevices: devices });
+      if (attempts === 0) Object.assign(fields, { firstAttemptAt: null, pushPayload: null, pushDevices: null });
+    }
+    await finish(current, 'retryable', fields);
   }
 
   async function recoverExpiredClaims(at: Date, limit: number) {
@@ -628,8 +675,14 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
   }
 
   async function process(delivery: Delivery) {
-    if (delivery.channel === 'email') await processEmail(delivery);
-    else await processPush(delivery);
+    try {
+      const prepared = await prepareFirstDispatch(delivery);
+      if (prepared.channel === 'email') await processEmail(prepared);
+      else await processPush(prepared);
+    } catch (error) {
+      if (!(error instanceof FreshObservationUnavailable)) throw error;
+      await deferFreshObservation(delivery);
+    }
   }
 
   async function runBatch(shouldStop: () => boolean = () => false): Promise<AlertDeliveryBatchResult> {

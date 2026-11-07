@@ -25,6 +25,8 @@ import { consumeAdminLimit, createAdminPriceCheckRouter } from '../src/adminPric
 import express from 'express';
 import request from 'supertest';
 import { resolveApprovedProductPreview } from '../src/productPreviewResolver.js';
+import { createPriceAlertDeliveryWorker } from '../src/alertDeliveryWorker.js';
+import { UserModel } from '../src/models/account.js';
 
 const uri = process.env.TEST_MONGODB_URI;
 const DAY = 86_400_000;
@@ -91,6 +93,26 @@ describe.skipIf(!uri)('bounded price-check pipeline', () => {
   afterAll(async () => {
     if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
+  });
+
+  it('delivers one pending episode after two qualifying checks without replacing its delivery key', async () => {
+    await UserModel.create({ _id: ownerA, email: 'pending-check@example.invalid', passwordHash: 'fixture', emailVerifiedAt: new Date() });
+    provider.lookup.mockResolvedValueOnce(offer('620', 900));
+    await runPriceChecks({ runId: 'pending_alert_0001', mode: 'admin' });
+    const first = await NotificationDeliveryModel.findOne({ userId: ownerA }).orFail();
+    await makeDue(product620);
+    provider.lookup.mockResolvedValueOnce(offer('620', 800));
+    await runPriceChecks({ runId: 'pending_alert_0002', mode: 'admin' });
+    const emailSender = vi.fn().mockResolvedValue({ status: 'success', messageId: 'fixture', attempts: 1 });
+    const worker = createPriceAlertDeliveryWorker({ emailSender, pushSender: vi.fn() });
+    await worker.runBatch();
+    await worker.runBatch();
+    expect(emailSender).toHaveBeenCalledTimes(1);
+    expect(emailSender.mock.calls[0]?.[1]).toMatchObject({ currentPriceCents: 800 });
+    const sent = await NotificationDeliveryModel.findById(first._id).orFail();
+    expect(sent.status).toBe('sent');
+    expect(sent.episodeId).toBe(first.episodeId);
+    expect(await NotificationDeliveryModel.countDocuments({ userId: ownerA })).toBe(1);
   });
 
   it('checks one shared product for two users once across overlap, retry and restart replay', async () => {

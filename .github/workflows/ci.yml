@@ -45,6 +45,7 @@ jobs:
       - run: npm run check
         env:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27028/?directConnection=true
+          EMAIL_BUDGET_TEST_DISPOSABLE: '1'
       - name: Remove disposable MongoDB
         if: always()
         run: |

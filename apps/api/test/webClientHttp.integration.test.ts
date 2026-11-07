@@ -46,7 +46,9 @@ describe.skipIf(!uri)('WebClient over real HTTP', () => {
   let server: Server;
   let base: string;
   beforeAll(async () => {
-    if (!/^mongodb:\/\/(127\.0\.0\.1|localhost):27060\/(?:pt_test)?\?replicaSet=pt_test$/.test(uri!)) throw new Error('Expected local isolated test MongoDB URI');
+    const target = new URL(uri!);
+    if (target.protocol !== 'mongodb:' || !['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname) ||
+        target.username || target.password) throw new Error('Expected local isolated test MongoDB URI');
     await mongoose.connect(uri!, { dbName, autoIndex: false, serverSelectionTimeoutMS: 5000 });
     if (mongoose.connection.name !== dbName || !/^price_tracker_test_[a-f0-9]{32}$/.test(dbName)) throw new Error('Unexpected database');
     await createDatabaseIndexes();

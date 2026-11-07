@@ -50,7 +50,7 @@ const emailAlertSnapshotSchema = new Schema({
   gameTitle: { type: String, required: true, maxlength: 300 },
   currentPriceCents: { ...cents },
   targetPriceCents: { ...cents },
-  purchaseUrl: { type: String, required: true, maxlength: 2048 },
+  purchaseUrl: { type: String, required: true, maxlength: 4096 },
 }, { _id: false, strict: 'throw' });
 
 const pushAlertSnapshotSchema = new Schema({

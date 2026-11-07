@@ -1,5 +1,28 @@
 typedef Json = Map<String, dynamic>;
 
+String canonicalPurchaseUrl(String dealId) {
+  // Decode strict UTF-8 once, then use the same form serialization as the API.
+  // Match URLSearchParams' treatment of '*' and '~' as well as spaces.
+  String raw;
+  try {
+    if (RegExp(r'%(?![0-9a-fA-F]{2})').hasMatch(dealId)) invalidJson();
+    // Dart's decoder rejects raw non-ASCII characters. Decode escaped byte runs
+    // independently so literal Unicode survives just as in decodeURIComponent.
+    raw = dealId.replaceAllMapped(
+      RegExp(r'(?:%[0-9a-fA-F]{2})+'),
+      (match) => Uri.decodeComponent(match[0]!),
+    );
+  } on ArgumentError {
+    invalidJson();
+  } on FormatException {
+    invalidJson();
+  }
+  final encoded = Uri.encodeQueryComponent(raw)
+      .replaceAll('~', '%7E')
+      .replaceAll('%2A', '*');
+  return 'https://www.cheapshark.com/redirect?dealID=$encoded';
+}
+
 Never invalidJson() => throw const FormatException('Unexpected API response');
 Json jsonObject(Object? value) => value is Json ? value : invalidJson();
 void requireKeys(Json json, List<String> keys) {
@@ -231,7 +254,7 @@ class Product {
       retailPrice = json['retailPrice'] == null
           ? null
           : Money.fromJson(jsonObject(json['retailPrice'])),
-      dealId = nullableString(json['dealId'], 1024),
+      dealId = nullableString(json['dealId'], 256),
       purchaseUrl = nullableString(json['purchaseUrl'], 4096),
       observedAt = nullableTime(json['observedAt']),
       providerChangedAt = nullableTime(json['providerChangedAt']),
@@ -280,9 +303,7 @@ class Product {
       }
     }
     if ((dealId == null) != (purchaseUrl == null) ||
-        (dealId != null &&
-            purchaseUrl !=
-                'https://www.cheapshark.com/redirect?dealID=${Uri.encodeComponent(dealId!)}')) {
+        (dealId != null && purchaseUrl != canonicalPurchaseUrl(dealId!))) {
       invalidJson();
     }
     if (freshness == 'unavailable') {
