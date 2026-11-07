@@ -18,7 +18,7 @@ const providerBudgetSchema = new Schema<ProviderBudgetRecord>(
     cooldownUntil: { type: Date, required: true, default: () => new Date(0) },
     rateLimitCount: { type: Number, required: true, default: 0, min: 0 },
   },
-  { versionKey: false, timestamps: true },
+  { versionKey: false, timestamps: true, bufferCommands: false },
 );
 
 export const ProviderBudgetModel =
