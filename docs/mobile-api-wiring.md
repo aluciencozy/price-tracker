@@ -2,6 +2,12 @@
 
 Related: #4, #11, #20, and the history/preferences portion of #22.
 
+Product DTOs follow the purchase URL amendment in PR #59: decode `dealId`
+once with strict UTF-8, then use canonical form serialization (`+` for spaces,
+literal `*`, encoded `~`). Compare the entire generated URL. Deal IDs are
+limited to 256 Unicode codepoints; canonical purchase URLs allow 4096 characters.
+Already encoded IDs must not be encoded twice.
+
 The Flutter adapter and screens follow shared contract `829b37a`,
 [PR #36](https://github.com/aluciencozy/price-tracker/pull/36), without importing
 sibling worktree files at runtime. The contract still needs API-owner acceptance
