@@ -23,14 +23,27 @@ const mocks = vi.hoisted(() => ({ updateOne: vi.fn(), findOneAndUpdate: vi.fn(),
 vi.mock('../src/models/providerBudget.js', () => ({ ProviderBudgetModel: mocks }));
 // Route promise-based sleeps through Vitest's fake clock as well.
 vi.mock('node:timers/promises', () => ({
-  setTimeout: (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)),
+  setTimeout: (milliseconds: number, _value: unknown, options?: { signal?: AbortSignal }) => new Promise<void>((resolve, reject) => {
+    const signal = options?.signal;
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error('aborted'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  }),
 }));
 
 import { ProviderDeferredError, ProviderRateLimitError, withCheapSharkRequestBudget } from '../src/providerBudget.js';
 
 let budget: Budget;
 function query<T>(value: T) {
-  return { lean: () => ({ exec: async () => value }), exec: async () => value };
+  const result = { setOptions: (_options: unknown) => result, lean: () => ({ exec: async () => value }), exec: async () => value };
+  return result;
 }
 function matches(filter: Filter): boolean {
   return (filter.leaseToken === undefined || budget.leaseToken === filter.leaseToken) &&
@@ -140,5 +153,45 @@ describe('shared CheapShark request budget', () => {
     const request = vi.fn();
     await expect(withCheapSharkRequestBudget(Date.now() + 30_000, request)).rejects.toBeInstanceOf(ProviderDeferredError);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('cancels while waiting for the shared request slot without making an outbound request', async () => {
+    budget.nextRequestAt = new Date(Date.now() + 5_000);
+    const controller = new AbortController();
+    const request = vi.fn(async () => undefined);
+    const pending = withCheapSharkRequestBudget(Date.now() + 10_000, request, controller.signal);
+    await vi.waitFor(() => expect(mocks.findById).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(request).not.toHaveBeenCalled();
+    expect(budget.leaseToken).toBeNull();
+    const claimsAfterAbort = mocks.findOneAndUpdate.mock.calls.length;
+    const readsAfterAbort = mocks.findById.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(request).not.toHaveBeenCalled();
+    expect(mocks.findOneAndUpdate).toHaveBeenCalledTimes(claimsAfterAbort);
+    expect(mocks.findById).toHaveBeenCalledTimes(readsAfterAbort);
+  });
+
+  it('releases an aborted in-flight slot but keeps the next provider request paced', async () => {
+    const controller = new AbortController();
+    const request = vi.fn(() => new Promise<void>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+    }));
+    const first = withCheapSharkRequestBudget(Date.now() + 30_000, request, controller.signal);
+    const firstResult = expect(first).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    controller.abort();
+    await firstResult;
+    expect(budget.leaseToken).toBeNull();
+
+    const nextRequest = vi.fn(async () => 'paced');
+    const next = withCheapSharkRequestBudget(Date.now() + 30_000, nextRequest);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(nextRequest).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(next).resolves.toBe('paced');
+    expect(nextRequest).toHaveBeenCalledOnce();
   });
 });
