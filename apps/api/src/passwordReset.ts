@@ -24,7 +24,7 @@ export async function requestPasswordReset(email: string, now = new Date()): Pro
       tokenHash: hashSecret(placeholder), expiresAt, consumedAt: null,
     } }, { upsert: true, runValidators: true, session }).exec();
     await VerificationMailModel.findOneAndUpdate({ userId: user._id }, { $set: {
-      purpose: 'reset_password', generationHash: hashSecret(placeholder), status: 'pending', startedAt: null,
+      purpose: 'reset_password', generationHash: hashSecret(placeholder), status: 'pending', startedAt: null, availableAt: null,
       deliveryKey: null, providerMessageId: null, expiresAt,
       removeAt: new Date(now.getTime() + 7 * 86_400_000),
     } }, { upsert: true, runValidators: true, session }).exec();

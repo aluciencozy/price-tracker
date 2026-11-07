@@ -7,6 +7,7 @@ type AccountMail = {
   generationHash: string;
   status: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown' | 'superseded';
   startedAt: Date | null;
+  availableAt: Date | null;
   deliveryKey: string | null;
   providerMessageId: string | null;
   expiresAt: Date;
@@ -23,6 +24,7 @@ const schema = new Schema({
   generationHash: { type: String, required: true },
   status: { type: String, enum: ['pending', 'sending', 'sent', 'failed', 'unknown', 'superseded'], required: true },
   startedAt: { type: Date, default: null },
+  availableAt: { type: Date, default: null },
   deliveryKey: { type: String, default: null },
   providerMessageId: { type: String, default: null },
   expiresAt: { type: Date, required: true },

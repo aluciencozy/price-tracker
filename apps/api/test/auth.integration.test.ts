@@ -5,6 +5,7 @@ import { SignJWT } from 'jose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requireAdmin, requireVerifiedUser } from '../src/authMiddleware.js';
+import { limitAuthAttempts } from '../src/authRateLimit.js';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { AuthLimitModel, AuthTokenModel, PreloginModel, SessionModel, UserModel } from '../src/models/account.js';
@@ -44,6 +45,31 @@ describe.skipIf(!uri)('verified account sessions and password reset', () => {
   afterAll(async () => {
     if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
+  });
+
+  it('shares the private session limit across routers and preserves other sessions', async () => {
+    const user = await UserModel.findOne({ email: credentials.email }).orFail();
+    const createSession = async (secret: string) => SessionModel.create({ userId: user._id, transport: 'web',
+      secretHash: hashSecret(secret), expiresAt: new Date(Date.now() + 60_000) });
+    const firstSecret = 'a'.repeat(43), secondSecret = 'b'.repeat(43);
+    const first = await createSession(firstSecret);
+    await createSession(secondSecret);
+    const routes = express();
+    routes.get('/one', requireVerifiedUser(config), (_req, res) => res.sendStatus(204));
+    routes.get('/two', requireVerifiedUser(config), (_req, res) => res.sendStatus(204));
+    // All entry points/processes consume the same durable counter.
+    const fixedNow = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(fixedNow);
+    try {
+      await Promise.all(Array.from({ length: 119 }, () => limitAuthAttempts('private-session', String(first._id), 120, 60_000)));
+      await request(routes).get('/one').set('Cookie', `price_tracker_session_dev=${firstSecret}`).expect(204);
+      const rejected = await request(routes).get('/two').set('Cookie', `price_tracker_session_dev=${firstSecret}`).expect(429);
+      expect(rejected.body.error.code).toBe('RATE_LIMITED');
+      expect(Number(rejected.headers['retry-after'])).toBeGreaterThan(0);
+      expect(rejected.body.error.retryAfterSeconds).toBe(Number(rejected.headers['retry-after']));
+      await request(routes).get('/two').set('Cookie', `price_tracker_session_dev=${secondSecret}`).expect(204);
+      await request(routes).get('/one').expect(401);
+    } finally { clock.mockRestore(); }
   });
 
   it('enforces transport, origin and CSRF for mixed-case mounted account paths', async () => {

@@ -2,6 +2,7 @@ import type { RequestHandler, Response } from 'express';
 import mongoose from 'mongoose';
 import type { Config } from './config.js';
 import { accountError } from './accountError.js';
+import { consumePrivateSessionLimit } from './sessionRateLimit.js';
 import { allowedOrigin, activeMobileToken, activeWebSession, hasWebAuthCookie, validWebMutationCsrf, webSessionSecret } from './sessionSecurity.js';
 
 export type AuthPrincipal = {
@@ -60,6 +61,7 @@ export function requireVerifiedUser(config: Config, expectedTransport?: 'web' | 
         if (!allowedOrigin(req, config, true)) return accountError(res, 403, 'ORIGIN_DENIED', 'Origin is not allowed.');
         if (!await validWebMutationCsrf(req, config, false)) return accountError(res, 403, 'CSRF_INVALID', 'Obtain a valid CSRF token first.');
       }
+      if (!await consumePrivateSessionLimit(res, principal.sessionId)) return;
       res.locals.principal = principal;
       return next();
     } catch {

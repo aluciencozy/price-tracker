@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+// These SDK-shape tests stub HTTP; shared Mongo reservations are tested separately.
+vi.mock('../src/emailBudget.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/emailBudget.js')>(),
+  reserveEmailSend: async () => ({ status: 'allowed', deadlineMonotonicMs: Infinity }),
+}));
 import { sendPasswordReset, sendPriceAlert, sendVerificationEmail, sendWithOutcome, type EmailSender } from "../src/emails.js";
 
 const payload = {
