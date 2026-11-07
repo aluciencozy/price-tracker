@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import * as dto from './dto';
 import { history, item, product, unavailableProduct, user } from './testFixtures';
 
+function apiProductForDealId(dealId: string) {
+  const rawDealId = decodeURIComponent(dealId);
+  const purchase = new URL('/redirect', 'https://www.cheapshark.com');
+  purchase.searchParams.set('dealID', rawDealId);
+  return { ...product, dealId, purchaseUrl: purchase.href };
+}
+
 describe('wire boundary validation', () => {
   it('preserves distinct IDs, source, retained successful price, and failed-attempt metadata', () => {
     expect(dto.trackedItem(item)).toEqual(item);
@@ -52,6 +59,22 @@ describe('wire boundary validation', () => {
       purchaseUrl: `https://www.cheapshark.com/redirect?dealID=${encodedDealId}`,
     });
     expect(result.dealId).toBe(dealId);
+  });
+  it.each([
+    { label: 'ASCII', dealId: 'a'.repeat(256) },
+    { label: 'astral Unicode', dealId: '😀'.repeat(256) },
+  ])('accepts a 256-codepoint $label deal ID and its API-canonical URL', ({ dealId }) => {
+    const value = apiProductForDealId(dealId);
+    expect(value.purchaseUrl!.length).toBeLessThanOrEqual(4096);
+    expect(dto.product(value).dealId).toBe(dealId);
+  });
+  it.each([
+    { label: 'ASCII', dealId: 'a'.repeat(257) },
+    { label: 'astral Unicode', dealId: '😀'.repeat(257) },
+  ])('rejects a 257-codepoint $label deal ID', ({ dealId }) => {
+    const value = apiProductForDealId(dealId);
+    expect(value.purchaseUrl!.length).toBeLessThanOrEqual(4096);
+    expect(() => dto.product(value)).toThrow();
   });
   it.each(['bad%', 'bad%2', 'bad%GG'])('rejects malformed percent escapes in deal ID %s', (dealId) => {
     expect(() => dto.product({ ...product, dealId, purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=bad' })).toThrow();

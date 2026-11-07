@@ -131,7 +131,7 @@ export function product(value: unknown): Product {
   const steamAppId = providerId(data.steamAppId);
   const canonicalSteamUrl = text(data.canonicalSteamUrl, 200);
   if (canonicalSteamUrl !== `https://store.steampowered.com/app/${steamAppId}/`) throw new Error('Mismatched Steam URL.');
-  const dealId = nullable(data.dealId, (v) => text(v, 1024));
+  const dealId = nullable(data.dealId, (v) => text(v, 256));
   const purchaseUrl = nullable(data.purchaseUrl, (v) => text(v, 4096));
   // Require the exact API-canonical human link; never fetch or follow it here.
   if (purchaseUrl !== (dealId === null ? null : cheapSharkPurchaseUrl(dealId))) {
