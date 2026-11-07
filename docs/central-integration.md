@@ -1,6 +1,6 @@
 # Central integration review — November 6, 2026
 
-This is local integration work, not a deployed release or permission to send.
+This integration is not a deployed release or permission to send.
 The branch is `feature/web-flow-integration` in the durable
 `/home/alex/.cache/price-tracker-web-flow-integration` worktree. No feature PR was
 merged. The reviewed inputs below were cherry-picked from immutable snapshots.
@@ -15,10 +15,16 @@ merged. The reviewed inputs below were cherry-picked from immutable snapshots.
 | Alert delivery | eabeacf1715fe760e5fbde987a62f33ef13eb4c5 | d9d5ef4 |
 | Web purchase DTO | f12e92744714604d399d5e44d65a8f5664f8d759 | 573f5b8 |
 | Checks and preview resolver | 7608566371716f02e93da9f099ccb8f005c74e29 | 831dc4a |
+| Web deal-ID boundary | 4f2f56daf786fd96a653a65776a21af5a0e8fb10 | 756b2bc |
+| Purchase URL contract | a9117e844b6f7c449f5ee3e6ea4698dcf0a85519 | a91f96f |
 
-Local HEAD before central review is `831dc4a`. Central changes are uncommitted;
-review `git diff` plus untracked source/test files, including the separately
-authored `webClientHttp.integration.test.ts`. The only cherry-pick conflict was
+Central changes were independently approved against `831dc4a` and committed
+locally as `81bb2c0`. The approved web boundary and contract follow-ups were then
+applied through `a91f96f`. The follow-up test-only browser harness and
+documentation were independently reviewed and exercised in local browser QA.
+The separately authored
+`webClientHttp.integration.test.ts` is included in the approved central commit.
+The only cherry-pick conflict was
 additive model registration: both tracking models and both check models remain.
 
 ## Composition and activation
@@ -36,7 +42,9 @@ credential permission for native account/device paths.
 Server defaults are `PRICE_TRACKING_ENABLED=false` and
 `PRICE_SCHEDULER_ENABLED=false`. Enabling tracking requires a stable
 `TRACKING_CURSOR_SECRET` of at least 32 characters; scheduling requires tracking.
-These proposed central configuration additions need review with the auth owner.
+Production also requires a stable `AUTH_JWT_SECRET` of at least 32 characters,
+shared across replicas; the cursor secret must likewise remain stable across replicas.
+Keep secrets in protected environment configuration, not in Git.
 The real reviewed preview resolver is supplied only on explicit tracking opt-in.
 Mongo selection/connect/socket limits are 1000ms, pool wait 500ms, buffering off.
 Index failure never falls back to memory. These bounds do not promise hard
@@ -85,8 +93,8 @@ TEST_MONGODB_URI='mongodb://127.0.0.1:27060/?replicaSet=pt_test' EMAIL_BUDGET_TE
 ```
 
 Tests use fresh random test databases and drop only their own databases. Do not
-stop the shared test server. The final measured run passed lint, both typechecks,
-15 contract tests, 348 API tests and 270 web tests with zero skips, plus both
+stop the shared test server. The combined run passed lint, both typechecks,
+16 contract tests, 363 API tests and 274 web tests with zero skips, plus both
 builds. API coverage includes real WebClient/repository HTTP against Express,
 explicit fake verification delivery, real sessions/CSRF, private tracking,
 ownership and logout, composed admin 202/Location/429, shared budget contention
@@ -95,10 +103,24 @@ per-attempt deadlines and bounded shutdown work. Fixtures never contact
 CheapShark, Resend or FCM. npm reports 15 moderate dependency advisories; no
 unreviewed dependency upgrade was attempted.
 
-The web purchase DTO now matches the backend's actual canonical builder, but the
-separately owned normative OpenAPI/README amendment is pending an approved
-immutable snapshot. Do not edit those files concurrently or call the contract
-alignment finished. Browser behavior, Flutter/device behavior, real offers,
-mailbox/push receipt, remote MongoDB and deployed scheduling remain separate
-acceptance gates. This report is not full-MVP completion or independent approval
-of the central diff.
+The approved web purchase DTO and normative OpenAPI/README amendment are now
+integrated, including canonical encoding and the 256-Unicode-codepoint deal-ID
+boundary. SwaggerHub publication remains pending.
+
+## Fixture browser acceptance
+
+Local browser QA passed the core web flow against the composed API, guarded
+disposable MongoDB and captured fixture mail: registration, explicit verification,
+login/session reload, preview/save/edit/delete, logout, reset and new-password
+login. It also checked two-account foreign versus missing resource responses,
+authenticated CSRF rejection, invalid URL and offline fail-closed behavior, back
+navigation, targeted keyboard interactions and no horizontal overflow at 320,
+390, 768 and 1440 pixels. The real 429 retry wait was respected. This is targeted
+functional coverage, not a complete accessibility audit. Fixture prices are not
+live prices, and history was empty. Local evidence (not included in Git):
+`/home/alex/.cache/price-tracker-web-browser-evidence/resumed-acceptance-report.md`
+and `final-gap-run-report.md` in the same directory.
+
+Flutter/device behavior, real offers, mailbox/push receipt, remote MongoDB and
+deployed scheduling remain separate acceptance gates. No full-MVP completion or
+live activation is claimed.
