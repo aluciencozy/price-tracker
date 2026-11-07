@@ -35,8 +35,50 @@ describe('wire boundary validation', () => {
   ])('rejects invalid product %j', (changes) => {
     expect(() => dto.product({ ...product, ...changes })).toThrow();
   });
-  it('encodes raw deal IDs once, including a literal percent escape in a raw ID', () => {
-    expect(dto.product({ ...product, dealId: 'a%2Bb', purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=a%252Bb' }).dealId).toBe('a%2Bb');
+  it.each([
+    ['plain-id', 'plain-id'],
+    ['plus+id', 'plus%2Bid'],
+    ['slash/id', 'slash%2Fid'],
+    ['equals=id', 'equals%3Did'],
+    ['space id', 'space+id'],
+    ['already%2Fencoded', 'already%2Fencoded'],
+    ['deal%2Fwith%20space%2Bplus%3D', 'deal%2Fwith+space%2Bplus%3D'],
+    ['a/b', 'a%2Fb'],
+    ['a%2Fb', 'a%2Fb'],
+  ])('accepts the API canonical redirect for deal ID %s', (dealId, encodedDealId) => {
+    const result = dto.product({
+      ...product,
+      dealId,
+      purchaseUrl: `https://www.cheapshark.com/redirect?dealID=${encodedDealId}`,
+    });
+    expect(result.dealId).toBe(dealId);
+  });
+  it.each(['bad%', 'bad%2', 'bad%GG'])('rejects malformed percent escapes in deal ID %s', (dealId) => {
+    expect(() => dto.product({ ...product, dealId, purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=bad' })).toThrow();
+  });
+  it.each([
+    'https://cheapshark.com/redirect?dealID=offer',
+    'https://www.cheapshark.com.evil.example/redirect?dealID=offer',
+    'https://www.cheapshark.com@evil.example/redirect?dealID=offer',
+    'https://user:pass@www.cheapshark.com/redirect?dealID=offer',
+    'http://www.cheapshark.com/redirect?dealID=offer',
+    'https://www.cheapshark.com/redirect/?dealID=offer',
+    'https://www.cheapshark.com/other?dealID=offer',
+    'https://www.cheapshark.com/redirect',
+    'https://www.cheapshark.com/redirect?dealID=offer&extra=1',
+    'https://www.cheapshark.com/redirect?dealID=offer&dealID=offer',
+    'https://www.cheapshark.com/redirect?%64ealID=offer',
+    'https://www.cheapshark.com/redirect?dealID=offer#fragment',
+    'https://www.cheapshark.com/redirect?dealID=other',
+  ])('rejects non-canonical or unsafe purchase URL %s', (purchaseUrl) => {
+    expect(() => dto.product({ ...product, dealId: 'offer', purchaseUrl })).toThrow();
+  });
+  it.each([
+    ['a/b', 'https://www.cheapshark.com/redirect?dealID=a%252Fb'],
+    ['a%2Fb', 'https://www.cheapshark.com/redirect?dealID=a%252Fb'],
+    ['a%2Fb', 'https://www.cheapshark.com/redirect?dealID=a/b'],
+  ])('rejects a URL that encodes deal identity differently for %s', (dealId, purchaseUrl) => {
+    expect(() => dto.product({ ...product, dealId, purchaseUrl })).toThrow();
   });
   it('rejects unknown/omitted fields rather than accepting a different API schema', () => {
     expect(() => dto.user({ ...user, accessToken: 'not-a-web-response' })).toThrow();
