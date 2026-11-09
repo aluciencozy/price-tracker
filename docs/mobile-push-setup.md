@@ -68,13 +68,18 @@ platform:"android", pushToken}` with Bearer authorization; the session owner com
 from the API session, never a client user ID. The API must atomically rebind the
 installation/token and revoke devices on logout/reset/expiry.
 
-Server credentials stay server-side. The existing backend examples name
-`FIREBASE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS`; the latter points to a
-private file outside git, or use deployment-managed ADC. Never put a private key
-in a Dart define, APK or mobile config. **Worker/startup enablement variable names
-are pending the parallel backend integration**; confirm them against its actual
-`.env.example` and startup implementation before sending. Do not assume credentials
-alone start the worker.
+Server credentials stay server-side. `PRICE_TRACKING_ENABLED` defaults to `false`;
+tracking requires `MONGODB_URI` and a stable `TRACKING_CURSOR_SECRET` of at least
+32 characters. Server push also defaults to off and requires explicit
+`PRICE_PUSH_ENABLED=true`, tracking enabled, a stable `AUTH_JWT_SECRET` (at
+least 32 characters, required in production), `FIREBASE_PROJECT_ID`, and
+deployment-managed Application Default Credentials (ADC).
+`GOOGLE_APPLICATION_CREDENTIALS` may point to a private
+credential file outside Git, readable by the API service account. Never put a
+private key in a Dart define, APK, or mobile config. Credentials alone do not
+start a worker; enable sending only after owner approval of the Firebase project,
+quotas, and Android receipt. See [backend runtime settings](backend-runtime.md)
+for all flags and recovery behavior.
 
 Send the existing strict all-string, **data-only** PushEvent schema (see
 [readiness](android-push-readiness.md)). Do not add an FCM `notification` block:
