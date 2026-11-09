@@ -1,0 +1,124 @@
+name: Deploy Azure VM
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: price-tracker-production-vm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      VM_HOST: price-tracker-ibrahim.northcentralus.cloudapp.azure.com
+      VM_USER: azureuser
+      # Keep sample mode until the team explicitly enables and accepts API mode.
+      VITE_DATA_SOURCE: ${{ vars.VM_WEB_DATA_SOURCE || 'sample' }}
+      VITE_API_BASE_URL: ''
+    steps:
+      - name: Select a tested main commit
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.eventName === 'workflow_run' ? context.payload.workflow_run.head_sha : context.sha;
+            const { data: main } = await github.rest.repos.getBranch({ ...context.repo, branch: 'main' });
+            if (main.commit.sha !== sha) throw new Error('This run is superseded; deploy the current tested main commit.');
+            const { data } = await github.rest.actions.listWorkflowRuns({ ...context.repo,
+              workflow_id: 'ci.yml', head_sha: sha, branch: 'main', event: 'push', per_page: 20 });
+            const latest = data.workflow_runs.sort((a, b) => b.id - a.id)[0];
+            if (!latest || latest.status !== 'completed' || latest.conclusion !== 'success') {
+              throw new Error('The latest main CI run for this exact commit must pass first.');
+            }
+            core.setOutput('sha', sha);
+            core.setOutput('id', `${sha}-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}`);
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Build locked production assets
+        run: |
+          set -euo pipefail
+          [[ "$VITE_DATA_SOURCE" == sample || "$VITE_DATA_SOURCE" == api ]]
+          npm ci
+          npm run build
+      - name: Package the production release
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          # Build/install on the larger Linux runner, not the small live VM.
+          npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+          node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync("apps/web/dist/deployment.json", JSON.stringify({release:process.env.RELEASE_ID, dataSource:process.env.VITE_DATA_SOURCE}));'
+          tar -czf "$RUNNER_TEMP/release.tar.gz" package.json package-lock.json \
+            apps/api/package.json apps/web/package.json apps/api/dist apps/web/dist \
+            node_modules scripts/verify-vm-release.mjs
+      - name: Install pinned SSH identity
+        env:
+          DEPLOY_KEY: ${{ secrets.VM_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VM_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          install -m 700 -d "$RUNNER_TEMP/vm-ssh"
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/vm-ssh/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/vm-ssh/known_hosts"
+      - name: Refuse a superseded release before deployment
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.getBranch({ ...context.repo, branch: 'main' });
+            if (data.commit.sha !== process.env.RELEASE_SHA) throw new Error('Main advanced during the build; use its CI-triggered deployment.');
+      - name: Deploy and verify on the VM
+        id: deploy
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          ssh -T -i "$RUNNER_TEMP/vm-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vm-ssh/known_hosts" \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            "$VM_USER@$VM_HOST" "deploy $RELEASE_ID" < "$RUNNER_TEMP/release.tar.gz"
+      - name: Verify the public release
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: node scripts/verify-vm-release.mjs "https://$VM_HOST" "$RELEASE_ID"
+      - name: Roll back if the external check fails
+        if: failure() && steps.deploy.outcome == 'success'
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          ssh -T -i "$RUNNER_TEMP/vm-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vm-ssh/known_hosts" \
+            -o ConnectTimeout=15 "$VM_USER@$VM_HOST" "rollback $RELEASE_ID"
+      - name: Summarize release
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          printf 'Deployed `%s` to https://%s/ (frontend mode: `%s`).\n' "$RELEASE_ID" "$VM_HOST" "$VITE_DATA_SOURCE" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Health checks establish deployment readiness, not end-to-end account or notification acceptance.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove SSH files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/vm-ssh"
