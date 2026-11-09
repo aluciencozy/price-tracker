@@ -13,7 +13,7 @@ database "MongoDB\nclaims + history" as DB
 participant "Provider cache\n+ budget" as Cache
 participant CheapShark as CS
 participant "Episode\nevaluator" as Eval
-participant "Delivery\ndispatch" as Dispatch
+participant "Delivery\nworker" as Dispatch
 participant "Resend / FCM" as External
 Trigger -> Worker : scheduled or admin-only manual run
 Worker -> DB : claim due product (fenced lease)
@@ -26,16 +26,16 @@ alt successful exact Steam offer
  Worker -> Eval : evaluate owned trackers
  Eval -> DB : episode state + unique channel outbox
  note over Eval,DB : <= target opens once; successful > target rearms.\nTarget change can start new evaluation.
- Worker -> Dispatch : post-check delivery hook
- Dispatch -> DB : claim eligible channel delivery
- Dispatch -> External : email or push independently
- External --> Dispatch : accepted / failure / unknown
- Dispatch -> DB : record channel outcome
- note over Dispatch,External : Permission and active owned session gate push.\nUnknown send is reconciled, not blindly retried.\nNo end-to-end exactly-once guarantee.
 else error, missing offer or throttle
  Cache --> Worker : failure / Retry-After
  Worker -> DB : retain last success; record failure
  note over Worker,DB : No zero fallback, history, alert or rearm.
 end
+Dispatch -> Dispatch : independent interval poll (runBatch)
+Dispatch -> DB : claim eligible channel delivery
+Dispatch -> External : email or push independently
+External --> Dispatch : accepted / failure / unknown
+Dispatch -> DB : record channel outcome
+note over Dispatch,External : Permission and active owned session gate push.\nUnknown send is reconciled, not blindly retried.\nNo end-to-end exactly-once guarantee.
 caption History collection requires source-policy approval; diagram is not proof of live collection.
 @enduml
