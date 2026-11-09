@@ -35,21 +35,26 @@ off-by-default settings or approves a live send.
 
 ## Recorded checks
 
-Earlier recorded Node checks reported root `npm run check` with lint, both
-TypeScript checks, API/web builds, **16 contract tests, 371 API tests, and 274
-web tests with zero skips**. A separate backend review reported **392 API tests
-with zero skips**, plus API typecheck, build, and lint passing. These are separate
-older runs, not counts to add together. Issue
-[#23](https://github.com/aluciencozy/price-tracker/issues/23) is closed for
-fixture-tested backend results; that does not close deployed acceptance.
+The root `npm run check` result recorded at test-configuration commit `256c23b`
+passed lint, both TypeScript checks, both builds, and **687 tests**: 16 contract,
+397 API, and 274 web tests, with zero skips. API Vitest used the configured
+`--maxWorkers=2` limit. This is the combined run; older partial API counts (371,
+392, and the 395 count before two parser regressions) are superseded, not tests to
+add. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
+closed for fixture-tested backend results; that does not close deployed
+acceptance.
 
-Mobile push implementation `d1a688c` and SQLite contention fix `d6d4b9e` are
-merged and approved. The author reports **220 Flutter tests**, formatting,
-analysis, and debug APK checks passing; the independent reviewer also reports
-**220 tests passing**. The reported environment was Flutter 3.47.9 / Dart
-3.13.7. The repository setup remains pinned to Flutter 3.47.7 / Dart 3.13.5;
-this is not a version-upgrade decision. These checks do not prove a real Firebase
-project or message receipt on an Android device.
+Mobile push implementation `d1a688c`, SQLite contention fix `d6d4b9e`, and
+startup-reconciliation fix `85fa241` are merged; format-only follow-up
+`76c778a` is also integrated. At `85fa241`, the author reports **229 Flutter
+tests**, formatting and analysis checks, and a debug APK build passing on Flutter
+3.47.9 / Dart 3.13.7. After the format-only commit, the author reports
+`flutter pub get --enforce-lockfile`, all 229 tests, and formatting passing; the
+APK was not rebuilt for that formatting-only change. Independent review cleared
+the code review; the reviewer's separate test execution passed the earlier 220
+tests, not all 229 latest tests. The repository remains pinned to Flutter
+3.47.7 / Dart 3.13.5. These checks do not prove a real Firebase project or
+message receipt on an Android device.
 
 The independently reviewed dependency change `b427837` only updates the npm
 lockfile. It uses a same-major compatible Google/Firebase transitive resolution
@@ -58,7 +63,8 @@ manifest changes. The recorded `npm audit --omit=dev` result is **0
 vulnerabilities** (previously 6 moderate); full `npm audit` is **10 moderate,
 development-only ESLint/TypeScript-ESLint `minimatch` warnings** (previously 15).
 This removes the production findings; it does not make the full development
-dependency audit clean.
+dependency audit clean. The production audit was recorded with zero findings;
+these audit results are separate from the `npm run check` test count.
 
 Issue [#16](https://github.com/aluciencozy/price-tracker/issues/16) is closed on
 fixture evidence for durable alert episodes. It does not prove real provider or
@@ -70,14 +76,11 @@ approved adapter check is documented in the [README](../README.md); no live
 lookup was made for this handoff.
 
 Portable browser-history fixture work is merged in `2e85fcb` and `8f167c5`; five
-targeted fixture tests passed. The optional nonempty synthetic-history scenario
-and exact local-only commands are documented in
-[browser fixture acceptance](browser-fixture-acceptance.md). These rows are QA
-fixtures, not real recorded Steam prices. An API total of 395 was reported before
-two parser-regression tests were added, so the final combined Node count is still
-pending. Do not infer or publish a newer aggregate from these partial reports.
-Final combined test results and the separate final browser-QA report are not
-recorded in this handoff.
+targeted fixture tests are included in the combined test run above. The optional
+nonempty synthetic-history scenario and exact local-only commands are documented
+in [browser fixture acceptance](browser-fixture-acceptance.md). These rows are QA
+fixtures, not real recorded Steam prices. The separate final browser-QA report is
+still pending; no browser result is claimed here.
 
 ## Owner acceptance still needed
 
