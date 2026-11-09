@@ -14,7 +14,7 @@ record is still evidence only for its older sample-mode build `b668d1e`; see
 | --- | --- | --- |
 | Web sample and API boundary | Web sample data remains the default and stays in memory. API mode uses the shared Express API. | Sample success is not an account or saved-data result. A running health endpoint is not a live tracker. |
 | Accounts and private data | Verified account/session routes are mounted. With `PRICE_TRACKING_ENABLED=true`, the API composes Steam preview, owned tracker CRUD/history, and admin-only check routes. Device endpoints require a verified mobile session. | Tracking is off by default. Remote MongoDB, actual HTTPS/CORS, mailbox links, two-user ownership, and deployed cross-client acceptance are pending. |
-| Price checks | Scheduled and admin checks use the shared service. The process has an opt-in daily UTC schedule and a separate due-run recovery loop. | No cron or second checker is part of this design. Live application-adapter lookup, a deployed daily run, real current quote, and host uptime/cost acceptance are pending. |
+| Price checks | Scheduled and admin checks use the shared service. One bounded live application-adapter lookup for Portal 2 completed on November 9; see the [adapter report](test-results/live-adapter-2026-11-09.md). | No cron or second checker is part of this design. One dated lookup does not prove a deployed daily run, a checkout quote, or host uptime/cost acceptance. |
 | Alert state and delivery | Saved alert records remember each qualifying price episode and keep email and push delivery attempts separate. All live delivery flags default off. | Tests use fake email/push senders, so they do not prove sender approval, mailbox arrival, Firebase setup, Android receipt, or exactly-once delivery. An uncertain send may need owner review. |
 | Mobile push | The merged client has an opt-in Firebase gateway (`ANDROID_PUSH_ENABLED=true` plus explicit public Firebase build values). It includes notification channels/presentation, foreground/background/tap handling, and SQLite duplicate protection across isolates. | It stays off by default. A team Firebase project and real Android message receipt are still unaccepted; code/build tests do not prove device delivery. |
 
@@ -68,11 +68,15 @@ these audit results are separate from the `npm run check` test count.
 Issue [#16](https://github.com/aluciencozy/price-tracker/issues/16) is closed on
 fixture evidence for durable alert episodes. It does not prove real provider or
 notification delivery. The October 26 CheapShark source proof in issue
-[#3](https://github.com/aluciencozy/price-tracker/issues/3) proves two real
-Steam-to-CheapShark lookups; it is not a live lookup through the current app
-adapter or proof of a deployed daily price check. The command for an explicitly
-approved adapter check is documented in the [README](../README.md); no live
-lookup was made for this handoff.
+[#3](https://github.com/aluciencozy/price-tracker/issues/3) records two source
+lookups; it is separate from the one bounded November 9 lookup through the current
+application adapter, documented in the [adapter report](test-results/live-adapter-2026-11-09.md).
+That report records one exact Portal 2 identity and a dated provider response; it
+does not prove a checkout quote, broader catalog support, or a deployed daily
+check. The lookup created no price-history observation. The online adapter check
+for issue [#12](https://github.com/aluciencozy/price-tracker/issues/12) is ready
+for closure after this reviewed evidence is merged; the issue remains open until
+then.
 
 Portable browser-history fixtures are merged in `2e85fcb` and `8f167c5`; the
 test-only persistent fixture-disclosure setup in `c90eb0d` adds three targeted
@@ -109,12 +113,11 @@ fixture suite is not enough.
 | [#27](https://github.com/aluciencozy/price-tracker/issues/27), James | Record the deployed two-user security and end-to-end acceptance, including a real supported Steam offer, failures, and recovery. |
 | [#30](https://github.com/aluciencozy/price-tracker/issues/30), Alex | Review release evidence and finish course handoff separately. Wireframe work is cancelled; defer UML diagrams and PowerPoint until app and test work is finished, at the very end. This course work is not an application-release blocker and is not claimed complete here. |
 
-Other remaining decisions are whether to keep our observed-price history for 90
-days (source-owner/team approval is pending) and a live lookup through the
-application's CheapShark adapter. Do not enable live history collection or say
-that adapter check passed until the owners decide and record the result. The
-source research issue #3 is closed; its completed research does not need to be
-reopened for these separate decisions.
+The remaining data-retention decision is whether to keep observed-price history
+for 90 days; source-owner/team approval is pending. The one-off adapter lookup
+created no history and does not resolve that decision. Do not enable live history
+collection until owners approve it. The source research issue #3 is closed; its
+completed research does not need to be reopened for this separate decision.
 
 No issue state was changed for this documentation handoff. Real-price
 demonstrations must use a supported game and change the user's target around the
