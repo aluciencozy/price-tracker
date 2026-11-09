@@ -13,9 +13,15 @@ abstract interface class PushSessionStorage {
   Future<void> bindSession(String? id, DateTime? expiresAt);
 }
 
+abstract interface class PushEligibilityStorage {
+  Future<void> suspendSession(String id);
+  Future<void> prepareSession(String id, DateTime expiresAt);
+}
+
 /// Shared SQLite transactions, not isolate-local compare-then-write. No JWTs or
 /// game content. Reaching capacity fails closed; live receipts are never evicted.
-class AtomicPushStorage implements PushStorage, PushSessionStorage {
+class AtomicPushStorage
+    implements PushStorage, PushSessionStorage, PushEligibilityStorage {
   AtomicPushStorage({
     required this.open,
     required this.presenter,
@@ -97,7 +103,41 @@ class AtomicPushStorage implements PushStorage, PushSessionStorage {
   @override
   Future<String> installationId() => installation();
   @override
-  Future<void> bindSession(String? id, DateTime? expiresAt) async {
+  Future<void> suspendSession(String id) async {
+    if (!isPushId(id)) throw const PushStorageException();
+    final db = await open();
+    var cancellationFailed = false;
+    await _transaction(db, (tx) async {
+      final updated = await tx.update(
+        'session',
+        {'expires': 0},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (updated != 0) {
+        try {
+          await presenter.cancelAll();
+        } catch (_) {
+          cancellationFailed = true;
+        }
+      }
+    });
+    if (cancellationFailed) throw const PushStorageException();
+  }
+
+  @override
+  Future<void> bindSession(String? id, DateTime? expiresAt) =>
+      _bindSession(id, expiresAt, suspended: false);
+
+  @override
+  Future<void> prepareSession(String id, DateTime expiresAt) =>
+      _bindSession(id, expiresAt, suspended: true);
+
+  Future<void> _bindSession(
+    String? id,
+    DateTime? expiresAt, {
+    required bool suspended,
+  }) async {
     if (id != null && (!isPushId(id) || expiresAt == null)) {
       throw const PushStorageException();
     }
@@ -119,7 +159,7 @@ class AtomicPushStorage implements PushStorage, PushSessionStorage {
       if (id != null) {
         await tx.insert('session', {
           'id': id,
-          'expires': expiresAt!.millisecondsSinceEpoch,
+          'expires': suspended ? 0 : expiresAt!.millisecondsSinceEpoch,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });

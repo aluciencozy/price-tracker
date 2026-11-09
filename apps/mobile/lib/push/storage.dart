@@ -11,6 +11,77 @@ abstract interface class PushStorage implements PushEventStore {
   Future<String> installationId();
 }
 
+class DeviceBindingMetadata {
+  const DeviceBindingMetadata(this.sessionId, this.deviceId, this.pending);
+  final String sessionId;
+  final String? deviceId;
+  final bool pending;
+}
+
+abstract interface class DeviceBindingStore {
+  Future<DeviceBindingMetadata?> read(String sessionId);
+  Future<void> write(DeviceBindingMetadata metadata);
+  Future<void> clear(String sessionId);
+}
+
+/// Metadata only: neither bearer credentials nor FCM tokens are stored here.
+class SecureDeviceBindingStore implements DeviceBindingStore {
+  SecureDeviceBindingStore(this.origin, {FlutterSecureStorage? storage})
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(resetOnError: false),
+          );
+  final String origin;
+  final FlutterSecureStorage _storage;
+  static const key = 'price_tracker.push_device_binding.v1';
+
+  @override
+  Future<DeviceBindingMetadata?> read(String sessionId) async {
+    final raw = await _storage.read(key: key);
+    if (raw == null) return null;
+    final data = jsonDecode(raw);
+    if (data is! Map ||
+        data['origin'] is! String ||
+        data['session'] is! String ||
+        !isPushId(data['session'] as String) ||
+        data['pending'] is! bool ||
+        (data['device'] != null &&
+            (data['device'] is! String ||
+                !isPushId(data['device'] as String)))) {
+      throw const PushStorageException();
+    }
+    if (data['origin'] != origin || data['session'] != sessionId) return null;
+    return DeviceBindingMetadata(
+      sessionId,
+      data['device'] as String?,
+      data['pending'] as bool,
+    );
+  }
+
+  @override
+  Future<void> write(DeviceBindingMetadata metadata) async {
+    if (!isPushId(metadata.sessionId) ||
+        (metadata.deviceId != null && !isPushId(metadata.deviceId!))) {
+      throw const PushStorageException();
+    }
+    await _storage.write(
+      key: key,
+      value: jsonEncode({
+        'origin': origin,
+        'session': metadata.sessionId,
+        'device': metadata.deviceId,
+        'pending': metadata.pending,
+      }),
+    );
+  }
+
+  @override
+  Future<void> clear(String sessionId) async {
+    if (await read(sessionId) != null) await _storage.delete(key: key);
+  }
+}
+
 class PushStorageException implements Exception {
   const PushStorageException();
   @override

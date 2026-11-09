@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:price_tracker/client/mobile_api.dart';
 import 'package:price_tracker/client/session_controller.dart';
 import 'package:price_tracker/push/atomic_store.dart';
 import 'package:price_tracker/push/integration.dart';
+import 'package:price_tracker/push/registration.dart';
+import 'package:price_tracker/push/storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../client_fixtures.dart';
@@ -16,7 +19,8 @@ import '../client_fixtures.dart' as fixtures show now;
 import '../session_controller_test.dart' show MemorySessionStore;
 import 'atomic_store_test.dart' show RecordingPresenter;
 import 'events_test.dart' show payload;
-import 'registration_test.dart' show TestDevices;
+import 'registration_test.dart' show TestDevices, TestGateway;
+import 'permission_cleanup_test.dart' show InstallationDevices;
 
 class ObservedAtomicStorage extends AtomicPushStorage {
   ObservedAtomicStorage(Database db, RecordingPresenter presenter)
@@ -32,6 +36,13 @@ class ObservedAtomicStorage extends AtomicPushStorage {
   Future<void> bindSession(String? id, DateTime? expiresAt) async {
     bindings.add(id);
     await super.bindSession(id, expiresAt);
+    if (!firstBinding.isCompleted) firstBinding.complete();
+  }
+
+  @override
+  Future<void> prepareSession(String id, DateTime expiresAt) async {
+    bindings.add(id);
+    await super.prepareSession(id, expiresAt);
     if (!firstBinding.isCompleted) firstBinding.complete();
   }
 }
@@ -74,7 +85,11 @@ void main() {
     return connection;
   }
 
-  void start() {
+  void start({
+    TestDevices? devices,
+    PushPermissionGateway gateway = const UnconfiguredPushGateway(),
+    DeviceBindingStore? bindingStore,
+  }) {
     final client = MockClient((request) {
       requests.add(request);
       return reply(request);
@@ -88,8 +103,10 @@ void main() {
     storage = ObservedAtomicStorage(db, presenter);
     integration = PushIntegrationController(
       session: session,
-      devices: TestDevices(),
+      devices: devices ?? TestDevices(),
       storage: storage,
+      gateway: gateway,
+      bindingStore: bindingStore,
     );
     final capturedSession = session;
     final capturedIntegration = integration;
@@ -168,6 +185,37 @@ void main() {
     await expectSignedOut();
     expect(requests, isEmpty);
     expect(presenter.cancellations, greaterThan(0));
+  });
+
+  test('restored denied session suspends SQLite even when owned removal is offline', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final devices = InstallationDevices()..removalFails = true;
+    final gateway = TestGateway()..result = PushPermission.denied;
+    start(
+      devices: devices,
+      gateway: gateway,
+      bindingStore: SecureDeviceBindingStore('https://api.example.test'),
+    );
+    await session.restore();
+    await integration.registration.synchronize();
+    expect(integration.registration.status, PushStatus.denied);
+    expect(integration.registration.revocation, PushRevocation.unconfirmed);
+    expect((await db.query('session')).single['expires'], 0);
+    expect(await db.query('receipts'), hasLength(1));
+    await storage.background({...payload(), 'eventId': 'after_denial'});
+    expect(presenter.displays, 0);
+    devices.removalFails = false;
+    gateway.result = PushPermission.granted;
+    await integration.registration.synchronize();
+    expect(integration.registration.status, PushStatus.registered);
+    expect(
+      await storage.claim(
+        sessionId: 'session_example',
+        eventId: 'episode_example',
+        capacity: 512,
+      ),
+      false,
+    );
   });
 
   test(

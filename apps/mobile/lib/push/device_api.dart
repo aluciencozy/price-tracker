@@ -64,7 +64,11 @@ abstract interface class DeviceEndpoint {
   Future<void> unregister(PushSession session, String deviceId);
 }
 
-class HttpDeviceEndpoint implements DeviceEndpoint {
+abstract interface class InstallationDeviceEndpoint {
+  Future<void> unregisterInstallation(PushSession session);
+}
+
+class HttpDeviceEndpoint implements DeviceEndpoint, InstallationDeviceEndpoint {
   HttpDeviceEndpoint({
     required this.client,
     required String baseUrl,
@@ -115,11 +119,17 @@ class HttpDeviceEndpoint implements DeviceEndpoint {
     await _send('DELETE', session, deviceId: deviceId);
   }
 
+  @override
+  Future<void> unregisterInstallation(PushSession session) async {
+    await _send('DELETE', session, installation: true);
+  }
+
   Future<http.Response> _send(
     String method,
     PushSession session, {
     String? deviceId,
     String? token,
+    bool installation = false,
   }) async {
     if ((deviceId != null && !isPushId(deviceId)) ||
         (token != null &&
@@ -137,7 +147,9 @@ class HttpDeviceEndpoint implements DeviceEndpoint {
         http.Request(
             method,
             _origin.resolve(
-              '/api/devices${deviceId == null ? '' : '/$deviceId'}',
+              installation
+                  ? '/api/devices/installation/${installationId.toLowerCase()}'
+                  : '/api/devices${deviceId == null ? '' : '/$deviceId'}',
             ),
           )
           ..followRedirects = false
@@ -178,7 +190,9 @@ class HttpDeviceEndpoint implements DeviceEndpoint {
       );
     }
     // The contract explicitly treats an absent/foreign DELETE as already removed.
-    if (method == 'DELETE' && response.statusCode == 404) return response;
+    if (method == 'DELETE' && !installation && response.statusCode == 404) {
+      return response;
+    }
     if (method == 'PUT' && response.statusCode == 404) {
       throw const DeviceApiException(DeviceFailure.notFound);
     }
