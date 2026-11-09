@@ -60,7 +60,7 @@ function diagram(title, kicker, name, speaker, sec, notes, caption) {
  txt(s,'Local integration verified; hosted demo pending.',.8,5.85,9,.35,{fontSize:18,color:C.muted});
 }
 {
- const s=slide('Five people, one shared product','Team & ownership','Alex',40,'Introduce the five meaningful areas of work, not a claim of equal commit counts. GitHub issues and pull requests organize work. Each person explains their own area in this presentation.');
+ const s=slide('Five people, one shared product','Team & ownership','Alex',40,'Introduce the five meaningful areas of work, not a claim of equal commit counts. Verified merged author PRs: Alex: https://github.com/aluciencozy/price-tracker/pull/36 shared API contract and https://github.com/aluciencozy/price-tracker/pull/38 Flutter API wiring; Martin: https://github.com/aluciencozy/price-tracker/pull/34 React UI/tests and 12 web wireframes; Ibrahim: https://github.com/aluciencozy/price-tracker/pull/42 MongoDB schemas/indexes and ERD, and https://github.com/aluciencozy/price-tracker/pull/45 durable episodes/outbox; James: https://github.com/aluciencozy/price-tracker/pull/50 registration/email verification and transaction/concurrency tests; Nick: https://github.com/aluciencozy/price-tracker/pull/41 CheapShark adapter and https://github.com/aluciencozy/price-tracker/pull/49 email adapter. The email adapter PR is not proof of live email delivery. Alex requested changes and later approved PR #50. Martin approved an earlier commit of PR #61, not necessarily its current head. Each person explains their own area.');
  const rows=[['Alex','Lead, integration & Flutter  ·  @aluciencozy'],['Martin','React, TypeScript & Tailwind  ·  @Martaino'],['Ibrahim','MongoDB, infrastructure & tests  ·  @IbrahimShaqqou'],['James','Express authentication & API  ·  @MageOfLight'],['Nick','CheapShark matching & email adapters  ·  @NickTheBrick04']];
  rows.forEach(([a,b],i)=>{ const y=1.65+i*.91; rect(s,.75,y,11.8,.72,C.white,C.line,true); txt(s,a,1,y+.19,2,.3,{fontSize:21,bold:true,color:C.teal}); txt(s,b,3.2,y+.19,8.7,.3,{fontSize:20}); });
 }
@@ -72,11 +72,12 @@ function diagram(title, kicker, name, speaker, sec, notes, caption) {
  txt(s,'No DLC, bundles, guessed editions, or physical retailers in the MVP.',.9,6.12,11.7,.35,{fontSize:17,color:C.muted});
 }
 {
- const s=slide('Two clients, one source of truth','System architecture','James',35,'React and Flutter call the same Express/Node TypeScript API. MongoDB holds accounts, trackers and durable delivery state. The API alone talks to CheapShark and notification adapters. GitHub supports project collaboration; the scheduler must run independently of clients in deployment.');
- card(s,.75,1.9,3.35,1.65,'CLIENTS','React + Tailwind\nFlutter / Android');
- card(s,5,1.9,3.35,1.65,'SHARED API','Express + Node.js\nTypeScript');
- card(s,9.25,1.9,3.35,1.65,'PERSISTENCE','MongoDB / Mongoose\nowned data');
+ const s=slide('Two clients, one source of truth','System architecture','James',35,'The React TypeScript web app uses asynchronous HTTP requests (AJAX) to the shared Express/Node TypeScript API; Flutter uses the same API. MongoDB holds accounts, trackers and durable delivery state. The API alone talks to CheapShark and notification adapters. GitHub supports project collaboration; the scheduler must run independently of clients in deployment.');
+ card(s,.75,1.9,3.35,1.95,'CLIENTS','React + TypeScript\n+ Tailwind\nFlutter / Android');
+ card(s,5,1.9,3.35,1.95,'SHARED API','Express + Node.js\nTypeScript');
+ card(s,9.25,1.9,3.35,1.95,'PERSISTENCE','MongoDB / Mongoose\nowned data');
  txt(s,'→',4.25,2.48,.5,.5,{fontSize:28,color:C.teal}); txt(s,'→',8.5,2.48,.5,.5,{fontSize:28,color:C.teal});
+ txt(s,'ASYNC HTTP / AJAX',4.12,3.12,.82,.42,{fontSize:8,bold:true,color:C.teal,align:'center'});
  card(s,2.9,4.25,3.55,1.5,'PRICE SOURCE','CheapShark · Steam');
  card(s,6.9,4.25,3.55,1.5,'DELIVERY','Email + Android push');
 }
@@ -113,7 +114,7 @@ diagram('Mobile separates screens from data','Flutter class diagram','mobile-cla
 {
  const s=slide('Live API: authenticate, then search','SwaggerHub demo  /  configure URL before presenting','James',60,'CONFIGURE the published SwaggerHub URL and HTTPS API base before rehearsal. Demonstrate exactly two endpoints: POST /api/auth/mobile/login using a verified test account; enter the password live, never in slides or notes. Copy the returned accessToken into a temporary SwaggerHub Bearer authorization, then GET /api/tracked-items?q=por&limit=20. Show that search is server-side, partial and ownership-scoped. Clear temporary authorization afterward. Verify both endpoints live before rehearsal. If unavailable, state the demo is blocked; a recording or local endpoint does not fulfill the requirement.');
  card(s,.8,1.9,5.7,2.65,'01  POST  /api/auth/mobile/login','Verified account → accessToken\nPassword entered live');
- card(s,6.8,1.9,5.7,2.65,'02  GET  /api/tracked-items','?q=por&limit=20\nBearer token → owned search');
+ card(s,6.8,1.9,5.7,2.65,'02  GET  /api/tracked-items','?q=por&limit=20\nServer-side partial title match\nBearer token → owned results');
  txt(s,'CONFIGURE: published SwaggerHub URL + HTTPS API domain',.9,5.35,11.6,.45,{fontSize:21,bold:true,color:C.amber});
 }
 {

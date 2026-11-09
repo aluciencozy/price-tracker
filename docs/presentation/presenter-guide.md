@@ -59,6 +59,20 @@ Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penal
 | What went well / poorly, questions | 17 and Q&A |
 | Individual contribution | Role slide and each person's substantive speaking sections; do not invent contribution statistics |
 
+## Verified contribution evidence
+
+The following are merged author PRs in the [project repository](https://github.com/aluciencozy/price-tracker). They provide concrete examples, not contribution scores or a claim that one person did all work in an area.
+
+| Member | Examples |
+| --- | --- |
+| Alex | [#36: shared API contract](https://github.com/aluciencozy/price-tracker/pull/36); [#38: Flutter API wiring](https://github.com/aluciencozy/price-tracker/pull/38) |
+| Martin | [#34: React UI/tests and 12 web wireframes](https://github.com/aluciencozy/price-tracker/pull/34) |
+| Ibrahim | [#42: MongoDB schemas/indexes and ERD](https://github.com/aluciencozy/price-tracker/pull/42); [#45: durable episodes/outbox](https://github.com/aluciencozy/price-tracker/pull/45) |
+| James | [#50: registration/email verification and transaction/concurrency tests](https://github.com/aluciencozy/price-tracker/pull/50) |
+| Nick | [#41: CheapShark adapter](https://github.com/aluciencozy/price-tracker/pull/41); [#49: email adapter](https://github.com/aluciencozy/price-tracker/pull/49) |
+
+Review examples: Alex requested changes and later approved [#50](https://github.com/aluciencozy/price-tracker/pull/50). Martin approved an **earlier commit**, not necessarily the current head, of [#61](https://github.com/aluciencozy/price-tracker/pull/61). The email adapter PR is not proof of live email delivery. Slide 2 speaker notes also contain these references.
+
 ## Submission and room checklist
 
 - Confirm the **assigned presentation slot** and the course deadline/time zone; do not infer a date or time from the plan.
