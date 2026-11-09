@@ -213,7 +213,13 @@ All outbound pricing requests go to fixed CheapShark API endpoints, not the subm
 
 To reproduce the live check explicitly, run `node scripts/verify-cheapshark.mjs`. It paces four requests, stops on 429, and is **not part of CI**. Do not fetch purchase redirects from the server: the provider documents that `/redirect` blocks automated access and is for human clicks only.
 
-To explicitly attempt one real lookup through the application adapter, put an approved `MONGODB_URI` in `apps/api/.env` and run `npm run verify:cheapshark-adapter --workspace @price-tracker/api` from the repository root. It uses the shared MongoDB request budget, makes the two fixed Portal 2 API requests, prints the normalized result, and disconnects. This command is not part of CI; do not treat the separate October 26 source proof as an application-adapter run. It creates no price-history observation and never requests the purchase redirect.
+One bounded live application-adapter lookup completed on November 9 for Portal 2 (Steam app `620` → CheapShark game `36`, Steam `1`, US/USD; API-reported USD 9.99). See the [dated adapter report](docs/test-results/live-adapter-2026-11-09.md). It is separate from the October 26 source proof, creates no price-history observation, and does not prove a checkout quote, a new price drop, deployed checks, or support for other games. To repeat it, use an approved disposable local replica-set URI and preserve its shared provider-budget/cooldown state:
+
+```sh
+MONGODB_URI="$APPROVED_LOCAL_MONGODB_URI" npm run verify:cheapshark-adapter --workspace @price-tracker/api
+```
+
+This explicit live command is not part of CI and never requests the purchase redirect.
 
 ### Real-price presentation
 
