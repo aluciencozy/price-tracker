@@ -32,7 +32,11 @@ Future<bool> isolatedClaim(String path) async {
   sqfliteFfiInit();
   final db = await databaseFactoryFfi.openDatabase(
     path,
-    options: OpenDatabaseOptions(version: 1, singleInstance: false),
+    options: OpenDatabaseOptions(
+      version: 1,
+      singleInstance: false,
+      onConfigure: AtomicPushStorage.configure,
+    ),
   );
   try {
     final store = AtomicPushStorage(
@@ -64,7 +68,7 @@ void main() {
       options: OpenDatabaseOptions(
         version: 1,
         singleInstance: false,
-        onConfigure: (db) => db.execute('PRAGMA busy_timeout = 5000'),
+        onConfigure: AtomicPushStorage.configure,
         onCreate: AtomicPushStorage.create,
       ),
     );
@@ -115,6 +119,14 @@ void main() {
       expect(await claim(foreground), false);
     },
   );
+
+  test('every new SQLite connection disables native busy waiting', () async {
+    await connect();
+    for (final db in connections) {
+      final setting = await db.rawQuery('PRAGMA busy_timeout');
+      expect(setting.single.values.single, 0);
+    }
+  });
 
   test('independent SQLite connections race one durable claim', () async {
     final results = await Future.wait(

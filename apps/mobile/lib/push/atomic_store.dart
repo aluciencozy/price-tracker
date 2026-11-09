@@ -67,8 +67,17 @@ class AtomicPushStorage implements PushStorage, PushSessionStorage {
     // engines. sqflite's single-instance recovery may otherwise ROLLBACK a live
     // transaction owned by the other isolate as if it were a hot restart.
     singleInstance: false,
+    onConfigure: configure,
     onCreate: create,
   );
+  static Future<void> configure(Database db) async {
+    // Android's process-wide sqflite worker must not wait inside SQLite while
+    // another connection's COMMIT is queued behind it. Fail BEGIN fast so the
+    // bounded Dart retry above yields the worker to the lock owner instead.
+    // This PRAGMA returns a row: use rawQuery, not Android's execSQL path.
+    await db.rawQuery('PRAGMA busy_timeout = 0');
+  }
+
   static Future<void> create(Database db, int version) async {
     await db.execute(
       'CREATE TABLE session (id TEXT PRIMARY KEY, expires INTEGER NOT NULL)',

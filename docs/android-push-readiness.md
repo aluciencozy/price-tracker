@@ -75,6 +75,11 @@ store. Its isolate-local serialization is not used for background claims.
 Each isolate caches one separate connection (`singleInstance:false`); reusing a
 native handle across engines could trigger sqflite's hot-restart rollback of the
 other engine's active transaction. SQLite itself coordinates the writer locks.
+Every new connection runs `PRAGMA busy_timeout = 0` in `onConfigure`. Android's
+single native worker must not wait inside a competing BEGIN while the lock owner's
+COMMIT is queued behind it. Fail-fast BUSY/LOCKED returns to Dart, whose existing
+bounded delay yields the worker to that COMMIT. No native busy wait or longer
+retry budget is used; transaction bodies and uncertain side effects are not replayed.
 
 Each SQLite writer transaction checks the persisted session/expiry and atomically
 inserts a unique receipt. Session rebind/logout uses that same writer boundary.
@@ -126,7 +131,13 @@ No routine test contacts Firebase, CheapShark or a real API.
 
 Debug APK compilation passes with Flutter 3.47.9/Dart 3.13.7 and the locked
 compatible plugins. **November 9, 2026:** formatting and analysis passed and all
-**218 Flutter tests passed** (offline, including the preserved purchase-safety tests).
+**220 Flutter tests passed** (offline, including the preserved purchase-safety tests).
+The critical-review follow-up adds a real-SQLite test behind one shared FIFO
+worker, modeling Android's default 2.5-second native busy wait. Without fail-fast
+configuration it reproduced failed logout; with the fix it verifies COMMIT,
+notification cancellation and durable old-session rejection after reopen. A
+separate test reads `PRAGMA busy_timeout` on every test connection and confirms
+zero. These are scheduling/SQLite regressions, not Android-device evidence.
 The default debug APK builds at `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`;
 it contains no Firebase project configuration and is not enabled for delivery.
 Firebase Core emits an upstream legacy-Kotlin-plugin warning;
