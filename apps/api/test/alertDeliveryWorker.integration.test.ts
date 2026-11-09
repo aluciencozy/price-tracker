@@ -77,6 +77,32 @@ describe.skipIf(!uri)('durable price-alert delivery worker', () => {
     ...overrides,
   });
 
+  it.each(['email', 'push'] as const)('does not claim or recover disabled channels when only %s is enabled', async channel => {
+    const data = await fixture({ email: true, push: true });
+    await registerDevice(data.user._id, 'fixture-token');
+    const disabled = channel === 'email' ? 'push' : 'email';
+    // A disabled channel must remain untouched even if its old claim expired.
+    await NotificationDeliveryModel.updateOne({ channel: disabled }, { $set: {
+      status: 'sending', leaseToken: 'fixture-old-claim', leaseUntil: new Date(instant.getTime() - 1000),
+      ...(disabled === 'email' ? { firstAttemptAt: new Date(instant.getTime() - 2 * 86400000), attempts: 1 } : {}),
+    } });
+    const before = await NotificationDeliveryModel.findOne({ channel: disabled }).select('+leaseToken +emailPayload +pushDevices').lean();
+    const emailSender = vi.fn().mockResolvedValue({ status: 'success', messageId: 'fixture-email', attempts: 1 });
+    const pushSender = vi.fn().mockResolvedValue({ kind: 'accepted', providerMessageId: 'fixture-push' });
+    const service = worker({ channels: [channel], emailSender, pushSender: channel === 'push' ? pushSender : undefined });
+    expect((await service.runBatch()).claimed).toBe(1);
+    expect(emailSender).toHaveBeenCalledTimes(channel === 'email' ? 1 : 0);
+    expect(pushSender).toHaveBeenCalledTimes(channel === 'push' ? 1 : 0);
+    expect(await NotificationDeliveryModel.findOne({ channel: disabled }).select('+leaseToken +emailPayload +pushDevices').lean()).toEqual(before);
+    // Also do not expire a disabled email retry outside the provider window.
+    if (disabled === 'email') {
+      await NotificationDeliveryModel.updateOne({ channel: disabled }, { $set: { status: 'retryable' } });
+      const retry = await NotificationDeliveryModel.findOne({ channel: disabled }).lean();
+      await service.runBatch();
+      expect(await NotificationDeliveryModel.findOne({ channel: disabled }).lean()).toEqual(retry);
+    }
+  });
+
   it('keeps email and push independent and does not retry an uncertain FCM send', async () => {
     const data = await fixture({ email: true, push: true });
     const { session } = await registerDevice(data.user._id, 'fixture-token');

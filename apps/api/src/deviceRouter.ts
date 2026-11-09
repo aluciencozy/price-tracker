@@ -3,10 +3,10 @@ import { Router, type Request, type Response } from 'express';
 import { DeviceError, registerDevice, updateDevice, removeDevice, type MobilePrincipal } from './devices.js';
 
 /** Supply the real native bearer authenticator, including cookie-ambiguity rejection. */
-export function createDeviceRouter(authenticate: (request: Request) => Promise<MobilePrincipal>) {
+export function createDeviceRouter(authenticate: (request: Request, response: Response) => Promise<MobilePrincipal>) {
   const router = Router();
   const handle = (operation: (request: Request, principal: MobilePrincipal, response: Response) => Promise<void>) => async (request: Request, response: Response) => {
-    try { await operation(request, await authenticate(request), response); }
+    try { await operation(request, await authenticate(request, response), response); }
     catch (error) {
       const known = error instanceof DeviceError;
       response.status(known ? error.status : 503).set('Cache-Control', 'no-store').json({ error: {
