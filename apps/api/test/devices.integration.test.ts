@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import mongoose, { Types } from 'mongoose';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createDatabaseIndexes } from '../src/models/index.js';
 import { DeviceModel } from '../src/models/device.js';
 import { SessionModel, UserModel } from '../src/models/account.js';
-import { registerDevice, updateDevice, removeDevice, eligiblePushDevices, deactivateInvalidDevice, DeviceError, type MobilePrincipal } from '../src/devices.js';
+import { registerDevice, updateDevice, removeDevice, removeDeviceInstallation, eligiblePushDevices, deactivateInvalidDevice, DeviceError, type MobilePrincipal } from '../src/devices.js';
 import { createDeviceRouter } from '../src/deviceRouter.js';
 
 const uri = process.env.TEST_MONGODB_URI;
@@ -88,6 +88,35 @@ describe.skipIf(!uri)('owned Android device bindings', () => {
     await expect(removeDevice(another, first.id)).rejects.toMatchObject({ status: 404 });
     await removeDevice(principal, first.id);
     expect(await DeviceModel.countDocuments()).toBe(0);
+  });
+  it('does not remove an installation rebound between principal validation and the atomic delete', async () => {
+    const input = body();
+    const device = await registerDevice(principal, input);
+    const deletion = DeviceModel.deleteOne({ userId: principal.userId, sessionId: principal.sessionId, installationId: input.installationId });
+    const execute = deletion.exec.bind(deletion);
+    vi.spyOn(deletion, 'exec').mockImplementationOnce(async () => {
+      await registerDevice(another, input);
+      return execute();
+    });
+    const remove = vi.spyOn(DeviceModel, 'deleteOne').mockReturnValueOnce(deletion);
+    try {
+      await removeDeviceInstallation(principal, input.installationId);
+      expect(remove).toHaveBeenCalledWith({ userId: principal.userId, sessionId: principal.sessionId, installationId: input.installationId });
+      expect((await DeviceModel.findById(device.id))?.sessionId.toString()).toBe(another.sessionId);
+      expect(await eligiblePushDevices(another.userId)).toHaveLength(1);
+    } finally { remove.mockRestore(); }
+  });
+  it('rechecks verified active mobile principal before installation cleanup', async () => {
+    const input = body();
+    await registerDevice(principal, input);
+    await SessionModel.updateOne({ _id: principal.sessionId }, { $set: { revokedAt: new Date() } });
+    await expect(removeDeviceInstallation(principal, input.installationId)).rejects.toMatchObject({ status: 401 });
+    await SessionModel.updateOne({ _id: principal.sessionId }, { $set: { revokedAt: null, expiresAt: new Date(Date.now() - 1000) } });
+    await expect(removeDeviceInstallation(principal, input.installationId)).rejects.toMatchObject({ status: 401 });
+    await SessionModel.updateOne({ _id: principal.sessionId }, { $set: { expiresAt: new Date(Date.now() + 86400000) } });
+    await UserModel.updateOne({ _id: owner }, { $set: { emailVerifiedAt: null } });
+    await expect(removeDeviceInstallation(principal, input.installationId)).rejects.toMatchObject({ status: 401 });
+    expect(await DeviceModel.countDocuments()).toBe(1);
   });
   it('does not deliver to revoked/expired sessions or unverified users even if a device row remains', async () => {
     await registerDevice(principal, body());
