@@ -39,17 +39,9 @@ The 20 unassigned issues retain explicit owner mentions and the initial pending-
 - **Provider adapter:** [#12][i12] calls fixed CheapShark API endpoints, not submitted Steam URLs or retailer HTML. Offline fixtures cover identity/money/offer/throttle/security cases. A training-store parser, extra physical provider, or required live mock-price mode is removed from scope.
 - **Provider safety/use:** approved HTTPS host/path, validated IDs and actual DNS/IP destinations, safe redirect policy, timeouts/body limits and failure isolation apply to preview/checks. Respect 429/Retry-After; no bypass or paid fallback. Keep attribution and required CheapShark purchase redirects in both clients and alerts. Record fetch time separately from optional source-change time; history is our observations, not a fabricated historical-low series.
 - **$0 infrastructure:** hosting vendor is undecided. Verify free remote MongoDB, HTTPS API/web deployment, independent scheduling, email, FCM and course-tool quotas before choosing services. No payment card, billing-enabled trial, automatic overage, paid plan or new domain. Existing domains are available. Stop/reduce scope at a free limit and escalate any unavailable required course tool instead of purchasing it.
-- **Real presentation:** use a real Steam price, first a target below it, then a target above it, and repeat the qualifying check without duplicate email/push. Explain that the target changed, not that a sale started. Offline tests do not substitute for the live presentation; do not use a local demo or recording as an alternate.
-- **Required evidence:** Gantt, ERD, PlantUML use-case, activity, sequence, and mobile-class diagrams (all six with source and SVG/PNG exports), actual SwaggerHub publication with at least one functional live endpoint, web/mobile prototype evidence, dated unit/integration/security results, demo, and presentation.
+- **Real presentation:** use a real Steam price, first a target below it, then a target above it, and repeat the qualifying check without duplicate email/push. Explain that the target changed, not that a sale started. Tests can simulate transitions offline; the outage backup is a clearly labeled recording of real evidence.
+- **Required evidence:** Gantt, ERD, PlantUML use-case plus sequence diagram, PlantUML mobile class diagram, actual SwaggerHub publication, checked-in web/mobile wireframes **not Figma**, dated unit/integration/security results, demo, and presentation.
 - This plan builds on the approved scaffold. There is no bootstrap/initialization issue and no duplicate setup work.
-
-## Course presentation and submission
-
-The [diagram index](diagrams/README.md) links the PlantUML sources and rendered use-case, activity, sequence, mobile-class, ERD, and Gantt diagrams. The [PPTX](presentation/price-tracker.pptx), [PDF](presentation/price-tracker.pdf), and [presenter guide](presentation/presenter-guide.md) are available. Existing web SVGs may be shown as **early web planning/prototype evidence**, not current screens. Wireframe work was cancelled; no mobile prototype is claimed, so prototype coverage remains partial. Label mobile screenshots as implemented UI, not prototypes.
-
-Latest course instructions override the older “Alex uploads” wording in issue #33's plan: **all five members individually upload the final PPT to WebCourses**. Alex may coordinate the overall handoff but that does not replace any member's upload. Each member must speak meaningfully. Target 12 minutes; over 13 minutes incurs the stated 5-point penalty plus 5 per additional minute. Bring PPT, PDF, and diagrams on USB; do not rely on cloud retrieval. The signup spreadsheet requires the project title, [GitHub URL](https://github.com/aluciencozy/price-tracker), and the verified current live domain, not an IP. Verify campus access two days and one day before the actual presentation date and allow time for IT unblock. Confirm the actual signup time, presentation date, and course deadline/time zone with the instructor.
-
-SwaggerHub publication and a functional live endpoint are still required. The current integration's live domain is not yet verified. Do not use local sample mode, local QA, recordings, or the historical `b668d1e` sample-mode VM as substitutes. Keep URL placeholders until the real publication/deployment has been verified. Artifact files and existing test counts do not mark deployment, provider approval, or application release gates complete.
 
 ## Weekly milestones
 
@@ -137,7 +129,7 @@ All **33 published issues** contain an owner mention, planned start/due dates, a
 | [#30][i30] | $0 Steam MVP release, real-price demo, diagrams, freeze | @aluciencozy | Nov 9 | Nov 10 | [#23][i23], [#24][i24], [#25][i25], [#26][i26], [#27][i27], [#28][i28], [#29][i29], [#1][i1], [#6][i6] |
 | [#31][i31] | Slides, contribution notes, speaking parts | @aluciencozy | Nov 11 | Nov 13 | [#30][i30] |
 | [#32][i32] | Required artifacts, submission checklist, backup demo | @NickTheBrick04 | Nov 11 | Nov 12 | [#30][i30] |
-| [#33][i33] | Team rehearsal and final submission; all five upload their own PPT | @Martaino | Nov 13 | Nov 15 | [#31][i31], [#32][i32] |
+| [#33][i33] | Team rehearsal and final submission; Alex uploads | @Martaino | Nov 13 | Nov 15 | [#31][i31], [#32][i32] |
 
 ## Release checks and risks
 
