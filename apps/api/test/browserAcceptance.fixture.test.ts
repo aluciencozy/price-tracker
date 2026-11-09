@@ -3,37 +3,75 @@ import express from 'express';
 import mongoose, { Types } from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedBrowserProducts } from './fixtures/browserAcceptance.js';
+import { assertBrowserTestDatabase, browserTestMongoAddress, seedBrowserProducts } from './fixtures/browserAcceptance.js';
 import { createDatabaseIndexes } from '../src/models/index.js';
 import { ProductModel } from '../src/models/product.js';
 import { PriceHistoryModel, TrackedItemModel } from '../src/models/tracking.js';
 import { createHistoryRouter } from '../src/historyRouter.js';
 
-const uri = 'mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test';
-describe.skipIf(process.env.TEST_MONGODB_URI !== uri)('guarded browser history fixture', () => {
+describe('browser fixture MongoDB address guard', () => {
+  it('accepts both local replica and CI direct-connection ports', () => {
+    expect(browserTestMongoAddress('mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test')).toEqual({ host: '127.0.0.1', port: 27119 });
+    expect(browserTestMongoAddress('mongodb://127.0.0.1:27028/?directConnection=true')).toEqual({ host: '127.0.0.1', port: 27028 });
+    expect(browserTestMongoAddress('mongodb://localhost:12345/')).toEqual({ host: 'localhost', port: 12345 });
+  });
+  it('rejects remote, credentialed, multi-host, and named-database addresses', () => {
+    for (const value of [undefined, 'mongodb://example.com:27017/', 'mongodb://user:pass@127.0.0.1:27017/',
+      'mongodb://127.0.0.1:27017,example.com:27017/', 'mongodb://127.0.0.1:27017/production',
+      'mongodb+srv://localhost/', 'mongodb://127.0.0.1/']) {
+      expect(() => browserTestMongoAddress(value)).toThrow();
+    }
+  });
+});
+
+const uri = process.env.TEST_MONGODB_URI;
+describe.skipIf(!uri)('guarded browser history fixture', () => {
   const dbName = `price_tracker_test_browser_${randomUUID().replaceAll('-', '')}`;
+  const originalDisposable = process.env.BROWSER_TEST_DISPOSABLE;
+  let verifiedConnection = false;
   const owner = new Types.ObjectId();
   const stranger = new Types.ObjectId();
   const app = (userId: Types.ObjectId) => express().use('/api', createHistoryRouter(
     async () => ({ userId: String(userId) }), 'browser-fixture-cursor-secret-at-least-32-bytes'));
   beforeAll(async () => {
+    browserTestMongoAddress(uri);
     process.env.BROWSER_TEST_DISPOSABLE = '1';
-    await mongoose.connect(uri, { dbName, autoIndex: false, serverSelectionTimeoutMS: 5000 });
+    await mongoose.connect(uri!, { dbName, autoIndex: false, serverSelectionTimeoutMS: 5000 });
+    assertBrowserTestDatabase(dbName);
+    verifiedConnection = true;
     await createDatabaseIndexes();
   });
   beforeEach(async () => {
+    assertBrowserTestDatabase(dbName);
     await Promise.all([ProductModel.deleteMany({}), PriceHistoryModel.deleteMany({}), TrackedItemModel.deleteMany({})]);
   });
   afterAll(async () => {
-    if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
-    delete process.env.BROWSER_TEST_DISPOSABLE;
+    try {
+      if (verifiedConnection) {
+        assertBrowserTestDatabase(dbName);
+        await mongoose.connection.dropDatabase();
+      }
+    } finally {
+      await mongoose.disconnect();
+      if (originalDisposable === undefined) delete process.env.BROWSER_TEST_DISPOSABLE;
+      else process.env.BROWSER_TEST_DISPOSABLE = originalDisposable;
+    }
   });
   it('refuses an unexpected database or missing disposable opt-in', async () => {
     await expect(seedBrowserProducts('production', true)).rejects.toThrow('Refusing');
     delete process.env.BROWSER_TEST_DISPOSABLE;
     await expect(seedBrowserProducts(dbName, true)).rejects.toThrow('Refusing');
     process.env.BROWSER_TEST_DISPOSABLE = '1';
+    try {
+      process.env.TEST_MONGODB_URI = 'mongodb://127.0.0.1:27028/?directConnection=true';
+      if (mongoose.connection.port !== 27028) {
+        await expect(seedBrowserProducts(dbName, true)).rejects.toThrow('Refusing');
+      }
+      process.env.TEST_MONGODB_URI = 'mongodb://example.com:27017/';
+      await expect(seedBrowserProducts(dbName, true)).rejects.toThrow();
+    } finally {
+      process.env.TEST_MONGODB_URI = uri!;
+    }
     expect(await ProductModel.countDocuments()).toBe(0);
   });
   it('keeps the default history empty', async () => {

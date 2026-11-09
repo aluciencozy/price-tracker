@@ -1,4 +1,4 @@
-/** Explicit LOCAL TEST harness. Never imported by server.ts or normal test suites. */
+/** Explicit LOCAL TEST harness. Imported only by its fixture tests, never server.ts. */
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import express from 'express';
@@ -16,13 +16,32 @@ import { reserveEmailSend } from '../../src/emailBudget.js';
 const uri = 'mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test';
 const databasePattern = /^price_tracker_test_browser_[a-f0-9]{32}$/;
 
-/** Synthetic QA-only observations, never recorded Steam prices. */
-export async function seedBrowserProducts(dbName: string, history: boolean, now = new Date()) {
-  if (process.env.BROWSER_TEST_DISPOSABLE !== '1' || process.env.TEST_MONGODB_URI !== uri ||
-      !databasePattern.test(dbName) || mongoose.connection.name !== dbName || mongoose.connection.readyState !== 1 ||
-      mongoose.connection.host !== '127.0.0.1' || mongoose.connection.port !== 27119) {
+/** Only a single loopback MongoDB host, without credentials or an application database. */
+export function browserTestMongoAddress(value: string | undefined): { host: string; port: number } {
+  try {
+    const url = new URL(value ?? '');
+    if (url.protocol !== 'mongodb:' || !['127.0.0.1', 'localhost'].includes(url.hostname) ||
+        !url.port || url.username || url.password || !['', '/'].includes(url.pathname) || url.hash) throw new Error();
+    const port = Number(url.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error();
+    return { host: url.hostname, port };
+  } catch {
+    throw new Error('A single local TEST_MONGODB_URI without credentials or a database is required.');
+  }
+}
+
+export function assertBrowserTestDatabase(dbName: string) {
+  const address = browserTestMongoAddress(process.env.TEST_MONGODB_URI);
+  if (process.env.BROWSER_TEST_DISPOSABLE !== '1' || !databasePattern.test(dbName) ||
+      mongoose.connection.name !== dbName || mongoose.connection.readyState !== 1 ||
+      mongoose.connection.host !== address.host || mongoose.connection.port !== address.port) {
     throw new Error('Refusing to seed outside the guarded browser-test database.');
   }
+}
+
+/** Synthetic QA-only observations, never recorded Steam prices. */
+export async function seedBrowserProducts(dbName: string, history: boolean, now = new Date()) {
+  assertBrowserTestDatabase(dbName);
   for (const game of [{ steamAppId: '620', providerGameId: '36', title: 'Portal 2', prices: [1499, 1199, 999] },
     { steamAppId: '220', providerGameId: '59', title: 'Half-Life 2', prices: [799, 1299, 999] }]) {
     const product = await ProductModel.create({ provider: 'cheapshark', storeId: '1', market: 'US', currency: 'USD',
