@@ -21,9 +21,11 @@ Spark/billing status and production approval were not independently established.
   Dart 3.13.5. Node 24.22.1, npm 12.2.1, and local disposable MongoDB 8.0.16.
 - At `ec59ddd`, the independently reviewed root check passed lint, both
   typechecks, both builds, and **700 tests**: 17 contract, 409 API, and 274 web;
-  zero skips. The independent mobile review passed **237 Flutter tests**.
+  zero skips. The independent mobile review passed formatting, analysis, and
+  **237 Flutter tests**.
 - The permission-cleanup debug APK at `4a9a968` built with offline Gradle using a
-  user-owned Android SDK overlay. It was not installed for the observations below.
+  user-owned Android SDK overlay. Initial transport observations used the older
+  build; the permission retest installed the fixed APK without clearing app data.
 
 ## Results
 
@@ -38,7 +40,8 @@ Spark/billing status and production approval were not independently established.
 | Normal logout | PASS, limited | Both native logouts left zero eligible bindings; after B logout SQLite was empty and the signed-out screen appeared. No stale external message was sent because the harness correctly found no eligible device. |
 | Signed-out relaunch | PASS, limited | Activity relaunch remained signed out. A fresh process restart after final logout was **not confirmed** because the attempted background process kill did not terminate it. Offline startup regression tests are not device proof. |
 | Permission denial, initial build | FAIL | Revoking notification permission killed the app. B's session restored but the in-memory device ID was lost while one server binding remained. The explicit retry prompt was denied; OS permission remained denied and the binding remained. Permission was restored and normal logout removed the binding. |
-| Permission denial, integrated fix | NOT RUN | The reviewed API owned-installation deletion and mobile durable cleanup/display-suspension fixes are integrated (`5a1b448` and `4a9a968`). Their device retest is pending; do not infer device success from the 237 offline tests or APK build. |
+| Permission denial, legacy upgrade | PASS | Against the upgraded local API, revoking permission on the old build killed the process and left A's binding. Installing the fixed APK over it without clearing data restored A without a new login, showed denied status, and removed both accounts' eligible bindings. The authenticated SQLite session remained present with zero receipts; display eligibility was suspended, not the session cleared. |
+| Permission denial, fixed restart | PASS | Grant and explicit retry registered A; revocation killed the process. Normal fixed-build relaunch retained A's authentication, showed denial without a prompt, and left zero eligible bindings. Grant and retry registered A again. No request-level API log was captured, so the exact route sequence was not independently established on device. |
 | Offline queued FCM | NOT RUN | The emulator could not be shown reliably offline; no offline send was attempted. Radio settings were restored. |
 
 ## Shared web and mobile API
@@ -55,13 +58,21 @@ refresh. No provider lookup, email, or FCM send was made for this cross-client p
 
 ## Remaining acceptance
 
-Retest permission denial on the integrated build. Token rotation, revoked-session
+The permission-denial device-fix gate passed. Post-fix background receipt and tap,
+permission deny/grant receipt retention, duplicate suppression, and final-logout
+fresh-process verification are pending the final transport phases. Token rotation, revoked-session
 and deleted/foreign tracker tap cases, reliable offline recovery, and final-logout
 fresh-process restoration are not established by this desktop run. A real
 qualifying episode with email and push through the durable outbox, repeated-check
 deduplication, and real mailbox receipt were not tested. No new price drop is
 claimed. The separately documented [live adapter lookup](live-adapter-2026-11-09.md)
-is not part of this transport fixture.
+is not part of this transport fixture. The permission retest made no FCM, email,
+or provider sends; the recorded accepted FCM total remains six at this point.
+
+Live history collection is blocked pending team/source-owner retention review,
+including for disposable tests; therefore the real qualifying-episode test must
+not proceed yet. Neither the live adapter lookup nor these FCM transport tests
+created history observations. Real email credentials and VM access were unavailable.
 
 Remote MongoDB and VM/HTTPS deployment, independent daily-worker operation, $0
 quotas, Firebase project approval, 90-day history retention approval, and
