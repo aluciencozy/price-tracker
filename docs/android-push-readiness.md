@@ -101,6 +101,15 @@ revocation. Server-side revocation while the app is offline is not knowable from
 message alone: a still-bound, unexpired session can produce **generic text only**.
 Foreground/resume/401 checks clear revoked sessions before private navigation.
 
+Startup does not erase native state while the secure read or authenticated `/me`
+check is pending: a valid same-session restore must keep its episode receipts.
+If the secure read instead confirms **no saved credentials**, restoration awaits
+the existing local-cleanup barrier, just as rejected, expired or malformed records
+do. This removes an orphaned SQLite binding left by process death after secure
+credential deletion but before native cleanup. Restoration cannot complete or
+permit another login before that cleanup settles; failure remains explicit and
+requires retry. Disposed pending restores cannot clear a replacement binding.
+
 This favors **at-most-once handling safety within retained session state**, not
 guaranteed or exactly-once display. Process death between claim and display can
 lose the notification; death after native display but before completion does not
@@ -131,13 +140,16 @@ No routine test contacts Firebase, CheapShark or a real API.
 
 Debug APK compilation passes with Flutter 3.47.9/Dart 3.13.7 and the locked
 compatible plugins. **November 9, 2026:** formatting and analysis passed and all
-**220 Flutter tests passed** (offline, including the preserved purchase-safety tests).
+**229 Flutter tests passed** (offline, including the preserved purchase-safety tests).
 The critical-review follow-up adds a real-SQLite test behind one shared FIFO
 worker, modeling Android's default 2.5-second native busy wait. Without fail-fast
 configuration it reproduced failed logout; with the fix it verifies COMMIT,
 notification cancellation and durable old-session rejection after reopen. A
 separate test reads `PRAGMA busy_timeout` on every test connection and confirms
 zero. These are scheduling/SQLite regressions, not Android-device evidence.
+The startup follow-up adds nine real-SQLite integration regressions for the crash
+gap, same-session receipt retention without early clear, failed restoration,
+awaited cleanup/account-switch exclusion and disposed old-owner callbacks.
 The default debug APK builds at `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`;
 it contains no Firebase project configuration and is not enabled for delivery.
 Firebase Core emits an upstream legacy-Kotlin-plugin warning;
