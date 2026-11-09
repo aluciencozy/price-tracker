@@ -43,12 +43,25 @@ function card(s, x, y, w, h, label, body, fill = C.white) {
   txt(s, label, x + .22, y + .2, w - .44, .32, { fontSize: 17, bold: true, color: C.teal });
   txt(s, body, x + .22, y + .7, w - .44, h - .86, { fontSize: 19, valign: 'top', breakLine: false });
 }
-function diagram(title, kicker, name, speaker, sec, notes, caption) {
-  const s = slide(title, kicker, speaker, sec, notes);
-  rect(s, .65, 1.55, 12, 4.82, C.white, C.line, true);
+function node(s, x, y, w, h, text, color = C.white) {
+  rect(s, x, y, w, h, color, C.line, true);
+  txt(s, text, x + .12, y + .12, w - .24, h - .24, { fontSize: 20, bold: true, align: 'center', valign: 'mid', color: C.ink });
+}
+function arrow(s, x, y, text = '→') {
+  txt(s, text, x, y, .6, .45, { fontSize: 27, bold: true, color: C.teal, align: 'center' });
+}
+function connect(s, x1, y1, x2, y2) {
+  s.addShape(pptx.ShapeType.line, { x: Math.min(x1,x2), y: Math.min(y1,y2), w: Math.abs(x2-x1), h: Math.abs(y2-y1), flipV: y2 < y1, line: { color: C.teal, width: 1.6, endArrowType: 'triangle' } });
+}
+function summary(s) {
+  txt(s, 'PRESENTATION SUMMARY  ·  FULL PLANTUML DIAGRAM IN APPENDIX', .78, 6.65, 11.8, .22, { fontSize: 11, bold: true, color: C.muted });
+}
+function appendix(name, title) {
+  const s = pptx.addSlide();
+  s.background = { color: C.white };
+  txt(s, `APPENDIX  /  ${title}`, .3, .16, 12.7, .3, { fontSize: 17, bold: true, color: C.navy });
   const path = resolve(diagramDir, `${name}.png`);
-  s.addImage({ path, ...containPng(readFileSync(path), .82, 1.68, 11.66, 4.52) });
-  txt(s, caption, .78, 6.55, 11.8, .3, { fontSize: 15, color: C.muted });
+  s.addImage({ path, altText: `Complete PlantUML ${title} diagram`, ...containPng(readFileSync(path), .15, .52, 13.03, 6.78) });
 }
 
 {
@@ -86,17 +99,51 @@ function diagram(title, kicker, name, speaker, sec, notes, caption) {
  for (const [i,name] of ['07-watchlist.svg','08-add-tracker.svg'].entries()) {
    const svg=readFileSync(resolve(here,'../wireframes',name));
    const png=new Resvg(svg,{fitTo:{mode:'width',value:1400}}).render().asPng();
-   s.addImage({data:`image/png;base64,${png.toString('base64')}`,...containPng(png,.8+i*6.05,1.75,5.65,3.9)});
+   s.addImage({data:`image/png;base64,${png.toString('base64')}`,altText:i?'Early web add tracker wireframe, illustrative values':'Early web watchlist wireframe, illustrative values',...containPng(png,.8+i*6.05,1.75,5.65,3.9)});
    txt(s,i?'EARLY WIREFRAME  /  ADD':'EARLY WIREFRAME  /  WATCHLIST',.8+i*6.05,5.9,5.65,.3,{fontSize:14,bold:true,color:C.teal});
  }
  txt(s,'Sketch prices are illustrative, not live quotes.',.8,6.45,11.7,.25,{fontSize:14,color:C.muted});
 }
-diagram('The planned path to delivery','Schedule · planned, not actual','gantt','Ibrahim',25,'This is the October 26 to November 15 plan from the project schedule, not a claim that all milestones completed. Foundations, tracking, test/freeze and presentation preparation overlap. Hosted acceptance remains open.', 'Planned schedule  ·  Oct 26–Nov 15, 2026');
-diagram('Shared offers, private tracking','Data model · ERD','erd','Ibrahim',40,'Explain that a shared game/store offer can be tracked by multiple users, but each tracked item belongs to one user. History records successful observations and notification deliveries are keyed per episode and channel.', 'Shared products; user-owned targets and delivery state');
-diagram('What users and administrators can do','Use-case diagram','use-case','Martin',25,'The user manages a private watchlist and notification preferences. The administrator runs a manual check; ordinary users cannot trigger unrestricted upstream checks.', 'The administrator’s manual check is separate from ordinary user actions');
-diagram('A successful check is not a repeat alert','Activity diagram','activity','Nick',25,'Walk through the decision, not every box: fetch the selected Steam offer, preserve the last valid observation if the request fails, and evaluate the target only after a successful observation.', 'A failed fetch is not a zero price');
-diagram('From price check to delivery','Sequence diagram','sequence','Nick',30,'The check service updates an observation, evaluates the qualifying episode and records channel deliveries before sending. Email and push are independent. Uncertain external outcomes need reconciliation, not a claim of exactly-once delivery.', 'Episode and per-channel records survive retries and restarts');
-diagram('Mobile separates screens from data','Flutter class diagram','mobile-class','Alex',25,'The mobile app uses a repository/API boundary rather than connecting to MongoDB or CheapShark directly. Explain the relationship between presentation, repository, session and device notification responsibilities.', 'Flutter uses the same API and ownership rules as web');
+{
+ const s=slide('The planned path to delivery','Schedule · planned, not actual','Ibrahim',25,'This summary of the October 26 to November 15 plan is not a claim that milestones completed. Foundations, tracking, test/freeze and presentation preparation overlap. Hosted acceptance remains open. The complete Gantt is in the appendix.');
+ const stages=[['OCT 26–30','Foundations'],['OCT 31–NOV 6','Tracking & alerts'],['NOV 7–10','Test & freeze'],['NOV 11–15','Presentation']];
+ stages.forEach(([date,label],i)=>{let x=.75+i*3.17; node(s,x,2.3,2.75,1.65,label,i%2?C.white:C.mint); txt(s,date,x,4.18,2.75,.4,{fontSize:17,bold:true,align:'center',color:C.teal}); if(i<3)arrow(s,x+2.78,2.9);});
+ txt(s,'Planned milestones  ·  dates are not completion claims',.85,5.55,11.6,.4,{fontSize:20,color:C.muted}); summary(s);
+}
+{
+ const s=slide('Shared offers, private tracking','Data model · ERD summary','Ibrahim',40,'A tracked item belongs to one user and references a shared product. Multiple trackers can reference the same product. Successful observations belong to the product. Targets and prices use integer cents. The complete ERD is in the appendix.');
+ node(s,.75,2.1,2.4,1.2,'User'); node(s,4.05,2.1,2.65,1.2,'TrackedItem',C.mint); node(s,7.6,2.1,2.4,1.2,'Product'); node(s,10.55,4.15,2.05,1.2,'History');
+ arrow(s,3.3,2.48); arrow(s,6.85,2.48); connect(s,9.4,3.3,10.55,4.15);
+ txt(s,'owns',3.19,3.55,1,.35,{fontSize:18,color:C.teal}); txt(s,'references',6.75,3.55,1.35,.35,{fontSize:18,color:C.teal});
+ txt(s,'PRIVATE target',4.12,4.2,2.7,.35,{fontSize:19,bold:true,color:C.teal}); txt(s,'SHARED offer',7.68,4.2,2.6,.35,{fontSize:19,bold:true,color:C.teal});
+ txt(s,'USD amounts are integer cents.',.85,5.75,9,.4,{fontSize:20,color:C.muted}); summary(s);
+}
+{
+ const s=slide('What users and administrators can do','Use-case summary','Martin',25,'A verified user manages a private watchlist and preferences. The admin can initiate a manual price check; ordinary users cannot trigger unrestricted upstream checks. Full use-case relationships appear in the appendix.');
+ node(s,.8,2.2,2.3,1.15,'Verified user',C.mint); node(s,4.35,1.7,3.45,1,'Manage watchlist'); node(s,4.35,3.05,3.45,1,'Set preferences');
+ connect(s,3.1,2.65,4.35,2.2); connect(s,3.1,2.85,4.35,3.55); node(s,8.8,4.5,2.8,1,'Admin check'); node(s,.8,4.5,2.3,1,'Admin');
+ connect(s,3.1,5,8.8,5); summary(s);
+}
+{
+ const s=slide('A successful check is not a repeat alert','Activity summary','Nick',25,'Fetch the selected Steam offer. If the fetch fails, preserve the previous price and do not rearm. On success, a price above target rearms; at or below target opens an episode only if one is not already open. Complete activity in appendix.');
+ node(s,.8,2.6,2.55,1.05,'Fetch offer'); node(s,4.05,2.6,2.4,1.05,'Valid price?',C.mint); arrow(s,3.37,2.88);
+ node(s,8.05,1.65,4.0,1,'Failure → preserve last price'); node(s,8.05,3.1,4.0,1,'Above target → rearm'); node(s,8.05,4.55,4.0,1,'At / below → alert once');
+ connect(s,6.45,2.8,8.05,2.15); connect(s,6.45,3.12,8.05,3.6); connect(s,6.45,3.45,8.05,5.05); summary(s);
+}
+{
+ const s=slide('From price check to delivery','Sequence summary','Nick',30,'The check worker records a successful observation and evaluates episodes into the durable outbox. Separately, a delivery worker polls on an independent interval, claims an eligible delivery and sends to its channel. A check does not call the dispatcher. Unknown outcomes require reconciliation. Full sequence in appendix.');
+ node(s,.8,1.85,2.85,1.05,'Check worker'); node(s,5.15,1.85,3.05,1.05,'Observation +\noutbox',C.mint); arrow(s,3.83,2.12);
+ txt(s,'successful check',3.48,3.08,2,.35,{fontSize:17,color:C.teal});
+ node(s,.8,4.3,2.85,1.05,'Delivery worker'); node(s,5.15,4.3,3.05,1.05,'Claim delivery',C.mint); node(s,9.5,4.3,2.85,1.05,'Email / push');
+ arrow(s,3.83,4.58); arrow(s,8.53,4.58); txt(s,'independent poll',.88,5.55,3,.35,{fontSize:18,color:C.teal}); summary(s);
+}
+{
+ const s=slide('Mobile separates screens from data','Flutter class summary','Alex',25,'WatchlistScreen uses HttpTrackerRepository, which calls MobileApi. LiveAuthScreen uses SessionController, which calls MobileApi. PushRegistration uses HttpDeviceEndpoint for device registration and cleanup. Logout and permission cleanup differ; the complete mobile class diagram and notes are in the appendix.');
+ node(s,.7,1.7,3.5,1,'WatchlistScreen'); node(s,4.88,1.7,3.75,1,'HttpTrackerRepository',C.mint); node(s,9.5,2.85,2.8,1,'MobileApi');
+ node(s,.7,4.05,3.5,1,'LiveAuthScreen'); node(s,4.88,4.05,3.75,1,'SessionController',C.mint);
+ arrow(s,4.22,1.98); arrow(s,4.22,4.33); connect(s,8.63,2.2,9.5,3.35); connect(s,8.63,4.55,9.5,3.35);
+ txt(s,'PushRegistration → HttpDeviceEndpoint  ·  device cleanup',1.2,5.75,11,.42,{fontSize:19,bold:true,color:C.teal,align:'center'}); summary(s);
+}
 {
  const s=slide('Security at the boundaries','Authentication & privacy','James',35,'An unverified user cannot log in. Passwords are strongly hashed; verification and reset tokens are hashed and single-use. Web uses an opaque HttpOnly cookie and CSRF protection. Mobile uses a seven-day JWT backed by a revocable server session. Every private query enforces ownership.');
  card(s,.75,1.8,3.75,3.75,'IDENTITY','Verified email before login; hashed passwords and single-use reset tokens.');
@@ -136,5 +183,11 @@ diagram('Mobile separates screens from data','Flutter class diagram','mobile-cla
  card(s,8.8,1.8,3.75,3.6,'STILL OPEN','Hosted acceptance, SwaggerHub and real alert gates.');
  txt(s,'Questions  /  50 seconds',.9,6.03,9,.45,{fontSize:24,bold:true,color:C.teal});
 }
+appendix('gantt', 'Planned Gantt');
+appendix('erd', 'Entity relationship');
+appendix('use-case', 'Use case');
+appendix('activity', 'Activity');
+appendix('sequence', 'Sequence');
+appendix('mobile-class', 'Mobile class');
 await pptx.writeFile({ fileName: resolve(here,'price-tracker.pptx') });
-console.log(`Wrote ${page} slides; content 11:10, questions 0:50; total 12:00.`);
+console.log(`Wrote ${page} narrated slides + 6 untimed appendix slides; content 11:10, questions 0:50; total 12:00.`);

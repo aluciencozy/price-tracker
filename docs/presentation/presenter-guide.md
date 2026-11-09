@@ -16,6 +16,8 @@ Use no localhost, IP address, fixture, or recording as a substitute for the requ
 
 Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penalty begins beyond 13 minutes; stop or shorten discussion rather than running over. Times include handoffs and demos.
 
+Slides 1–17 are the timed presentation. Slides 18–23 are untimed appendix pages containing the six complete PlantUML diagrams; the larger editable views on slides 6–11 are simplified presentation summaries. Do not narrate the appendix as part of the timed run.
+
 | Slide | Presenter | Time | Cue |
 | --- | --- | --- | --- |
 | 1 | Alex | 0:35 | Problem and current status |
@@ -51,8 +53,8 @@ Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penal
 | Problem, title, team and roles | 1–3 |
 | MERN, TypeScript, Tailwind, Flutter, GitHub, JWT/security | 2, 4, 11–12 |
 | Prototypes / wireframes | 5: existing early **web** wireframes only; no fictional mobile wireframe |
-| Planned Gantt and ERD | 6–7 |
-| Use case, activity, sequence, mobile class | 8–11 |
+| Planned Gantt and ERD | Summaries 6–7; full diagrams 18–19 |
+| Use case, activity, sequence, mobile class | Summaries 8–11; full diagrams 20–23 |
 | Unit and integration results | 13 |
 | SwaggerHub and working API | 14: one endpoint, pending publication and live checks |
 | Live web and mobile app on domain | 15–16, pending deployment |
