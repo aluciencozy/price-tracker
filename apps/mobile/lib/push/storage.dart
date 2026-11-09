@@ -17,8 +17,8 @@ class PushStorageException implements Exception {
   String toString() => 'Local push storage is unavailable or invalid.';
 }
 
-/// One foreground isolate only; future background handlers must coordinate with
-/// this owner, not race separate secure-storage read/write transactions.
+/// Legacy foreground-only receipt store and secure installation UUID provider.
+/// Real FCM uses AtomicPushStorage for receipts, never these isolate-local claims.
 class SecurePushStorage implements PushStorage {
   SecurePushStorage({FlutterSecureStorage? storage})
     : _storage =

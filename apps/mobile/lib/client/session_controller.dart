@@ -18,6 +18,10 @@ class SessionController extends ChangeNotifier {
   }
   final MobileApi api;
   final SessionStore store;
+
+  /// Native privacy barrier. Local logout waits for durable push deactivation;
+  /// credentials remain exclusively in platform-backed secure storage.
+  Future<void> Function()? beforeLocalSessionClear;
   final DateTime Function() _now;
   User? _user;
   Session? _credentials;
@@ -234,7 +238,11 @@ class SessionController extends ChangeNotifier {
     _cleanupRequired = true;
     _dropMemory();
     try {
-      await store.clear();
+      await Future.wait([
+        if (beforeLocalSessionClear != null)
+          Future<void>.sync(beforeLocalSessionClear!),
+        Future<void>.sync(store.clear),
+      ]);
       _cleanupRequired = false;
       _notify();
     } catch (_) {

@@ -147,20 +147,25 @@ uses `maxOf(flutter.minSdkVersion, 23)` and retains its Java/Kotlin 17 configura
 Its manifest disables auto-backup and references backup rules excluding all shared
 preferences for legacy backup and Android 12+ cloud/device transfer. This prevents
 credential preferences being restored without their Keystore key. SDKs/signing
-keys were not changed. Actual merged-manifest behavior, encryption/restart
-persistence, backup transfer behavior and APK compilation remain unverified.
+keys were not changed. Debug APK compilation now passes with native push plugins.
+Encryption/restart persistence and backup transfer behavior still need device proof.
 
-## Extension points for the separate push PR
+## Native push integration
 
 `PriceTrackerApp.sessionIntegrationBuilder(context, session, child)` can wrap the
 live session host with a separate lifecycle coordinator. It is never invoked in
 sample mode. Listen to `SessionController.user`/`sessionId` for account changes;
 do not use a device/installation ID as an owner credential. The app owns and
 disposes this controller. `accountStatusBuilder(context, session)` inserts a
-device-status widget into live account settings. No push provider, permissions,
-device APIs or event handling are implemented here. Saved push preferences do not
-prove registration or delivery. Keep purchase redirects human-only and never
-probe them during integration.
+device-status widget into live account settings. `PushSessionIntegration` now owns
+the real opt-in Firebase gateway, permission/token lifecycle, owned device requests
+and safe event routing. `SessionController.beforeLocalSessionClear` is an awaited
+native privacy barrier: memory drops immediately, secure JWT deletion runs even if
+native cleanup fails, and a new login is blocked until cleanup succeeds.
+SQLite stores only session ID/expiry and episode receipt keys, never JWTs.
+See [setup](mobile-push-setup.md) and [readiness](android-push-readiness.md).
+Saved push preferences do not prove registration or delivery. Purchase redirects
+remain human-only, including the existing normalization fix; never probe them.
 
 ## Checks
 
@@ -186,3 +191,8 @@ results: `dart format --output=none --set-exit-if-changed lib test` passed,
 `flutter analyze` found no issues, and all **103 Flutter tests passed**, including
 the preserved sample/design tests. No Node files changed; Node checks were not
 run for this Flutter-only change. No live API/provider requests were used.
+
+**November 9 native push follow-up, Flutter 3.47.9 / Dart 3.13.7:** format and
+analysis passed, **218 Flutter tests passed**, and `flutter build apk --debug`
+passed with the native Firebase/SQLite/notification dependencies. These are still
+offline checks, not device appearance, platform persistence or actual delivery proof.

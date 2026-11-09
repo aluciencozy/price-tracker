@@ -1,216 +1,148 @@
 # Android push readiness
 
-This is an integration boundary, **not working FCM delivery**. Keep its PR separate
-from Flutter design and other client/API wiring. It supports parts of
+**Native implementation exists; live delivery is not proven.** This supports
 [#17](https://github.com/aluciencozy/price-tracker/issues/17),
-[#22](https://github.com/aluciencozy/price-tracker/issues/22), and
-[#25](https://github.com/aluciencozy/price-tracker/issues/25); it does not complete
-those issues or [#18](https://github.com/aluciencozy/price-tracker/issues/18).
+[#22](https://github.com/aluciencozy/price-tracker/issues/22) and
+[#25](https://github.com/aluciencozy/price-tracker/issues/25). Leave real receipt and
+[#18](https://github.com/aluciencozy/price-tracker/issues/18) acceptance open until
+configured device tests pass. See [exact setup flags](mobile-push-setup.md).
 
-The push module, its tests, and this document are the feature. The final
-integration adds small hooks in `main.dart` and `live_session_host.dart`, plus a
-read-only `SessionController.activeSession` getter for native integrations. It adds
-no dependency, health API change, Android configuration, Firebase project, plugin,
-or cloud service. Nothing registers a device in sample mode or before a signed-in
-API session exists. A previously granted permission/token may synchronize
-automatically after sign-in; Android permission is requested only by the explicit
-user action. Sample mode mounts no push controls and performs no push storage or
-network work.
+## Implemented lifecycle
 
-## Device integration
+- `main.dart` creates the official Firebase gateway only for explicitly configured
+  Android API mode; initialization is lazy, after a verified API session exists.
+  Sample/default/missing config initializes no Firebase and makes
+  no push requests. Manifest auto-initialization is disabled/removed.
+- Permission is read after sign-in/resume, requested only by a user action.
+  `getToken` and `onTokenRefresh` feed the existing serialized `PushRegistration`.
+  POST registers, PUT rotates, DELETE removes using captured owner credentials.
+  HTTP calls have a five-second deadline, no redirects and bounded retry hints.
+- Status distinguishes unconfigured, signed out, denied, missing token, offline,
+  registration failure and API-confirmed registration. None proves delivery.
+- Foreground data-only messages use the shared durable claim and a **generic
+  in-app notice**. Background/terminated messages run a top-level entry-point
+  callback in the Firebase isolate, initialize with the same public options and
+  use the same SQLite store plus an Android local notification channel.
+- Background notifications show only `Price Tracker` and `An alert is available.
+  Sign in to check your saved games.` They never display payload game/title/price,
+  target, account details or claimed sale. One stable native notification ID and
+  `onlyAlertOnce` reduce repeated native alerts, but are not delivery transactions.
+- Local notification launch details/warm responses and FCM initial/opened events
+  queue at most one routing hint until the session navigator exists. Taps never
+  use the display-dedup guard: opening an already-seen alert is legitimate.
+- Tap checks the recipient, fetches the owned tracker through the current Bearer
+  API, rechecks session after the await, and verifies tracker/product identity.
+  Deleted/foreign (404), expired (401), offline and mismatched responses stay on a
+  safe current screen. No event URL is accepted or followed. Prices, attribution
+  and purchase links come only from the owned API; the existing purchase
+  normalization patch is retained.
 
-`PushRegistration` receives `readSession`, `DeviceEndpoint`, and an optional
-`PushPermissionGateway`. Its default gateway always returns **unconfigured**, even
-when asked for permission. Only an explicit user action should call
-`synchronize(requestPermission: true)`.
-
-Status distinguishes unconfigured, signed out, denied, missing token, offline
-(including throttling/service unavailability), registered, and error. Registered
-means the API accepted a token, **not that a notification was sent or received**.
-Saving a tracker push preference does not register a device or establish delivery.
-
-The wire boundary follows the actual contract in commit `47dc976`, not the earlier
-draft containing `fcmToken`/POST 200 or an expanded `price_alert` event:
+## Shared contract (unchanged)
 
 | Request | Body | Success |
 | --- | --- | --- |
 | `POST /api/devices` | `{installationId, platform:"android", pushToken}` | `201 Device` |
-| `PUT /api/devices/:id` | Same complete body with the rotated token | `200 Device` |
-| `DELETE /api/devices/:id` | None | `204`; 404 is already removed |
+| `PUT /api/devices/:id` | Same full body with rotated token | `200 Device` |
+| `DELETE /api/devices/:id` | None | `204`; 404 already removed |
 
-`Device` is exactly `{id, installationId, platform:"android", sessionId, createdAt,
-updatedAt}`; it never contains the push token. Responses must match the captured
-session and installation; rotation must keep the same device ID. Application IDs
-are opaque 1–128 character ASCII letters/digits/underscore/hyphen strings. UTC
-timestamps must be valid dates ending in `Z`; invalid normalized dates are rejected.
+Device is exactly `{id, installationId, platform:"android", sessionId, createdAt,
+updatedAt}`, never the token. IDs, UTC dates, installation and captured session
+must match. The random installation UUID is in platform secure storage, not a
+hardware identifier. Bindings are rebuilt with POST after restart; server upsert
+and rebind must be atomic. Unknown write results remain uncertain; writes are not
+blindly replayed. Removal failure remains explicit rather than claiming revocation.
 
-`HttpDeviceEndpoint` uses the installed `http.Client`, a five-second total deadline,
-and no redirect following. HTTPS is required except local HTTP on localhost,
-127.0.0.1, or 10.0.2.2. Its caller owns the client. `SecurePushStorage` generates
-one random v4 installation UUID, persists it in platform-backed secure storage, and
-reuses it for every request. It is never derived from a hardware ID or regenerated
-per request.
-
-The auth owner supplies `PushSession(id, bearerToken)` through `readSession`.
-Session snapshots let cleanup use the old owner rather than the newly signed-in
-account. The module never logs tokens, credentials, request bodies, response bodies,
-or raw transport errors. Keep those out of UI and analytics too.
-
-Call `synchronize()` immediately after session changes, on token rotation, and for
-explicit retry. Calls are serialized. The same token does not re-register; rotation
-uses PUT. A PUT 404 forgets only the missing binding; the next explicit retry uses
-POST, without automatically replaying the write. Other failures retain the binding.
-On logout, clear the callback's session first and await synchronization
-**before revoking the old API session when possible**. Local registration context
-clears immediately; a late successful registration cannot restore old-account UI.
-A 401 means the captured credentials are no longer valid: `PushRegistration`
-forwards that session through `onUnauthorized`, and the session owner clears only
-that exact current session, so private screens and local push handling stop
-immediately instead of waiting for a later API request. A late 401 for a session
-replaced by sign-out or a newer login never reaches the callback.
-
-`revocation == unconfirmed` means cleanup failed or a registration response may
-have been lost/invalid. It remains sticky for this coordinator's lifetime: a later
-unrelated successful removal cannot prove an earlier uncertain cleanup succeeded.
-Permission denial or token loss also requests removal of an existing device.
-The HTTP adapter honors positive delta-seconds `Retry-After` on 429/5xx by blocking
-subsequent requests until the wait elapses; it never automatically retries a write.
-`retryAfterSeconds` is a failure-time hint for UI, not a live countdown.
-
-Only the installation UUID and bounded foreground alert keys are persisted. Device
-bindings themselves are not; restart requires POST again. The backend contract must
-atomically upsert token/installation, deactivate previous session eligibility on
-rebind, and revoke bindings on logout/reset/expiry. Offline logout clears local
-context but cannot claim server revocation. There is no cleanup outbox, scheduler,
-fake backend, or automatic replay. Server ownership, rebind, and invalid-token
-handling remain integration requirements.
-
-## Safe event boundary
-
-`PushEvent.parse` accepts exactly the contract's all-string data object:
+Strict PushEvent example:
 
 ```json
 {"schemaVersion":"1","type":"price_target_reached","eventId":"episode_example","deliveryId":"delivery_push_example","recipientSessionId":"session_example","trackedItemId":"tracker_example","productId":"product_1","observedAt":"2026-10-26T16:34:42.829Z"}
 ```
 
-Unknown/missing fields, nonstrings, invalid IDs/dates, other versions/types, URLs,
-titles, price/target fields, and the old draft payload are rejected. This object is
-a routing hint, not ownership or authoritative product information. There is no
-purchase URL to navigate or fetch. Price/target safety (integer cents including
-zero), exact Steam/US/USD context, CheapShark attribution and safe human-only
-purchase routing belong to the authorized tracker/product API adapter. Do not
-invent price details from the event or describe a target edit as a new sale.
+Only these eight string fields are accepted. Unsupported types/versions, malformed
+IDs/dates, extra URLs, titles or prices fail closed. Server messages **must be
+data-only**. An FCM `notification` block can auto-display outside Dart's checks and
+is not a supported/private-safe sender contract.
 
-`PushEvents.foreground` checks the recipient session before storage/UI, claims
-`(recipientSessionId,eventId)`, then rechecks the session after awaiting storage.
-`onForeground` receives only the validated routing hint. It can update/refetch
-current state or show a generic notice; fetch authorized tracker details first if
-displaying private game/price information. Accepted means the callback ran, not
-verified Android notification presentation or delivery.
+## Cross-isolate session and episode safety
 
-`SecurePushStorage` is the production `PushEventStore`. Its claim atomically inserts
-a missing key in one serialized secure-storage transaction and evicts oldest keys to
-retain at most the supplied capacity (default 512, max 1024) **in total**. It
-persists only keys, not payloads or tokens. Reads and writes are serialized within
-the foreground isolate; they are not atomic across isolates, so a future background
-handler must route claims through the same owner. Corrupt or oversized data fails
-closed. Test storage is explicitly in memory. Clear local keys using
-`store.clear()` on logout; failure must not undo logout or allow old-session display.
-Background/pending-event handling is not implemented.
+`AtomicPushStorage` uses a small local SQLite database shared by both Flutter
+engines. It stores only the authorized session ID/expiry and unique
+`(sessionId,eventId)` receipts. JWTs remain exclusively in platform secure storage;
+there is no SQLite/preference credential copy or background authenticated fetch.
+`SecurePushStorage` still supplies the installation UUID and is the legacy
+foreground-only fallback for unconfigured/test integrations, never the FCM receipt
+store. Its isolate-local serialization is not used for background claims.
+Each isolate caches one separate connection (`singleInstance:false`); reusing a
+native handle across engines could trigger sqflite's hot-restart rollback of the
+other engine's active transaction. SQLite itself coordinates the writer locks.
+Every new connection runs `PRAGMA busy_timeout = 0` in `onConfigure`. Android's
+single native worker must not wait inside a competing BEGIN while the lock owner's
+COMMIT is queued behind it. Fail-fast BUSY/LOCKED returns to Dart, whose existing
+bounded delay yields the worker to that COMMIT. No native busy wait or longer
+retry budget is used; transaction bodies and uncertain side effects are not replayed.
 
-Storage failure fails closed. Bounded eviction, clearing/reinstall, and process
-failure can lose dedupe protection. A claim precedes the callback, so a crash/UI
-failure can suppress a retry without display. This is **not exactly-once display
-or delivery** and never replaces server episode/channel delivery records. Stable
-delivery IDs remain stable across retries too; display dedupe uses the episode's
-event ID even if a malformed sender varies the delivery ID.
+Each SQLite writer transaction checks the persisted session/expiry and atomically
+inserts a unique receipt. Session rebind/logout uses that same writer boundary.
+Receipts survive same-session restarts. Up to 512 native episode keys are retained;
+at capacity new displays fail closed, **without evicting and replaying old keys**.
+Lock acquisition retries SQLITE_BUSY/LOCKED for up to two seconds; a transaction
+body, failed commit or uncertain notification is never retried. Storage failure
+means no fallback display.
 
-`PushEvents.tap` deliberately does not suppress a tap just because foreground
-handling already ran. It checks the session, calls
-`readOwnedTracker(capturedSession, trackedItemId)`, and checks the session again
-after awaiting the authenticated read, including error paths. A result from an old
-session returns wrong-session, not an expiry/error for the newly signed-in account.
-Map 404 to null and 401 to
-`PushSessionExpired`; other errors return unavailable. Only a matching authorized
-tracker/product reaches `openTracker`. Handle deleted/foreign, expired-session,
-offline, and mismatched results with a safe current screen—not payload navigation.
+The receipt commits **before** display. A second writer transaction rechecks the
+session and holds the writer lock while awaiting the generic presenter. Logout
+therefore either wins and prevents display, or follows the completed display and
+cancels notifications. Memory/private routes drop synchronously; logout also awaits
+durable deactivation through `beforeLocalSessionClear`. Secure credential deletion
+runs even if native cleanup fails, and cleanup failure blocks another login until
+retry succeeds. A failed cancellation cannot roll back session deactivation.
+Remote device cleanup remains best effort; offline sign-out cannot prove server
+revocation. Server-side revocation while the app is offline is not knowable from a
+message alone: a still-bound, unexpired session can produce **generic text only**.
+Foreground/resume/401 checks clear revoked sessions before private navigation.
 
-## Application wiring
+This favors **at-most-once handling safety within retained session state**, not
+guaranteed or exactly-once display. Process death between claim and display can
+lose the notification; death after native display but before completion does not
+replay its committed receipt. Clearing local keys explicitly, reinstalling or data
+loss removes dedup protection. FCM/Android may delay/drop data, especially offline,
+under battery restrictions or after force-stop. The app must be reopened after
+force-stop. Server episode/channel delivery records are still required.
 
-`PushSessionIntegration` mounts inside the API-mode session host. A signed-in
-session creates a `PushIntegrationController`; sample mode and signed-out states do
-not. Sign-out or account switch clears local registration context and alert keys
-immediately, attempts removal with the captured old token, and never restores
-old-account UI from a late response. Session changes are serialized with device
-registration.
+## Offline validation and remaining gates
 
-`PushAccountStatus` is added to the account screen beside the existing account
-status. It distinguishes unconfigured, signed out, denied, missing token, offline,
-registered, and error, and offers an explicit permission/retry action only when a
-gateway could act. The default `UnconfiguredPushGateway` always reports that no
-FCM provider or permission/token source is installed; the UI says so instead of
-showing fake permission or delivery. A saved tracker push preference remains
-separate from permission, device registration, and delivery.
-
-`PushEventDispatcher` is the future FCM boundary. `foreground`, `tap`, and
-`tokenChanged` delegate to the session-scoped controller and fail closed when no
-controller is mounted. No listener, background isolate, or pending/cold-start queue
-is installed. `PushTrackerNavigation` sits inside the session-keyed navigator and
-opens only a tracker returned by the authorized read; deleted, foreign, expired,
-offline, and mismatched results show a current-screen notice.
-
-`SecurePushStorage` persists only the installation UUID and bounded
-`(sessionId, eventId)` keys. Operations are serialized in this isolate, and corrupt
-or oversized data fails closed. Logout and account changes clear the keys; a failed
-clear blocks foreground display and stays retryable. Future background handlers must
-coordinate with this owner rather than race independent secure-storage writes.
-
-## Remaining hooks and proof
-
-1. Separately approve and configure free FCM, then implement the real Android
-   permission, token, notification-channel, and foreground gateway. Wire the
-   gateway to `PushEventDispatcher`; no plugin or cloud project is installed here.
-2. Implement background, cold-start, and tap lifecycle handling, including
-   cross-isolate coordination for the persistent event store.
-3. Verify device rebind/rotation and revocation against the real owned endpoints.
-4. Record real Android foreground/background/tap, permission allowed/denied, token
-   rotation, logout/account switch, duplicate-event, and restart evidence against
-   actual owned endpoints. Use real Steam prices with target changes, not a
-   fabricated discount. Leave #17/#18/#22/#25 open until their full criteria pass.
-
-## Checks
-
-From `apps/mobile`:
+Run from `apps/mobile`:
 
 ```sh
 flutter pub get
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze
-flutter test
+flutter test --reporter expanded
+flutter build apk --debug
 ```
 
-Offline tests cover exact device serialization, strict responses, safe origins,
-timeouts/throttling, permission/status states, rotation, logout races and uncertain
-cleanup; strict events, recipient isolation, dedupe/eviction/storage failure,
-persisted installation UUID, authorized tap reads, application status, account
-switches, and session-clearing navigation.
+Tests inject gateway, messaging, presenter, session store and database boundaries.
+Real SQLite FFI tests use independent connections and separate Dart isolates; they
+cover duplicate foreground/background arrivals, same-session restart, account
+switch, expiry, capacity, failed presentation, failed cancellation and logout
+overlap. Other tests cover permission/refresh streams, cold/warm taps, API headers,
+rotation/throttling, old-session responses, owned reads and native privacy barriers.
+No routine test contacts Firebase, CheapShark or a real API.
 
-**October 28, 2026 — Linux, Flutter 3.47.7 / Dart 3.13.5:** dependency resolution
-passed without lockfile changes; format check passed (10 files, no changes),
-`flutter analyze` reported no issues, and `flutter test --reporter expanded`
-passed **53 tests** (49 new push tests plus 4 existing starter tests).
-
-**Review follow-up, same toolchain:** both stale-session error regressions and the
-missing-device rotation regression failed before the fixes. Afterward,
-`flutter test test/push --reporter expanded` passed **56 tests**, the full suite
-passed **60 tests**, analysis reported no issues, and format/diff checks passed.
-
-**Application integration, same toolchain:** after merging the finished Flutter
-API/design work, formatting and analysis were clean and the full suite passed
-**181 tests**, including the push integration and durable-storage tests.
-
-**Unverified:** platform-backed secure storage on a real Android device, live
-endpoint ownership/rebinding, Android builds/appearance, real permission/token
-acquisition, foreground/background/tap FCM delivery, background/restart lifecycle,
-and deployed cross-client delivery/security. No Android visual tests or browser
-review are part of this initial build.
+Debug APK compilation passes with Flutter 3.47.9/Dart 3.13.7 and the locked
+compatible plugins. **November 9, 2026:** formatting and analysis passed and all
+**220 Flutter tests passed** (offline, including the preserved purchase-safety tests).
+The critical-review follow-up adds a real-SQLite test behind one shared FIFO
+worker, modeling Android's default 2.5-second native busy wait. Without fail-fast
+configuration it reproduced failed logout; with the fix it verifies COMMIT,
+notification cancellation and durable old-session rejection after reopen. A
+separate test reads `PRAGMA busy_timeout` on every test connection and confirms
+zero. These are scheduling/SQLite regressions, not Android-device evidence.
+The default debug APK builds at `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`;
+it contains no Firebase project configuration and is not enabled for delivery.
+Firebase Core emits an upstream legacy-Kotlin-plugin warning;
+it does not prevent this build. Device rendering, platform secure storage/backup,
+real permission/token acquisition, FCM receipt, force-stop recovery, actual mounted
+API ownership/rebind, server worker startup and cross-client flow remain unverified.
+No browser, emulator or live Firebase session was used. Record actual device
+evidence using the checklist in the setup guide before claiming readiness.
