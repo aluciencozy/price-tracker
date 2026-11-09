@@ -148,7 +148,7 @@ monitoring still require the infrastructure owner's approved deployment plan.
 Use only a disposable replica set, never real accounts or a demo database:
 
 ```sh
-TEST_MONGODB_URI='mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test' EMAIL_BUDGET_TEST_DISPOSABLE=1 npm test --workspace @price-tracker/api -- --maxWorkers=2
+TEST_MONGODB_URI='mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test' EMAIL_BUDGET_TEST_DISPOSABLE=1 npm test --workspace @price-tracker/api
 npm run typecheck --workspace @price-tracker/api
 npm run build --workspace @price-tracker/api
 npm run lint
