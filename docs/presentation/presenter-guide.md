@@ -5,7 +5,7 @@
 **As of November 9:** PR #61 is open against Staging. Local tests and Android checks are evidence, not proof of a hosted deployment. This deck is not presentation-ready until the team confirms:
 
 - An approved live HTTPS application and API domain, remote MongoDB, and an independent daily job on approved $0 terms.
-- SwaggerHub publication and a working HTTPS API base. Verify both demonstrated endpoints, not just the documentation page.
+- SwaggerHub publication and a working HTTPS API base on a verified domain. Verify the demonstrated endpoint, not just the documentation page.
 - A verified test account, Android build configured for the live API, and safe credentials provided privately to the presenters.
 - Real sender/domain, published templates and runtime sending key; team/source-owner review of live history collection; and a genuine observation-to-outbox-to-email/push check. Confirm Firebase Spark/billing status with its owner. Until these gates pass, do not show or claim a complete live notification chain.
 - Campus access to the domain and SwaggerHub. Check two days before and again one day before; escalate to campus IT 1–2 days ahead if blocked.
@@ -31,7 +31,7 @@ Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penal
 | 11 | Alex | 0:25 | Mobile classes |
 | 12 | James | 0:35 | Security |
 | 13 | Ibrahim | 0:40 | Test results and limitations |
-| 14 | James | 1:00 | Two live SwaggerHub endpoints |
+| 14 | James | 1:00 | One live SwaggerHub search endpoint |
 | 15 | Martin | 1:05 | Hosted web app |
 | 16 | Alex | 1:00 | Hosted Android app |
 | 17 | Ibrahim | 1:05 | Retrospective and open gates |
@@ -39,9 +39,9 @@ Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penal
 
 ## Live demo details
 
-1. Open the team's published SwaggerHub documentation. Use **POST `/api/auth/mobile/login`** with an already verified account. Type its password live; never include it in slides or shared examples. The response contains `accessToken`.
-2. Temporarily authorize with that Bearer token and run **GET `/api/tracked-items?q=por&limit=20`**. Explain that this is a case-insensitive partial server-side search of the signed-in user's watchlist, not a client-only filter. Clear the authorization afterwards. Both must work in rehearsal; at least one functional endpoint is required in the presentation.
-3. Open the live application by its domain, briefly show entry/verification/reset, sign in, and show the watchlist, partial search, supported game, target and preferences; show CRUD as time allows. Do not expose private data.
+1. Before projection, privately sign in with an already verified account and authorize the team's published SwaggerHub documentation against the verified HTTPS API domain. Do not project the login request, password, returned token, authorization controls, request headers, or generated curl. Never put credentials in slides or shared examples.
+2. Onscreen run only **GET `/api/tracked-items?q=por&limit=20`**, showing the partial query and a sanitized owned response. Explain that this is a case-insensitive partial server-side search of the signed-in user's watchlist, not a client-only filter. Clear authorization privately afterwards. Verify this endpoint works live in rehearsal; a functional endpoint is required in the presentation.
+3. Open the live application by its domain, briefly show entry/verification/reset, sign in without projecting credentials, and show the watchlist, partial search, supported game, target and preferences; show CRUD as time allows. Do not expose private data.
 4. Open the Android app connected to the same approved live API, refresh and show the same owned tracker and notification preferences. Only show real email/push when the gates above have been verified. A target change is not an actual provider price drop.
 
 ## Rubric map
@@ -54,7 +54,7 @@ Content is **11:10**; reserve **0:50** for questions, total **12:00**. The penal
 | Planned Gantt and ERD | 6–7 |
 | Use case, activity, sequence, mobile class | 8–11 |
 | Unit and integration results | 13 |
-| SwaggerHub and one or two working APIs | 14, pending publication and live checks |
+| SwaggerHub and working API | 14: one endpoint, pending publication and live checks |
 | Live web and mobile app on domain | 15–16, pending deployment |
 | What went well / poorly, questions | 17 and Q&A |
 | Individual contribution | Role slide and each person's substantive speaking sections; do not invent contribution statistics |

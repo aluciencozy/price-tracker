@@ -112,9 +112,9 @@ diagram('Mobile separates screens from data','Flutter class diagram','mobile-cla
  txt(s,'Recorded validation: Nov 2026  ·  PR #61 open against Staging',.85,5.45,11.6,.35,{fontSize:16,color:C.muted});
 }
 {
- const s=slide('Live API: authenticate, then search','SwaggerHub demo  /  configure URL before presenting','James',60,'CONFIGURE the published SwaggerHub URL and HTTPS API base before rehearsal. Demonstrate exactly two endpoints: POST /api/auth/mobile/login using a verified test account; enter the password live, never in slides or notes. Copy the returned accessToken into a temporary SwaggerHub Bearer authorization, then GET /api/tracked-items?q=por&limit=20. Show that search is server-side, partial and ownership-scoped. Clear temporary authorization afterward. Verify both endpoints live before rehearsal. If unavailable, state the demo is blocked; a recording or local endpoint does not fulfill the requirement.');
- card(s,.8,1.9,5.7,2.65,'01  POST  /api/auth/mobile/login','Verified account → accessToken\nPassword entered live');
- card(s,6.8,1.9,5.7,2.65,'02  GET  /api/tracked-items','?q=por&limit=20\nServer-side partial title match\nBearer token → owned results');
+ const s=slide('Live API: search a private watchlist','SwaggerHub demo  /  configure URL before presenting','James',60,'CONFIGURE the published SwaggerHub URL and verified HTTPS API domain before rehearsal. Before projection, privately sign in with a verified test account and authorize SwaggerHub; do not project the login, returned token, authorization controls, request headers or generated curl. Onscreen demonstrate only GET /api/tracked-items?q=por&limit=20, showing the query and a sanitized owned response. Explain that search is server-side, partial and ownership-scoped. Clear authorization privately afterward. Verify this endpoint live before rehearsal. If unavailable, state the demo is blocked; a recording or local endpoint does not fulfill the requirement.');
+ card(s,.8,1.9,5.7,2.65,'GET  /api/tracked-items','?q=por&limit=20\nServer-side partial title match');
+ card(s,6.8,1.9,5.7,2.65,'PRIVATE BY DESIGN','Authorize offscreen\nShow sanitized owned results');
  txt(s,'CONFIGURE: published SwaggerHub URL + HTTPS API domain',.9,5.35,11.6,.45,{fontSize:21,bold:true,color:C.amber});
 }
 {
