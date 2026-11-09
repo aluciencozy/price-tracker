@@ -283,38 +283,41 @@ void main() {
     );
   }
 
-  test('disposed pending restoration cannot clear a replacement account binding', () async {
-    final read = Completer<String?>();
-    credentials.reading = read;
-    start();
-    final oldRestore = session.restore();
-    await Future<void>.delayed(Duration.zero);
-    stop();
-    // Model the replacement owner's durable binding on a separate connection.
-    final replacement = await connect();
-    final replacementStorage = ObservedAtomicStorage(replacement, presenter);
-    await replacementStorage.bindSession(
-      'session_B',
-      now.add(const Duration(days: 7)),
-    );
-    expect(
-      await replacementStorage.claim(
-        sessionId: 'session_B',
-        eventId: 'episode_B',
-        capacity: 512,
-      ),
-      true,
-    );
-    read.complete(null);
-    await oldRestore;
-    expect((await replacement.query('session')).single['id'], 'session_B');
-    expect(
-      await replacementStorage.claim(
-        sessionId: 'session_B',
-        eventId: 'episode_B',
-        capacity: 512,
-      ),
-      false,
-    );
-  });
+  test(
+    'disposed pending restoration cannot clear a replacement account binding',
+    () async {
+      final read = Completer<String?>();
+      credentials.reading = read;
+      start();
+      final oldRestore = session.restore();
+      await Future<void>.delayed(Duration.zero);
+      stop();
+      // Model the replacement owner's durable binding on a separate connection.
+      final replacement = await connect();
+      final replacementStorage = ObservedAtomicStorage(replacement, presenter);
+      await replacementStorage.bindSession(
+        'session_B',
+        now.add(const Duration(days: 7)),
+      );
+      expect(
+        await replacementStorage.claim(
+          sessionId: 'session_B',
+          eventId: 'episode_B',
+          capacity: 512,
+        ),
+        true,
+      );
+      read.complete(null);
+      await oldRestore;
+      expect((await replacement.query('session')).single['id'], 'session_B');
+      expect(
+        await replacementStorage.claim(
+          sessionId: 'session_B',
+          eventId: 'episode_B',
+          capacity: 512,
+        ),
+        false,
+      );
+    },
+  );
 }
