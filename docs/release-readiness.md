@@ -42,7 +42,8 @@ passed lint, both TypeScript checks, both builds, and **690 tests**: 16 contract
 audit reported 10 moderate development-only findings and zero high or critical
 findings. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
 closed for fixture-tested backend results; that does not close deployed
-acceptance.
+acceptance. The browser-only QA pass did not rerun the root check; its report
+retains the earlier 687-test result, separate from this 690-test run.
 
 Mobile push implementation `d1a688c`, SQLite contention fix `d6d4b9e`, and
 startup-reconciliation fix `85fa241` are merged; format-only follow-up
@@ -79,8 +80,16 @@ tests. Together, eight targeted fixture tests passed. The disclosure banner is
 present in the local fixture server and absent from the production build. The
 optional synthetic-history scenario and exact local-only commands are in
 [browser fixture acceptance](browser-fixture-acceptance.md). Synthetic rows are
-not real recorded Steam prices. The separate final browser-QA report is still
-pending; no browser result is claimed here.
+not real recorded Steam prices. The [November 9 browser acceptance report](test-results/web-acceptance-2026-11-09.md)
+records the fixture-only flows and focused disclosure retest after fix
+`c90eb0d` (retest snapshot `4237043`). Account verification/login/reset/logout,
+tracker operations/search/preferences/history, cross-account ownership, offline
+behavior, responsive layouts, and targeted keyboard interactions passed in the
+documented scenarios. No live provider, email, FCM, emulator, or purchase redirect
+was used. axe found zero confirmed violations on audited views, but chart-axis
+contrast checks remain incomplete; this is not a full accessibility audit or
+WCAG conformance claim. The QA report's earlier disclosure failure is retained
+as historical evidence and was resolved for the fixture retest.
 
 ## Owner acceptance still needed
 
