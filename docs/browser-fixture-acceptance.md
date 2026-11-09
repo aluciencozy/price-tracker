@@ -5,21 +5,22 @@ separate test-only server, not a deployment or real price/mail demonstration.
 Never enter real credentials or user data. No provider, Resend, FCM, scheduler,
 browser or emulator is started automatically by the harness.
 
-From `/home/alex/.cache/price-tracker-web-flow-integration`, use separate terminals:
+From the repository root, with a disposable local replica set named `pt_test`
+listening on port 27060, use separate terminals:
 
 ```sh
 BROWSER_TEST_DISPOSABLE=1 TEST_MONGODB_URI='mongodb://127.0.0.1:27060/?replicaSet=pt_test' npx tsx apps/api/test/fixtures/browserAcceptance.ts
 ```
 
 ```sh
-cd /home/alex/.cache/price-tracker-web-flow-integration/apps/web
+cd apps/web
 VITE_DATA_SOURCE=api VITE_API_BASE_URL='' API_PROXY_TARGET=http://127.0.0.1:4016 node ../../node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5176 --strictPort
 ```
 
 Open **http://127.0.0.1:5176**. The API binds only 127.0.0.1:4016; Vite proxies
 `/api` so browser cookies remain same-origin. Do not use localhost interchangeably
 with 127.0.0.1. A busy port is an error; never stop another owner's service or
-silently switch ports. The shared MongoDB test primary on 27060 stays running.
+silently switch ports. The MongoDB test primary on 27060 stays running.
 This invokes the repository-pinned Vite executable directly (not through nested
 npm option forwarding). These shell values must be set on the Vite process even
 if a local `.env` exists; the explicit empty `VITE_API_BASE_URL` forces same-origin
