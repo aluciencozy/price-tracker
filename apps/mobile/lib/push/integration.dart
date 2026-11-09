@@ -18,7 +18,7 @@ class PushEventDispatcher {
       _controller?.foreground(data) ?? ForegroundPushResult.wrongSession;
   Future<PushTapResult> tap(Map<String, Object?> data) async =>
       _controller?.tap(data) ?? PushTapResult.wrongSession;
-  Future<void> tokenChanged() async => _controller?.synchronize();
+  Future<void> tokenChanged() async => _controller?.tokenChanged();
 }
 
 class _StoredDeviceEndpoint implements DeviceEndpoint {
@@ -103,6 +103,7 @@ class PushIntegrationController extends ChangeNotifier {
   PushSession? _current;
   _PushTrackerNavigationState? _navigation;
   bool _disposed = false, _ready = true, busy = false;
+  bool _tokenChangePending = false;
   bool localCleanupFailed = false;
   String? notice;
   int _epoch = 0;
@@ -185,7 +186,24 @@ class PushIntegrationController extends ChangeNotifier {
     } finally {
       busy = false;
       _notify();
+      if (_tokenChangePending) {
+        _tokenChangePending = false;
+        // Do not replay an uncertain or throttled write. A subsequent explicit
+        // retry is required in those states.
+        if (!_disposed && registration.status == PushStatus.registered) {
+          await synchronize();
+        }
+      }
     }
+  }
+
+  Future<void> tokenChanged() async {
+    if (_disposed) return;
+    if (busy) {
+      _tokenChangePending = true;
+      return;
+    }
+    await synchronize();
   }
 
   Future<ForegroundPushResult> foreground(Map<String, Object?> data) async {

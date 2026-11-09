@@ -35,6 +35,19 @@ class FakeGateway implements PushPermissionGateway {
   Future<String?> token() async => currentToken;
 }
 
+class PausingGateway extends FakeGateway {
+  Completer<void>? pause;
+  Completer<void>? entered;
+
+  @override
+  Future<String?> token() async {
+    final captured = currentToken;
+    entered?.complete();
+    await pause?.future;
+    return captured;
+  }
+}
+
 class ForbiddenPushStorage implements PushStorage {
   int calls = 0;
   @override
@@ -225,6 +238,30 @@ void main() {
         firstId,
       );
       expect(gateway.requests, [false, true, true, false]);
+    },
+  );
+
+  testWidgets(
+    'rotation during a device check is synchronized after the current check',
+    (tester) async {
+      final gateway = PausingGateway();
+      await start(tester, gateway: gateway);
+      gateway.pause = Completer<void>();
+      gateway.entered = Completer<void>();
+      final check = integration!.synchronize();
+      await gateway.entered!.future;
+      gateway.currentToken = 'rotated-token';
+      await dispatcher.tokenChanged();
+      gateway.pause!.complete();
+      gateway.pause = null;
+      gateway.entered = null;
+      await check;
+      await tester.pumpAndSettle();
+      expect(getDeviceRequests().map((r) => r.method), ['POST', 'PUT']);
+      expect(
+        jsonDecode(getDeviceRequests().last.body)['pushToken'],
+        'rotated-token',
+      );
     },
   );
 
