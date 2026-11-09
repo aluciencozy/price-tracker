@@ -1,6 +1,6 @@
 import pptxgen from './tools/node_modules/pptxgenjs/dist/pptxgen.cjs.js';
 import { Resvg } from './tools/node_modules/@resvg/resvg-js/index.js';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,7 @@ pptx.title = 'Price Tracker';
 pptx.lang = 'en-US';
 pptx.theme = { headFontFace: 'Aptos Display', bodyFontFace: 'Aptos', lang: 'en-US' };
 const C = { navy: '102B35', ink: '17343B', teal: '147D78', mint: 'D8ECE5', cream: 'F8F7F0', white: 'FFFFFF', muted: '597176', amber: 'B9782E', line: 'D7E2DE' };
-const W = 13.333333, H = 7.5;
+const H = 7.5;
 let page = 0;
 const txt = (s, text, x, y, w, h, opt = {}) => s.addText(text, { x, y, w, h, fontFace: 'Aptos', fontSize: 21, color: C.ink, margin: 0, breakLine: false, ...opt });
 const rect = (s, x, y, w, h, fill, line = fill, radius = false) => s.addShape(radius ? pptx.ShapeType.roundRect : pptx.ShapeType.rect, { x, y, w, h, rectRadius: 0.12, line: { color: line, width: 0.8 }, fill: { color: fill }, radius: 0.12 });
