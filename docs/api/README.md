@@ -44,6 +44,7 @@ All table paths below are relative to `/api`; OpenAPI contains the complete path
 | `POST /devices` | `{installationId,platform:"android",pushToken}` → 201 `Device` |
 | `PUT /devices/{id}` | same full body (token rotation) → 200 `Device` |
 | `DELETE /devices/{id}` | no body → 204 |
+| `DELETE /devices/installation/{installationId}` | no body/query; UUID → idempotent 204 (including no owned match) |
 | `POST /admin/price-checks` | `{}` → 202 `PriceCheck` + `Location` |
 | `GET /admin/price-checks/{id}` | → 200 `PriceCheck` |
 
@@ -91,6 +92,8 @@ Retries are limited to three same-payload, same-key attempts per call (five-seco
 ## Devices, push and admin status
 
 Device operations require native bearer auth and current-session ownership. `installationId` is a random local UUID, never an owner credential. Register/rebind atomically on login/account switch; rotation keeps device ID. Binding uniqueness on token/installation removes previous session delivery eligibility, without exposing the previous account. DELETE only affects current-session devices. Logout/reset/expiry deactivate bindings; permission denial/removal should unregister while authenticated. Clean up invalid FCM tokens. Checking token possession/FCM validity remains backend integration work; token registration does not prove delivery.
+
+For permission-denial cleanup after a process restart loses the server device ID, call bodyless `DELETE /api/devices/installation/{installationId}` with the still-current mobile bearer. Do not register again merely to discover an ID: that would temporarily restore delivery eligibility. This additive route normalizes UUID case (including v4/v7) and atomically matches **user + current session + installation**. It returns an empty 204 for removal, absence, foreign ownership or another/rebound session, without disclosing existence or metadata. A stale session's cleanup cannot delete a new binding. Invalid UUID or any query is 422; any submitted body is 400. Web cookies, mixed credentials, revoked/unverified sessions and origin restrictions use the existing native auth policy; the ordinary 120/minute/session limit applies once. Existing `DELETE /devices/{id}` remains 404 for missing/foreign IDs. No schema migration or new index is required.
 
 `PushEvent` is a versioned **FCM data object with only string values**:
 

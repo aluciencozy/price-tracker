@@ -227,7 +227,9 @@ describe('real cookie session screens', () => {
     fireEvent.click(
       await screen.findByRole('link', { name: 'Verify or resend email' }),
     );
-    change('Email', user.email);
+    expect(screen.getByLabelText('Email')).toHaveValue(user.email);
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(JSON.stringify(window.history.state)).not.toContain('password');
     click('Resend verification email');
     expect(await screen.findByText(accepted.message)).toBeVisible();
     expect(client.getSession().status).toBe('anonymous');
@@ -269,6 +271,64 @@ describe('real cookie session screens', () => {
     expect(await screen.findByText(accepted.message)).toBeVisible();
     expect(client.getSession().status).toBe('anonymous');
     expect(unexpected).toEqual([]);
+  });
+  it('takes a newly registered user to verification with their email and no password', async () => {
+    const { client } = open('/register', path => path.endsWith('/register') ? json(accepted, 202) : undefined, null);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled());
+    change('Email', user.email);
+    change('Password', 'fixture-password');
+    change('Confirm password', 'fixture-password');
+    click('Create account');
+    fireEvent.click(await screen.findByRole('link', { name: 'Verify or resend email' }));
+    expect(screen.getByLabelText('Email')).toHaveValue(user.email);
+    expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeEnabled();
+    expect(JSON.stringify(window.history.state)).not.toContain('fixture-password');
+    expect(client.getSession().status).toBe('anonymous');
+  });
+  it('associates server field errors with account inputs and allows an explicit corrected retry', async () => {
+    let attempts = 0;
+    const invalid = { error: { ...error('VALIDATION_ERROR').error,
+      fields: [{ path: '/email', code: 'invalid_format', message: 'Use an email address with at most 254 characters.' }] } };
+    const { fetch } = open('/forgot', path => path.endsWith('/forgot-password')
+      ? ++attempts === 1 ? json(invalid, 422) : json(accepted, 202) : undefined, null);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send reset email' })).toBeEnabled());
+    change('Email', user.email);
+    click('Send reset email');
+    await waitFor(() => expect(screen.getByLabelText('Email')).toHaveAttribute('aria-invalid', 'true'));
+    expect(screen.getByLabelText('Email')).toHaveAccessibleDescription('Use an email address with at most 254 characters.');
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/forgot-password'))).toHaveLength(1);
+    change('Email', 'corrected@example.invalid');
+    click('Send reset email');
+    expect(await screen.findByText(accepted.message)).toBeVisible();
+    expect(attempts).toBe(2);
+  });
+  it('blocks overlapping verification and resend submissions until the first request settles', async () => {
+    const pending = deferred<Response>();
+    const { fetch } = open(`/verify-email#token=${token}`, path => path.endsWith('/verify-email') ? pending.promise : undefined, null);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Verify email' })).toBeEnabled());
+    change('Email', user.email);
+    const verifyForm = screen.getByRole('button', { name: 'Verify email' }).closest('form')!;
+    const resendForm = screen.getByRole('button', { name: 'Resend verification email' }).closest('form')!;
+    act(() => {
+      fireEvent.submit(verifyForm);
+      fireEvent.submit(verifyForm);
+      fireEvent.submit(resendForm);
+    });
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/verify-email'))).toHaveLength(1));
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/resend-verification'))).toBe(false);
+    pending.resolve(new Response(null, { status: 204 }));
+    expect(await screen.findByText(/Email verified. Sign in separately/)).toBeVisible();
+  });
+  it('honors an account rate limit without replaying the mutation', async () => {
+    const { fetch } = open('/forgot', path => path.endsWith('/forgot-password') ? json(error('RATE_LIMITED', 60), 429) : undefined, null);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send reset email' })).toBeEnabled());
+    change('Email', user.email);
+    click('Send reset email');
+    expect(await screen.findByText(/Retry available in/)).toBeVisible();
+    const button = screen.getByRole('button', { name: 'Send reset email' });
+    expect(button).toBeDisabled();
+    fireEvent.submit(button.closest('form')!);
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/forgot-password'))).toHaveLength(1);
   });
   it('clears private data on a resource 401 and never replaces it with sample rows', async () => {
     const { client, unexpected } = open('/watchlist', (path) => {
@@ -352,9 +412,49 @@ describe('real cookie session screens', () => {
     expect(screen.queryByText('Sample mode')).not.toBeInTheDocument();
     expect(unexpected).toEqual([]);
   });
+  it('submits sign-out once while its API request is pending', async () => {
+    const pending = deferred<Response>();
+    const { fetch } = open('/account', path => path.endsWith('/logout') ? pending.promise : undefined);
+    await screen.findByText(user.email);
+    const button = screen.getByRole('button', { name: 'Sign out' });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/logout'))).toHaveLength(1));
+    pending.resolve(new Response(null, { status: 204 }));
+    expect(await screen.findByText('Sign in to continue')).toBeVisible();
+  });
+  it('discards a pending account result after navigating away', async () => {
+    const pending = deferred<Response>();
+    const { fetch } = open('/forgot', path => path.endsWith('/forgot-password') ? pending.promise : undefined, null);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send reset email' })).toBeEnabled());
+    change('Email', user.email);
+    click('Send reset email');
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/forgot-password'))).toBe(true));
+    fireEvent.click(screen.getByRole('link', { name: 'Back to sign in' }));
+    const request = fetch.mock.calls.find(([url]) => String(url).endsWith('/forgot-password'))!;
+    expect(request[1]?.signal?.aborted).toBe(true);
+    await act(async () => { pending.resolve(json(accepted, 202)); });
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(screen.queryByText(accepted.message)).not.toBeInTheDocument();
+  });
 });
 
 describe('browser email link handoff', () => {
+  it.each(['/verify-email', '/reset-password'])(
+    'offers recovery for an expired or consumed %s link without automatic replay', async path => {
+      const { fetch } = open(`${path}#token=${token}`, url => url.endsWith(path) ? json(error('TOKEN_INVALID'), 400) : undefined, null);
+      const buttonName = path === '/verify-email' ? 'Verify email' : 'Reset password';
+      await waitFor(() => expect(screen.getByRole('button', { name: buttonName })).toBeEnabled());
+      if (path === '/reset-password') {
+        change('New password', 'fixture-password');
+        change('Confirm password', 'fixture-password');
+      }
+      click(buttonName);
+      expect(await screen.findByText('Illustrative error.')).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Request password reset' })).toBeVisible();
+      if (path === '/verify-email') expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeVisible();
+      expect(fetch.mock.calls.filter(([url]) => String(url).endsWith(path))).toHaveLength(1);
+    },
+  );
   it.each(['/verify-email', '/verify'])(
     'strips %s fragment immediately and consumes only on explicit POST',
     async (path) => {

@@ -4,11 +4,12 @@ import helmet from 'helmet';
 import type { Config } from './config.js';
 import { registrationRouter } from './registrationRouter.js';
 import { accountError } from './accountError.js';
-import { requireVerifiedUser } from './authMiddleware.js';
+import { requireVerifiedUser, type AuthPrincipal } from './authMiddleware.js';
 import { createProductPreviewService, type ProductPreviewResolver } from './productPreviews.js';
 import { createTrackingRouter } from './trackingRouter.js';
 import { createAdminPriceCheckRouter } from './adminPriceCheckRouter.js';
 import type { runPriceChecks } from './priceChecks.js';
+import { createDeviceRouter } from './deviceRouter.js';
 
 export type DatabaseStatus =
   | 'not_configured'
@@ -28,7 +29,7 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus, 
   app.use(cors((req, callback) => callback(null, {
     origin: config.WEB_ORIGINS,
     credentials: !/^\/api\/(?:auth\/mobile|devices)(?:\/|$)/i.test(req.path),
-    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key', 'Authorization'],
     exposedHeaders: ['Retry-After', 'Location'],
     preflightContinue: true,
@@ -46,6 +47,16 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus, 
   app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '16kb' }));
   app.use('/api/auth', registrationRouter(config, () => databaseStatus() === 'connected'));
+  const devices = createDeviceRouter(async (_req, res) => res.locals.principal as AuthPrincipal);
+  const authenticateDevice = requireVerifiedUser(config, 'mobile');
+  app.use('/api', (req, res, next) => {
+    if (!/^\/devices(?:\/|$)/i.test(req.path)) return next();
+    if (databaseStatus() !== 'connected') return accountError(res, 503, 'SERVICE_UNAVAILABLE', 'Device registration is unavailable.');
+    return authenticateDevice(req, res, error => {
+      if (error) return next(error);
+      return devices(req, res, next);
+    });
+  });
   if (options?.tracking) {
     const tracking = createTrackingRouter(requireVerifiedUser(config), options.tracking.cursorSigningSecret, {
       createPreview: createProductPreviewService({ resolveProduct: options.tracking.resolveProduct }),

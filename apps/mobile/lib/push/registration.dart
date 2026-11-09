@@ -1,4 +1,5 @@
 import 'device_api.dart';
+import 'storage.dart';
 
 enum PushPermission { unconfigured, denied, granted }
 
@@ -38,6 +39,8 @@ class PushRegistration {
     required this.readSession,
     this.gateway = const UnconfiguredPushGateway(),
     this.onUnauthorized,
+    this.bindingStore,
+    this.onEligibility,
   });
 
   final DeviceEndpoint devices;
@@ -48,6 +51,9 @@ class PushRegistration {
   /// still current. The session owner uses it to sign out that exact session;
   /// a late 401 for a replaced session never reaches this callback.
   final Future<void> Function(PushSession session)? onUnauthorized;
+  final DeviceBindingStore? bindingStore;
+  final Future<void> Function(PushSession session, bool eligible)?
+  onEligibility;
 
   PushStatus get status => _status;
   PushRevocation get revocation => _revocation;
@@ -94,7 +100,11 @@ class PushRegistration {
       final permission = await gateway.permission(request: request);
       if (!_isCurrent(session)) return;
       if (permission != PushPermission.granted) {
-        await _clearBinding();
+        if (permission == PushPermission.denied) {
+          await _disable(session);
+        } else {
+          await _clearBinding();
+        }
         if (_isCurrent(session)) {
           _status = permission == PushPermission.denied
               ? PushStatus.denied
@@ -105,12 +115,28 @@ class PushRegistration {
       final token = await gateway.token();
       if (!_isCurrent(session)) return;
       if (token == null || token.isEmpty) {
-        await _clearBinding();
+        await _disable(session);
         if (_isCurrent(session)) _status = PushStatus.noToken;
         return;
       }
+      final saved = await bindingStore?.read(session.id);
+      if (!_isCurrent(session)) return;
+      if (saved?.pending == true) {
+        final removed = await _disable(session);
+        if (!_isCurrent(session)) return;
+        if (!removed) {
+          _status = PushStatus.offline;
+          return;
+        }
+      }
       final previous = _binding;
       if (previous?.token == token) {
+        await bindingStore?.write(
+          DeviceBindingMetadata(session.id, previous!.device.id, false),
+        );
+        if (!_isCurrent(session)) return;
+        await onEligibility?.call(session, true);
+        if (!_isCurrent(session)) return;
         _retryAfterSeconds = null;
         _status = PushStatus.registered;
         return;
@@ -129,6 +155,11 @@ class PushRegistration {
         return;
       }
       _binding = binding;
+      await bindingStore?.write(
+        DeviceBindingMetadata(session.id, device.id, false),
+      );
+      if (!_isCurrent(session)) return;
+      await onEligibility?.call(session, true);
       _retryAfterSeconds = null;
       _status = PushStatus.registered;
     } on DeviceApiException catch (error) {
@@ -175,6 +206,49 @@ class PushRegistration {
     final binding = _binding;
     _binding = null;
     if (binding != null) await _remove(binding);
+  }
+
+  Future<bool> _disable(PushSession session) async {
+    await onEligibility?.call(session, false);
+    if (!_isCurrent(session)) return false;
+    final saved = await bindingStore?.read(session.id);
+    if (!_isCurrent(session)) return false;
+    await bindingStore?.write(
+      DeviceBindingMetadata(
+        session.id,
+        _binding?.device.id ?? saved?.deviceId,
+        true,
+      ),
+    );
+    if (!_isCurrent(session)) return false;
+    final endpoint = devices;
+    if (endpoint is InstallationDeviceEndpoint) {
+      _binding = null;
+      _revocation = PushRevocation.unconfirmed;
+      try {
+        await (endpoint as InstallationDeviceEndpoint).unregisterInstallation(
+          session,
+        );
+        if (!_isCurrent(session)) return false;
+        await bindingStore?.clear(session.id);
+        _revocation = _hasUnconfirmedRevocation
+            ? PushRevocation.unconfirmed
+            : PushRevocation.confirmed;
+        _retryAfterSeconds = null;
+        return true;
+      } on DeviceApiException catch (error) {
+        _retryAfterSeconds = error.retryAfterSeconds;
+        if (error.reason == DeviceFailure.unauthorized) {
+          await _invalidateSession(session);
+        }
+      } catch (_) {
+        // Keep the pending marker for a later authenticated retry.
+      }
+      return false;
+    } else {
+      await _clearBinding();
+      return _revocation != PushRevocation.unconfirmed;
+    }
   }
 
   Future<void> _remove(_Binding binding) async {

@@ -61,6 +61,51 @@ void main() {
   Future<http.Response> loginResponse(http.Request _) async =>
       http.Response(jsonEncode(sessionJson()), 200);
 
+  test('logout drops memory and secure credentials but waits for native privacy barrier', () async {
+    setup(
+      (request) async => request.url.path.endsWith('/logout')
+          ? http.Response('', 204)
+          : loginResponse(request),
+    );
+    await controller.login('a@example.test', 'fixture');
+    final barrier = Completer<void>();
+    controller.beforeLocalSessionClear = () => barrier.future;
+    var completed = false;
+    final logout = controller.logout().then((_) => completed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.user, isNull);
+    expect(store.value, isNull);
+    expect(completed, false);
+    barrier.complete();
+    await logout;
+    expect(completed, true);
+  });
+
+  test(
+    'native cleanup failure cannot keep JWT or permit a new account login',
+    () async {
+      setup(
+        (request) async => request.url.path.endsWith('/logout')
+            ? http.Response('', 204)
+            : loginResponse(request),
+      );
+      await controller.login('a@example.test', 'fixture');
+      controller.beforeLocalSessionClear = () async =>
+          throw StateError('native storage unavailable');
+      await expectLater(controller.logout(), throwsA(failure('STORAGE')));
+      expect(controller.user, isNull);
+      expect(store.value, isNull);
+      expect(controller.cleanupRequired, true);
+      await expectLater(
+        controller.login('b@example.test', 'fixture'),
+        throwsA(failure('STORAGE')),
+      );
+      controller.beforeLocalSessionClear = () async {};
+      await controller.logout();
+      expect(controller.cleanupRequired, false);
+    },
+  );
+
   test('login persists only complete validated session and publishes verified user', () async {
     setup(loginResponse);
     await controller.login('a@example.test', 'fixture');

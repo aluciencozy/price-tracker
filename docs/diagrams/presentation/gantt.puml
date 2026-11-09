@@ -1,0 +1,29 @@
+@startgantt
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 17
+skinparam shadowing false
+Project starts 2026-10-26
+printscale daily
+[Schema, API and wireframes] starts 2026-10-26 and ends 2026-10-28
+[Free DB and hosting plan] starts 2026-10-26 and ends 2026-10-28
+[Steam proof - completed Oct 26] starts 2026-10-26 and ends 2026-10-26
+[Safe adapter and auth] starts 2026-10-26 and ends 2026-10-30
+[FCM server and tokens] starts 2026-10-29 and ends 2026-11-02
+[CRUD, history, runner and clients] starts 2026-10-31 and ends 2026-11-03
+[Durable alerts] starts 2026-11-01 and ends 2026-11-04
+[Email and push dispatch] starts 2026-11-04 and ends 2026-11-06
+[Deploy system and jobs - planned] starts 2026-11-04 and ends 2026-11-07
+[Backend tests] starts 2026-11-05 and ends 2026-11-08
+[Client tests and security] starts 2026-11-07 and ends 2026-11-10
+[UML, SwaggerHub and review] starts 2026-11-07 and ends 2026-11-10
+[Development freeze] happens 2026-11-10
+[Slides and artifacts] starts 2026-11-11 and ends 2026-11-13
+[Rehearsal and submission] starts 2026-11-13 and ends 2026-11-15
+[Course deadline] happens 2026-11-15
+[Steam proof - completed Oct 26] is colored in #147D80
+[Development freeze] is colored in #12304A
+[Course deadline] is colored in #12304A
+title Original plan | Oct 26 - Nov 15, 2026
+caption Planned schedule, not completion status. Only source proof marked complete.\nDeployment, email and SwaggerHub remain acceptance gates.
+@endgantt

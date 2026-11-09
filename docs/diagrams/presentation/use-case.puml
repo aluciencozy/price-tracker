@@ -1,0 +1,62 @@
+@startuml
+!pragma layout smetana
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 18
+skinparam shadowing false
+skinparam actorBorderColor #12304A
+skinparam usecaseBorderColor #147D80
+skinparam usecaseBackgroundColor #F1FAF9
+skinparam ArrowColor #48677A
+left to right direction
+title Price Tracker | Use cases
+actor Guest
+actor "Verified user" as User
+actor Admin
+actor Scheduler
+actor CheapShark
+actor Resend
+actor "Firebase Cloud\nMessaging" as FCM
+rectangle "Shared Express API" {
+ (Register / verify email) as Verify
+ (Reset password) as Reset
+ (Sign in / sign out) as Login
+ (Preview exact Steam offer) as Preview
+ (Manage owned trackers\nand preferences) as CRUD
+ (Search own watchlist\nand view history) as History
+ (Register / remove\nAndroid device) as Device
+ (Run scheduled checks) as Schedule
+ (Run manual check) as Manual
+ (Fetch selected Steam offer) as Fetch
+ (Send eligible alerts) as Send
+}
+Guest --> Verify
+Guest --> Reset
+Guest --> Login
+User --> Login
+User --> Preview
+User --> CRUD
+User --> History
+User --> Device
+Admin --|> User
+Admin --> Manual
+Scheduler --> Schedule
+Preview --> Fetch : <<include>>
+Schedule --> Fetch : <<include>>
+Manual --> Fetch : <<include>>
+Schedule --> Send : <<include>>
+Manual --> Send : <<include>>
+Fetch --> CheapShark
+Verify --> Resend
+Reset --> Resend
+Send --> Resend
+Send --> FCM
+note bottom of Login
+ Email verification is required before login.
+ Web: opaque HttpOnly cookie + CSRF; mobile: revocable 7-day JWT.
+end note
+note bottom of CRUD
+ Ownership enforced by API. Clients never access MongoDB or CheapShark directly.
+end note
+caption Implementation model • external delivery and deployment are not acceptance evidence
+@enduml

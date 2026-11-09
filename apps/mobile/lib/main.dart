@@ -12,6 +12,7 @@ import 'live_session_host.dart';
 import 'push/integration.dart';
 import 'push/registration.dart';
 import 'push/storage.dart';
+import 'push/firebase_gateway.dart';
 import 'sample_repository.dart';
 import 'screens.dart';
 import 'theme.dart';
@@ -19,7 +20,29 @@ import 'tracker_repository.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const PriceTrackerApp());
+  FirebasePushGateway? gateway;
+  final dispatcher = PushEventDispatcher();
+  try {
+    final config = AppConfig.fromEnvironment();
+    final push = FirebasePushConfig.environment();
+    if (config.source == DataSource.api && push.configured) {
+      final candidate = FirebasePushGateway(push, dispatcher);
+      if (candidate.supported) {
+        gateway = candidate;
+        // Permission synchronization initializes lazily only after a verified
+        // API session exists. Invalid API config cannot initialize Firebase.
+      }
+    }
+  } on ArgumentError {
+    /* The application renders its configuration error. */
+  }
+  runApp(
+    PriceTrackerApp(
+      pushGateway: gateway ?? const UnconfiguredPushGateway(),
+      pushStorage: gateway?.storage,
+      pushDispatcher: dispatcher,
+    ),
+  );
 }
 
 class PriceTrackerApp extends StatefulWidget {

@@ -4,7 +4,7 @@ import { loadConfig } from './config.js';
 import { connectDatabase, databaseStatus, disconnectDatabase } from './database.js';
 import { createDatabaseIndexes } from './models/index.js';
 import { resolveApprovedProductPreview } from './productPreviewResolver.js';
-import { startPriceCheckScheduler } from './priceCheckScheduler.js';
+import { startBackgroundWorkers } from './backgroundWorkers.js';
 import { createManagedPriceChecks } from './managedPriceChecks.js';
 
 const config = loadConfig();
@@ -16,7 +16,7 @@ const app = createApp(config, () => {
 }, config.PRICE_TRACKING_ENABLED ? { runPriceChecks: priceChecks.run, tracking: {
   resolveProduct: resolveApprovedProductPreview, cursorSigningSecret: config.TRACKING_CURSOR_SECRET!,
 } } : undefined);
-let stopScheduler: () => Promise<void> = async () => undefined;
+let stopWorkers: () => Promise<void> = async () => undefined;
 
 const server = app.listen(config.PORT, config.HOST, () => {
   console.info(`API listening on http://${config.HOST}:${config.PORT}`);
@@ -25,23 +25,24 @@ const server = app.listen(config.PORT, config.HOST, () => {
 server.on('error', () => {
   console.error('API failed to listen. Check HOST and PORT.');
   process.exitCode = 1;
+  shutdown();
 });
 
 // The starter can run health checks without requiring a database account.
+let stopping = false;
+let startup: Promise<void> = Promise.resolve();
 if (config.MONGODB_URI) {
-  void connectDatabase(config.MONGODB_URI).then(createDatabaseIndexes).then(() => {
+  startup = connectDatabase(config.MONGODB_URI).then(() => {
+    if (!stopping) return createDatabaseIndexes();
+  }).then(() => {
     if (stopping) return;
+    stopWorkers = startBackgroundWorkers(config, () => !stopping && indexesReady && databaseStatus(config.MONGODB_URI) === 'connected', priceChecks);
     indexesReady = true;
-    stopScheduler = startPriceCheckScheduler({ enabled: config.PRICE_SCHEDULER_ENABLED, run: priceChecks.run });
   }).catch(() => {
-    // Do not log driver errors: they may contain credentials or connection URLs.
-    console.error('Database connection or index setup failed; /api/ready will report unavailable.');
+    // Do not log driver/adapter errors: they may contain credentials or URLs.
+    console.error('Database, indexes or worker setup failed; /api/ready will report unavailable.');
   });
 }
-
-let stopping = false;
-// Account mail stays disabled until the shared email-budget gate is integrated.
-
 function shutdown() {
   if (stopping) {
     return;
@@ -49,10 +50,10 @@ function shutdown() {
 
   stopping = true;
   indexesReady = false;
-  const stopped = Promise.all([stopScheduler(), priceChecks.stop()]);
+  const stopped = Promise.all([stopWorkers(), priceChecks.stop(), startup]);
 
   // Allow open requests to finish, but do not leave shutdown waiting forever.
-  const timeout = setTimeout(() => process.exit(1), 10_000);
+  const timeout = setTimeout(() => process.exit(1), 60_000);
 
   timeout.unref();
 
@@ -60,7 +61,7 @@ function shutdown() {
     void stopped.then(disconnectDatabase)
       .then(() => {
         clearTimeout(timeout);
-        process.exitCode = 0;
+        process.exitCode ??= 0;
       })
       .catch(() => {
         process.exitCode = 1;

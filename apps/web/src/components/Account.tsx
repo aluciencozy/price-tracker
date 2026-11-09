@@ -14,6 +14,7 @@ export default function Account() {
   const wait = useRetryWait(error);
   const mounted = useRef(true);
   const controller = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -22,7 +23,8 @@ export default function Account() {
     };
   }, []);
   async function logout() {
-    if (!auth || busy || wait) return;
+    if (!auth || inFlight.current || wait) return;
+    inFlight.current = true;
     setBusy(true);
     setError(undefined);
     controller.current = new AbortController();
@@ -31,6 +33,7 @@ export default function Account() {
     } catch (error) {
       if (mounted.current && !isAborted(error)) setError(error);
     } finally {
+      inFlight.current = false;
       if (mounted.current) setBusy(false);
     }
   }

@@ -79,6 +79,16 @@ export async function removeDevice(principal: MobilePrincipal, deviceId: string)
   if (result.deletedCount !== 1) throw new DeviceError(404, 'NOT_FOUND', 'Device not found.');
 }
 
+/** Recover cleanup after process death without registering (and enabling) a device.
+ * The installation UUID is only a selector; both current owner and session must match.
+ * A missing/foreign/rebound binding is deliberately indistinguishable from removal. */
+export async function removeDeviceInstallation(principal: MobilePrincipal, installationId: string) {
+  await assertPrincipal(principal);
+  const parsed = installationIdSchema.safeParse(installationId);
+  if (!parsed.success) throw new DeviceError(422, 'VALIDATION_ERROR', 'Invalid installation ID.');
+  await DeviceModel.deleteOne({ userId: principal.userId, sessionId: principal.sessionId, installationId: parsed.data }).exec();
+}
+
 /** Internal worker data only. Recheck just before each external send. */
 export async function eligiblePushDevices(userId: string, now = new Date()) {
   if (!id.test(userId)) return [];
