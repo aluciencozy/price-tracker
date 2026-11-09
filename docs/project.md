@@ -123,14 +123,14 @@ The local assignment PDF is reference material only and is not committed. It req
 - MERN, with React + TypeScript, and a Flutter mobile app.
 - Remote MongoDB, email verification before login, password reset, and stronger authentication.
 - Gantt chart and ERD.
-- Use-case diagram, either a sequence or activity diagram, and a mobile class diagram. Use **PlantUML** for UML sources and keep the exported diagrams with the submission.
-- API documentation on **SwaggerHub**.
+- Use-case, activity, sequence, mobile class, ERD, and Gantt diagrams. Keep **PlantUML** sources and SVG/PNG exports with the submission; the rubric requires both activity and sequence diagrams.
+- API documentation on **SwaggerHub**, including at least one functional live endpoint.
 - Unit and integration test results.
 - Web and mobile prototypes/wireframes. Simple sketches or screenshots are fine for planning; **Figma is not required**.
 
 Keep diagram and API documents consistent with the implemented system, not only this initial plan. Test reports should include actual commands, dates, results, and known failures; do not claim unrun tests passed.
 
-**Course-artifact status for this handoff:** wireframe work is cancelled. UML diagrams and PowerPoint are deferred to the final course-artifact pass. This is not a claim that the assignment artifacts are complete, and it does not block application release work.
+**Course-artifact status:** the [PlantUML sources and renders](diagrams/README.md), [PowerPoint](presentation/price-tracker.pptx), [PDF](presentation/price-tracker.pdf), and [presenter guide](presentation/presenter-guide.md) are available. Existing web SVGs may be shown as **early web planning/prototype evidence**, not current screens. Wireframe work was cancelled; no mobile prototype is claimed, so prototype coverage remains partial. Any mobile screenshots are implemented-UI evidence, not a prototype. Static artifacts do not prove deployed behavior. The current hosted demo/domain, SwaggerHub publication and functional-endpoint check, and rehearsal remain pending; these course artifacts do not close application release gates. See the [presentation/submission checklist](plan.md#course-presentation-and-submission) for the latest upload and logistics requirements.
 
 ## Team and review
 
