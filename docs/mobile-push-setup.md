@@ -1,64 +1,96 @@
-# Android push: setup and remaining work
+# Android push setup
 
-**Not ready to deliver:** this checkout has no Firebase Flutter plugins, Firebase
-initialization, Android notification presenter, or background/tap listener. Adding
-project configuration alone will not enable push. The sample remains offline and
-API mode reports the gateway as unconfigured. Do not send real alerts yet.
+The native client is implemented and builds without a Firebase project. **Real
+receipt is unverified.** Default/sample/unconfigured builds do not initialize
+Firebase, request permission/tokens, or register devices. Android auto-initialization
+is removed and messaging auto-init is disabled in the manifest.
 
-## Prepare later, after the integration is implemented
+## Public client configuration
 
-1. Create a team-owned Firebase project on the **Spark** plan. Firebase's
-   [pricing](https://firebase.google.com/pricing) lists Cloud Messaging as no-cost
-   and Spark as requiring no payment method. Do not enable billing, Blaze, free
-   trials, Cloud Functions, Firebase Auth, or Firestore for this project.
-2. Register an Android app with the exact current application ID
-   **`dev.pricetracker.price_tracker`** (from `apps/mobile/android/app/build.gradle.kts`).
-   If that ID changes, register the new ID and regenerate configuration.
-3. The owner's Android app config (`google-services.json`, normally placed in
-   `apps/mobile/android/app/`) or FlutterFire-generated `firebase_options.dart`
-   contains public client identifiers, not the server's private credential.
-   Keep project-specific generated files out of this repository; do not invent
-   values. The eventual implementation must explicitly define which config input
-   and opt-in flag it supports. **Neither file is read by the current app.**
-   Firebase documents its [Flutter setup](https://firebase.google.com/docs/flutter/setup)
-   and says FlutterFire generates `firebase_options.dart` with non-secret identifiers.
-4. For the API, `apps/api/.env.example` documents `FIREBASE_PROJECT_ID` and
-   `GOOGLE_APPLICATION_CREDENTIALS`. The latter points to a private service-account
-   JSON file outside the repository, readable only by the API process; never put it
-   in the app, a Dart define, a commit, or logs. Prefer deployment-managed
-   Application Default Credentials where available. The sender is currently a
-   building block: at this base commit the worker is not wired into server startup,
-   and setting these variables alone does not start it. Confirm the integrated
-   backend's enablement and device routes with its owner before testing.
+1. Use a team-owned Firebase project on **Spark**, without billing/payment method,
+   Blaze, trials, Cloud Functions, Firebase Auth, Firestore or Analytics.
+   [FCM is no-cost](https://firebase.google.com/pricing). Our Express API owns accounts,
+   tracking and sending; no Firebase account/database SDK is added.
+2. Register Android application **`dev.pricetracker.price_tracker`**. Copy its
+   public API key, Android app ID, project number (sender ID), and project ID.
+   These are public client identifiers, not service-account credentials.
+3. From `apps/mobile`, build with the actual values in place of the placeholders:
 
-## Work required before device testing
+```sh
+flutter pub get
+flutter build apk --debug \
+  --dart-define=DATA_SOURCE=api \
+  --dart-define=API_BASE_URL=http://10.0.2.2:4000 \
+  --dart-define=ANDROID_PUSH_ENABLED=true \
+  --dart-define=FIREBASE_API_KEY=YOUR_ANDROID_PUBLIC_API_KEY \
+  --dart-define=FIREBASE_APP_ID=1:YOUR_PROJECT_NUMBER:android:YOUR_APP_HEX_ID \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=YOUR_PROJECT_NUMBER \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id
+```
 
-Implement an explicitly opt-in `firebase_core`/`firebase_messaging` gateway,
-with no initialization in sample mode or when configuration is absent. Obtain
-Android notification permission and FCM token, handle token refresh and the
-existing authenticated device registration contract. Review logout/rebind behavior
-against the mounted API, including offline and expired sessions.
+Use the same defines with `flutter run` once a device is available. Android 7+
+with Google Play services, or a Google Play emulator image, is required by FCM.
+For USB use `adb reverse tcp:4000 tcp:4000` and origin `http://127.0.0.1:4000`.
+Deployed builds require an HTTPS API origin, **without `/api`**. Values are compiled
+into the APK; rebuild when changing them. A local ignored JSON file can instead
+provide these same public keys through `--dart-define-from-file=/path/to/file.json`.
 
-The current server sends **data-only** messages. They do not automatically show a
-notification. A native/local notification presenter is needed, including a channel,
-permission handling and tap payload. Firebase's [receive guide](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages)
-states that Android background handling runs in a separate isolate. The current
-secure key store serializes only within one isolate; it cannot safely coordinate
-background and foreground claims. Solve atomic cross-isolate session and episode
-deduplication, logout races, and safe owned-tracker reads before presenting any
-background alert. Provider acceptance is not phone display or exactly-once delivery.
+No `google-services.json`, Google Services Gradle plugin, generated
+`firebase_options.dart`, or missing optional import is needed: initialization uses
+explicit `FirebaseOptions`. Do not commit project-specific generated configuration.
+The gateway validates normal Android app-ID/sender/API-key/project-ID shapes; absent,
+disabled or malformed configuration reports **unconfigured**, not delivery enabled.
+Wrong but plausible project values can still fail initialization/registration and
+show a retryable error. Sign in with a verified account and use **Account and
+settings → Check permission / retry device** to request permission explicitly.
+Previously granted permission is read without prompting after sign-in/resume.
 
-## Later device evidence
+## Locked SDK compatibility
 
-Use Android 7+ with Google Play services, or a Google Play emulator image, and
-record OS/device, app build, Flutter version, date and outcomes. Open the app at
-least once; after Android force-stop it must be reopened before background messages
-can resume. With a verified account and the real owned API, test permission allowed
-and denied, registration, token rotation, foreground/background/terminated tap,
-restart deduplication, logout and switching accounts, offline recovery, and deleted
-or foreign tracker taps. Do not record tokens or personal details in evidence.
+`firebase_core 4.15.2`, `firebase_messaging 16.7.1`,
+`flutter_local_notifications 22.0.0` and `sqflite 2.4.5` are locked in
+`apps/mobile/pubspec.lock`. Messaging 16 uses `getToken`/`onTokenRefresh` registration
+tokens, matching the existing `firebase-admin send({token})` backend. Messaging 17
+introduces FID-based `register`/`onRegistered`; do not substitute those IDs into the
+token contract or blindly upgrade it. Notifications 22 works with this project's
+SDK 36/AGP 9.1.0; version 23 needs SDK 37. Desugaring is enabled for the presenter.
+See the [pinned Messaging API](https://pub.dev/documentation/firebase_messaging/16.7.1/)
+and [Notifications 22 setup](https://pub.dev/packages/flutter_local_notifications/versions/22.0.0),
+alongside Firebase's [Flutter receive guide](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages).
+No SDK source or signing keys are changed. Release configuration still uses debug
+signing and is not ready for distribution.
 
-Use a supported real Steam game, check below target, then raise its target and run
-the authorized admin check. Verify one alert per qualifying episode and repeat the
-check. A changed target is not evidence of an actual price drop. Real receipt,
-cross-client CRUD and delivery are unverified until these checks are performed.
+## Backend integration gate
+
+The configured API must mount authenticated, verified, owned `/api/devices`
+POST/PUT/DELETE and tracker reads. Registration uses `{installationId,
+platform:"android", pushToken}` with Bearer authorization; the session owner comes
+from the API session, never a client user ID. The API must atomically rebind the
+installation/token and revoke devices on logout/reset/expiry.
+
+Server credentials stay server-side. The existing backend examples name
+`FIREBASE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS`; the latter points to a
+private file outside git, or use deployment-managed ADC. Never put a private key
+in a Dart define, APK or mobile config. **Worker/startup enablement variable names
+are pending the parallel backend integration**; confirm them against its actual
+`.env.example` and startup implementation before sending. Do not assume credentials
+alone start the worker.
+
+Send the existing strict all-string, **data-only** PushEvent schema (see
+[readiness](android-push-readiness.md)). Do not add an FCM `notification` block:
+Android can auto-display it before Dart session/privacy checks. High-priority data
+delivery may still be throttled by Android/FCM; force-stop requires reopening.
+
+## Real-device proof still required
+
+Record device/Android/Google Play versions, build, date and pass/fail results,
+without tokens or user details. Test permission allowed/denied, token rotation,
+foreground generic notice, background generic notification, warm/terminated tap,
+restart duplicate suppression, logout/account switching during receipt, revoked
+session, deleted/foreign tracker taps and offline recovery. Tap navigation must
+fetch the owned tracker through the current authenticated API, never a payload URL.
+
+Use a supported real Steam base game, check below target, raise the target and run
+the admin check. Show one episode alert and repeat the check without a new alert.
+This is target qualification, not proof of a new price drop. No emulator, live
+Firebase, real device, cross-client CRUD or server-send test was run for this change.

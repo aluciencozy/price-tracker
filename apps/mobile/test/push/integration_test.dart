@@ -13,6 +13,7 @@ import 'package:price_tracker/push/events.dart';
 import 'package:price_tracker/push/integration.dart';
 import 'package:price_tracker/push/registration.dart';
 import 'package:price_tracker/push/storage.dart';
+import 'package:price_tracker/push/atomic_store.dart';
 
 import '../client_fixtures.dart';
 import '../live_app_test.dart' show freshSession, response, tap, field;
@@ -71,6 +72,36 @@ class ForbiddenPushStorage implements PushStorage {
     calls++;
     throw StateError('unexpected storage');
   }
+}
+
+class SessionBoundFixtureStorage implements PushStorage, PushSessionStorage {
+  String? bound;
+  DateTime? expiry;
+  Completer<void>? clearing;
+  bool failClear = false;
+  final keys = <String>{};
+  @override
+  Future<void> bindSession(String? id, DateTime? expiresAt) async {
+    if (id == null) {
+      await clearing?.future;
+      if (failClear) throw StateError('fixture native unavailable');
+    }
+    if (bound != id) keys.clear();
+    bound = id;
+    expiry = expiresAt;
+  }
+
+  @override
+  Future<String> installationId() async =>
+      '00000000-0000-4000-8000-000000000000';
+  @override
+  Future<bool> claim({
+    required String sessionId,
+    required String eventId,
+    required int capacity,
+  }) async => bound == sessionId && keys.add('$sessionId:$eventId');
+  @override
+  Future<void> clear() async => keys.clear();
 }
 
 void main() {
@@ -153,6 +184,88 @@ void main() {
   Future<void> retryDevice(WidgetTester tester) =>
       tap(tester, find.text('Check permission / retry device'));
 
+  testWidgets('cold-start local tap waits for the restored session navigator', (
+    tester,
+  ) async {
+    dispatcher.queueTap(payload());
+    await start(tester);
+    expect(find.text('Game details'), findsOneWidget);
+  });
+
+  testWidgets('foreign or tampered queued tap never opens private detail', (
+    tester,
+  ) async {
+    dispatcher.queueTap({
+      ...payload(),
+      'recipientSessionId': 'foreign_session',
+    });
+    await start(tester);
+    expect(find.text('Game details'), findsNothing);
+    dispatcher.queueTap({...payload(), 'url': 'https://untrusted.example'});
+    await tester.pumpAndSettle();
+    expect(find.text('Game details'), findsNothing);
+  });
+
+  testWidgets(
+    'native session binds only after authentication and logout awaits deactivation',
+    (tester) async {
+      final storage = SessionBoundFixtureStorage();
+      await start(tester, storage: storage);
+      expect(storage.bound, 'session_example');
+      expect(storage.expiry, session!.activeSession!.expiresAt);
+      storage.clearing = Completer<void>();
+      var finished = false;
+      final logout = session!.logout().then((_) => finished = true);
+      await tester.pumpAndSettle();
+      expect(finished, false);
+      expect(session!.user, isNull);
+      expect(
+        await dispatcher.foreground(payload()),
+        ForegroundPushResult.wrongSession,
+      );
+      expect(sessionStore.value, isNull);
+      storage.clearing!.complete();
+      await logout;
+      expect(storage.bound, isNull);
+      expect(finished, true);
+    },
+  );
+
+  testWidgets(
+    'device 401 during native binding cannot deadlock privacy cleanup',
+    (tester) async {
+      final storage = SessionBoundFixtureStorage();
+      await start(
+        tester,
+        storage: storage,
+        gateway: FakeGateway(),
+        handle: (request) async => request.url.path == '/api/devices'
+            ? response(errorJson('SESSION_REVOKED'), 401)
+            : null,
+      );
+      expect(session!.user, isNull);
+      expect(storage.bound, isNull);
+      expect(sessionStore.value, isNull);
+      expect(session!.cleanupRequired, false);
+    },
+  );
+
+  testWidgets('resume rechecks permission and removes a denied device', (
+    tester,
+  ) async {
+    final gateway = FakeGateway();
+    await start(tester, gateway: gateway);
+    gateway.result = PushPermission.denied;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(getDeviceRequests().map((request) => request.method), [
+      'POST',
+      'DELETE',
+    ]);
+    expect(integration!.registration.status, PushStatus.denied);
+  });
+
   testWidgets(
     'sample mode never touches push gateway, storage, dispatcher or transport',
     (tester) async {
@@ -187,7 +300,7 @@ void main() {
       await start(tester, storage: storage);
       await account(tester);
       expect(
-        find.textContaining('Unconfigured — no Android push provider'),
+        find.textContaining('Unconfigured — Android push is disabled'),
         findsOneWidget,
       );
       expect(

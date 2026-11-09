@@ -64,8 +64,9 @@ class PushEvent {
 }
 
 /// Supply durable storage before wiring real events. Atomically return false for
-/// an existing (sessionId,eventId); otherwise insert and evict oldest keys so at
-/// most capacity entries remain in total. Store keys only, not payloads/tokens.
+/// an existing (sessionId,eventId). Store keys only, not payloads/tokens. Capacity
+/// policy is explicit: native SQLite fails closed when full; the legacy
+/// foreground-only secure store evicts oldest keys and can replay evicted events.
 abstract interface class PushEventStore {
   Future<bool> claim({
     required String sessionId,
