@@ -1,5 +1,10 @@
 # Lab VM deployment — November 5, 2026
 
+This is the November 5 deployment record. For the automated GitHub workflow,
+current setup requirements and rollback procedure, see
+[GitHub VM deployment](github-vm-deployment.md). Newer merged source may implement
+features that the original deployed release below does not contain.
+
 Live URL: **https://price-tracker-ibrahim.northcentralus.cloudapp.azure.com/**
 
 Deployed the current merged application, commit `b668d1e`, to the existing
