@@ -1,6 +1,6 @@
 # Local browser acceptance (fixtures only)
 
-The reviewed harness has passed targeted local browser QA. This is a
+This is a
 separate test-only server, not a deployment or real price/mail demonstration.
 Never enter real credentials or user data. No provider, Resend, FCM, scheduler,
 browser or emulator is started automatically by the harness.
@@ -13,24 +13,27 @@ BROWSER_TEST_DISPOSABLE=1 TEST_MONGODB_URI='mongodb://127.0.0.1:27119/?replicaSe
 ```
 
 ```sh
-cd apps/web
-VITE_DATA_SOURCE=api VITE_API_BASE_URL='' API_PROXY_TARGET=http://127.0.0.1:4016 node ../../node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5176 --strictPort
+BROWSER_TEST_DISPOSABLE=1 VITE_DATA_SOURCE=api VITE_API_BASE_URL='' API_PROXY_TARGET=http://127.0.0.1:4016 node node_modules/vite/bin/vite.js --config apps/api/test/fixtures/browserVite.config.ts
 ```
 
 Open **http://127.0.0.1:5176**. The API binds only 127.0.0.1:4016; Vite proxies
 `/api` so browser cookies remain same-origin. Do not use localhost interchangeably
 with 127.0.0.1. A busy port is an error; never stop another owner's service or
 silently switch ports. The shared MongoDB test primary on 27119 stays running.
-This invokes the repository-pinned Vite executable directly (not through nested
-npm option forwarding). These shell values must be set on the Vite process even
+This invokes the repository-pinned Vite executable and **test-only config** directly
+from the root, not the normal web Vite config. These shell values must be set on the Vite process even
 if a local `.env` exists; the explicit empty `VITE_API_BASE_URL` forces same-origin
 requests, `VITE_DATA_SOURCE=api` selects the API client, and `API_PROXY_TARGET`
 pins the dev proxy to the fixture API. Do not use another command, mode, or API
-origin. Before entering any fixture data,
+origin. The test-only config refuses unsafe settings or changed host/ports and
+adds a persistent, non-dismissible local QA banner outside React on every page,
+including the browser mailbox view. It uses inline fixture-only markup, style and
+mailbox script; this development server does not set a restrictive CSP. It is not
+included in the production build. Stop if the banner is missing. Before entering any fixture data,
 inspect browser DevTools Network: every application request must target
 `http://127.0.0.1:5176`, with `/api` proxied to `127.0.0.1:4016`. Verify the
-harness terminal's local-only startup message and that `/api/__fixture/mailbox`
-returns `fixture: true`. Stop immediately if a request targets another origin,
+harness terminal's local-only startup message and that the mailbox view shows
+`fixture: true` (its same-origin JSON request also returns that marker). Stop immediately if a request targets another origin,
 the proxy or fixture marker is missing, or an unexpected redirect occurs.
 
 The harness creates a new guarded `price_tracker_test_browser_<random>` database,
