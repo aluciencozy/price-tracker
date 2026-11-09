@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import { DeviceError, registerDevice, updateDevice, removeDevice, type MobilePrincipal } from './devices.js';
+import { DeviceError, registerDevice, updateDevice, removeDevice, removeDeviceInstallation, type MobilePrincipal } from './devices.js';
 
 /** Supply the real native bearer authenticator, including cookie-ambiguity rejection. */
 export function createDeviceRouter(authenticate: (request: Request, response: Response) => Promise<MobilePrincipal>) {
@@ -20,6 +20,14 @@ export function createDeviceRouter(authenticate: (request: Request, response: Re
   }));
   router.put('/devices/:id', handle(async (request, principal, response) => {
     response.set('Cache-Control', 'no-store').json(await updateDevice(principal, String(request.params.id), request.body));
+  }));
+  router.delete('/devices/installation/:installationId', handle(async (request, principal, response) => {
+    if (request.body !== undefined || Number(request.headers['content-length'] ?? 0) > 0 || request.headers['transfer-encoding']) {
+      throw new DeviceError(400, 'MALFORMED_REQUEST', 'Device removal does not accept a body.');
+    }
+    if (Object.keys(request.query).length) throw new DeviceError(422, 'VALIDATION_ERROR', 'Device removal does not accept query parameters.');
+    await removeDeviceInstallation(principal, String(request.params.installationId));
+    response.status(204).set('Cache-Control', 'no-store').end();
   }));
   router.delete('/devices/:id', handle(async (request, principal, response) => {
     if (request.body !== undefined || Number(request.headers['content-length'] ?? 0) > 0 || request.headers['transfer-encoding']) {

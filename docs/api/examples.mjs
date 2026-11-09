@@ -86,6 +86,7 @@ exchange('get', '/api/tracked-items/{id}/history', 200, undefined, {
 exchange('post', '/api/devices', 201, deviceRequest, device);
 exchange('put', '/api/devices/{id}', 200, { ...deviceRequest, pushToken: 'illustrative-rotated-fcm-token' }, device, mobileHeaders, { params: { id: device.id } });
 exchange('delete', '/api/devices/{id}', 204, undefined, undefined, mobileHeaders, { params: { id: device.id } });
+exchange('delete', '/api/devices/installation/{installationId}', 204, undefined, undefined, mobileHeaders, { params: { installationId: deviceRequest.installationId } });
 exchange('post', '/api/admin/price-checks', 202, {}, run, webHeaders, { responseHeaders: { Location: '/api/admin/price-checks/check_example' } });
 exchange('get', '/api/admin/price-checks/{id}', 200, undefined, { ...run, status: 'running', startedAt: now, counts: { total: 2, succeeded: 0, failed: 0, skipped: 0 } }, mobileHeaders, { params: { id: run.id }, responseHeaders: { 'Retry-After': 5 } });
 exchange('get', '/api/admin/price-checks/{id}', 200, undefined, { ...run, status: 'succeeded', startedAt: now, finishedAt: '2026-10-28T12:01:00Z', counts: { total: 2, succeeded: 2, failed: 0, skipped: 0 } }, mobileHeaders, { params: { id: run.id } });
