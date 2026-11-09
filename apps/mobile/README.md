@@ -1,6 +1,6 @@
 # Price Tracker for Android
 
-Generated with Flutter **3.47.7** / Dart **3.13.5** using `flutter create --platforms android`. Install Flutter plus Android Studio's SDK and Java toolchain before running Android builds. The Gradle wrapper is included; SDKs and `local.properties` are not.
+Generated with Flutter **3.47.7** / Dart **3.13.5**; the native push implementation was checked with **3.47.9 / 3.13.7**. Install Flutter plus Android Studio's SDK and Java toolchain before running Android builds. The Gradle wrapper is included; SDKs and `local.properties` are not.
 
 From this directory:
 
@@ -36,8 +36,7 @@ For a USB-connected physical device, use `adb reverse tcp:4000 tcp:4000` then
 HTTP is permitted only for the three local debug hosts. Use an HTTPS API origin for deployed builds. `API_BASE_URL` is compiled into the app, so it must never contain secrets. Release signing and publishing are not configured; the generated release build still uses the debug key.
 
 The diagnostic reports database readiness separately. It does not fetch prices or
-save trackers. Push controls only save preferences; Android permission/device/event
-handling is a separate PR, not evidence of delivery.
+save trackers. Sample push controls only save preferences; they never initialize Firebase.
 
 ## Explicit API mode
 
@@ -64,8 +63,19 @@ interfaces, storage failures, test coverage and remaining backend verification.
 
 Android minSdk is at least 23. Credential preferences are excluded from legacy
 backup and Android 12+ cloud/device transfer, with auto-backup disabled. These
-settings and plugin requirements were inspected, not verified by an APK/device run.
+settings and plugin requirements compile in a debug APK; encryption/backup behavior still needs device proof.
 
-Android build/device/visual checks and real FCM delivery are not verified in this
-design change. Run `dart format --output=none --set-exit-if-changed lib test`,
-`flutter analyze`, and `flutter test` for the offline checks.
+## Opt-in Android push
+
+The official Firebase Core/Messaging gateway and local Android presenter are implemented.
+They remain disabled unless API mode, `ANDROID_PUSH_ENABLED=true`, and all four
+public Firebase Dart defines are supplied. No generated config import or
+`google-services.json` is required. See [exact setup/build flags](../../docs/mobile-push-setup.md)
+and [privacy, deduplication and remaining proof](../../docs/android-push-readiness.md).
+The Android application ID is `dev.pricetracker.price_tracker`.
+
+Debug APK compilation and offline tests do not prove delivery. A real project,
+Google Play device/emulator, mounted owned API routes and backend worker are still
+required for foreground/background/tap evidence. Run
+`dart format --output=none --set-exit-if-changed lib test`, `flutter analyze`,
+and `flutter test` for offline checks. No emulator or live Firebase was used here.

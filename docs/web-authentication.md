@@ -45,9 +45,12 @@ Run `npm run dev:api` and `npm run dev:web` in separate terminals. Restart Vite
 after changing configuration. Sample mode remains the repository default. No
 tracking/scheduler opt-in or live provider call is needed to test account screens.
 
-**Normal startup does not dispatch account mail.** A 202 response can queue a
-message without sending it. Do not expect a local registration/reset email just
-because Resend environment values are present.
+**Account mail defaults to disabled.** The integrated server can start the
+existing dispatcher when `ACCOUNT_MAIL_ENABLED=true`, but only after the
+[backend runtime](backend-runtime.md) configuration and operational requirements
+are met. These include an approved HTTPS first web origin, verified sender,
+Sending Access key and password-reset template. Credentials alone do not enable
+sending. A 202 response can queue a message without delivering it.
 
 For full local link acceptance without external mail, use the existing
 [disposable browser harness](browser-fixture-acceptance.md). It runs the real
@@ -89,6 +92,28 @@ The existing API/session tests cover revoked sessions, expired/reused tokens,
 old passwords, CSRF and ownership; screen tests cover offline failure and stale
 session responses. These results are not a full accessibility or deployment audit.
 
+## Integration refresh — November 9, 2026
+
+Merged PR #61's `integration/mvp-completion` at `cda1096` into
+`connect-web-authentication`. That snapshot already contains `Staging` at
+`01d4d4e`. Conflicts were limited to README, web API wiring and browser fixture
+instructions. The resolution preserves PR #61's guarded test-only Vite config
+and synthetic-data disclosure, and updates the account-mail instructions to use
+its existing opt-in dispatcher. Backend and mobile code match that PR snapshot.
+
+The combined `npm run check` passed lint, both typechecks, 17 contract tests,
+409 API tests, 282 web tests and both builds: **708 tests, zero skipped**.
+The account and password-reset Chromium scenarios above were rerun successfully
+against the combined API using PR #61's fixture Vite config and its required
+disposable `pt_mvp_test` replica set on port 27119. Each scenario used a fresh
+database, with no external requests or browser runtime errors. Full Node checks
+used the separate disposable `pt_test` replica set on port 27060.
+
+Review found stale setup wording but no new blocking authentication defect.
+Flutter/device checks were not rerun for this merge; mobile code was preserved
+from PR #61. Captured-message acceptance still does not establish real mailbox
+delivery.
+
 ## Deferred real mailbox acceptance
 
 Issue [#10](https://github.com/aluciencozy/price-tracker/issues/10) still needs real
@@ -98,8 +123,8 @@ on the strength of captured test messages alone.
 1. Finish the verified $0 sender configuration and the operational shared email
    budget requirements described in [registration](registration.md),
    [email budget](email-budget.md) and [central integration](central-integration.md).
-   Wire the existing account-mail dispatcher into normal startup once those
-   requirements are met. This branch leaves production workers disabled.
+   The dispatcher is now wired into normal startup behind `ACCOUNT_MAIL_ENABLED`;
+   enable it only after those requirements are met. Live flags default to off.
 2. Use an approved HTTPS web origin and a team-controlled inbox. Configure SPA
    rewrites for `/verify-email` and `/reset-password`, no-referrer headers and
    production cookie/CORS policy. Keep all sender credentials server-side.

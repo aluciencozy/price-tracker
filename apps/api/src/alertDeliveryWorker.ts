@@ -83,8 +83,10 @@ class FreshObservationUnavailable extends Error {}
 export type PriceAlertEmailSender = typeof sendPriceAlert;
 export type PriceAlertPushSender = (token: string, event: unknown) => Promise<PushOutcome>;
 export type AlertDeliveryWorkerOptions = {
-  /** Required by design: construct with createFirebaseFcmSender(projectId) at integration time. */
-  pushSender: PriceAlertPushSender;
+  /** Required when push is enabled: construct with createFirebaseFcmSender(projectId). */
+  pushSender?: PriceAlertPushSender;
+  /** Explicit runtime channel selection. Omission preserves existing inert factory callers. */
+  channels?: Channel[];
   emailSender?: PriceAlertEmailSender;
   batchSize?: number;
   pollIntervalMs?: number;
@@ -246,7 +248,9 @@ function report(onError: AlertDeliveryWorkerOptions['onError'], code: string) {
  * at most `batchSize` channel deliveries; retries and state are durable in MongoDB.
  */
 export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptions) {
-  if (typeof options.pushSender !== 'function') throw new Error('A push sender is required.');
+  const channels = options.channels ?? ['email', 'push'];
+  if (!channels.length || channels.some(channel => channel !== 'email' && channel !== 'push')) throw new Error('Select enabled alert channels.');
+  if (channels.includes('push') && typeof options.pushSender !== 'function') throw new Error('A push sender is required.');
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
@@ -329,7 +333,7 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
   }
 
   async function recoverExpiredClaims(at: Date, limit: number) {
-    const expired = await NotificationDeliveryModel.find({ status: 'sending', leaseUntil: { $lte: at } })
+    const expired = await NotificationDeliveryModel.find({ channel: { $in: channels }, status: 'sending', leaseUntil: { $lte: at } })
       .select(projection).sort({ leaseUntil: 1, _id: 1 }).limit(limit).lean<Delivery[]>().exec();
     for (const delivery of expired) {
       if (!delivery.leaseToken) continue;
@@ -359,6 +363,7 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
   }
 
   async function expireUnsafeEmailRetries(at: Date, limit: number) {
+    if (!channels.includes('email')) return;
     const cutoff = new Date(at.getTime() - EMAIL_RETRY_CUTOFF_MS);
     const expired = await NotificationDeliveryModel.find({
       channel: 'email', status: 'retryable', firstAttemptAt: { $lte: cutoff }, attempts: { $gt: 0 },
@@ -376,6 +381,7 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
       $or: [{ firstAttemptAt: null }, { firstAttemptAt: { $gt: cutoff } }],
     };
     const filter: mongoose.QueryFilter<DeliveryShape> = {
+      channel: { $in: channels },
       availableAt: { $lte: at },
       $or: [
         { channel: 'push', status: { $in: ['pending', 'retryable'] } },
@@ -624,7 +630,7 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
 
       let outcome: PushOutcome;
       try {
-        outcome = await options.pushSender(finalDevice.pushToken, parsedEvent.data);
+        outcome = await options.pushSender!(finalDevice.pushToken, parsedEvent.data);
       } catch {
         outcome = { kind: 'unknown', code: 'FCM_SEND_OUTCOME_UNKNOWN' };
       }
@@ -732,7 +738,7 @@ export function createPriceAlertDeliveryWorker(options: AlertDeliveryWorkerOptio
   }
 
   return {
-    runBatch: () => runBatch(),
+    runBatch: (shouldStop?: () => boolean) => runBatch(shouldStop),
     start() {
       if (loopPromise) return;
       stopped = false;

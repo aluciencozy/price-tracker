@@ -18,6 +18,10 @@ class SessionController extends ChangeNotifier {
   }
   final MobileApi api;
   final SessionStore store;
+
+  /// Native privacy barrier. Local logout waits for durable push deactivation;
+  /// credentials remain exclusively in platform-backed secure storage.
+  Future<void> Function()? beforeLocalSessionClear;
   final DateTime Function() _now;
   User? _user;
   Session? _credentials;
@@ -49,7 +53,14 @@ class SessionController extends ChangeNotifier {
       throw const ApiFailure('STORAGE', 'Could not read the secure session.');
     }
     if (_disposed) return;
-    if (saved == null) return;
+    if (saved == null) {
+      // A previous process may have deleted credentials before its native push
+      // cleanup committed. Only now is signed-out state known: await the same
+      // privacy barrier as rejected/expired restores, without clearing a valid
+      // session's durable episode receipts while its read or /me is pending.
+      await _clear();
+      return;
+    }
     Session session;
     try {
       session = Session.fromJson(jsonObject(jsonDecode(saved)));
@@ -234,7 +245,11 @@ class SessionController extends ChangeNotifier {
     _cleanupRequired = true;
     _dropMemory();
     try {
-      await store.clear();
+      await Future.wait([
+        if (beforeLocalSessionClear != null)
+          Future<void>.sync(beforeLocalSessionClear!),
+        Future<void>.sync(store.clear),
+      ]);
       _cleanupRequired = false;
       _notify();
     } catch (_) {

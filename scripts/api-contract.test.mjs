@@ -42,8 +42,22 @@ test('OpenAPI 3.1 document resolves and passes structural validation', async () 
   const parsed = await SwaggerParser.validate(fileURLToPath(file), { resolve: { external: false, http: false } });
   assert.equal(parsed.openapi, '3.1.0');
   assert.equal(new Set(operations.map(({ operation }) => operation.operationId)).size, operations.length);
-  assert.equal(operations.length, 29);
+  assert.equal(operations.length, 30);
   assert.ok(validators.size > 40, 'every model compiles with the 2020-12 validator');
+});
+
+test('installation cleanup is bodyless, UUID-addressed and mobile-only without an existence response', () => {
+  const operation = contract.paths['/api/devices/installation/{installationId}'].delete;
+  assert.deepEqual(operation.security, [{ mobileBearer: [] }]);
+  assert.equal(operation.requestBody, undefined);
+  assert.equal(operation.responses['404'], undefined);
+  assert.equal(operation.responses['204'].content, undefined);
+  const parameter = operation.parameters[0];
+  assert.equal(parameter.in, 'path');
+  assert.equal(parameter.name, 'installationId');
+  for (const uuid of ['58C139B2-263C-4677-A8D2-525514E070EE', '019A50A0-0000-7000-8000-000000000001']) validate(parameter.schema, uuid);
+  assert.equal(validatorFor(parameter.schema)('not-a-uuid'), false);
+  for (const status of ['400', '401', '403', '422', '429', '500', '503']) assert.ok(operation.responses[status]);
 });
 
 test('every object is strict and required keys really exist', () => {
