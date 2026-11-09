@@ -8,9 +8,10 @@ observations, or price history. Manual data-only FCM events used the normal
 mail or price provider was called during this transport test.
 
 The client and server credentials were validated as belonging to the same Firebase
-project; credentials were not committed. Six controlled FCM sends were accepted
-by the provider and all six device broadcasts were observed. Provider acceptance
-alone is not receipt; the device observations below are separate evidence. Project
+project; credentials were not committed. Eight controlled FCM sends were accepted
+by the provider; device arrival was verified for seven. The final duplicate's
+arrival was not verified. Provider acceptance alone is not receipt; the device
+observations below are separate evidence. Project
 Spark/billing status and production approval were not independently established.
 
 ## Environment and checks
@@ -38,10 +39,14 @@ Spark/billing status and production approval were not independently established.
 | Terminated and tap | PASS | After a background process kill, a new data event woke the process; its notification opened the correct owned fixture. |
 | Account switch | PASS | A logged out with zero eligible bindings, B logged in with one, and a real push notification opened B's owned fixture. |
 | Normal logout | PASS, limited | Both native logouts left zero eligible bindings; after B logout SQLite was empty and the signed-out screen appeared. No stale external message was sent because the harness correctly found no eligible device. |
-| Signed-out relaunch | PASS, limited | Activity relaunch remained signed out. A fresh process restart after final logout was **not confirmed** because the attempted background process kill did not terminate it. Offline startup regression tests are not device proof. |
+| Initial signed-out relaunch | PASS, limited | Activity relaunch remained signed out. A fresh process restart was not confirmed in this initial phase because the attempted background process kill did not terminate it. The later fixed-build fresh-process test passed below. |
 | Permission denial, initial build | FAIL | Revoking notification permission killed the app. B's session restored but the in-memory device ID was lost while one server binding remained. The explicit retry prompt was denied; OS permission remained denied and the binding remained. Permission was restored and normal logout removed the binding. |
 | Permission denial, legacy upgrade | PASS | Against the upgraded local API, revoking permission on the old build killed the process and left A's binding. Installing the fixed APK over it without clearing data restored A without a new login, showed denied status, and removed both accounts' eligible bindings. The authenticated SQLite session remained present with zero receipts; display eligibility was suspended, not the session cleared. |
 | Permission denial, fixed restart | PASS | Grant and explicit retry registered A; revocation killed the process. Normal fixed-build relaunch retained A's authentication, showed denial without a prompt, and left zero eligible bindings. Grant and retry registered A again. No request-level API log was captured, so the exact route sequence was not independently established on device. |
+| Post-fix background and tap | PASS | A new accepted FCM event arrived in the background, added one SQLite receipt, and showed a generic OS notification. Its tap opened the owned local fixture with target $0 and current price unavailable. |
+| Permission change and receipt retention | PASS | Revoking permission killed the process; normal relaunch restored A's session, showed denied status, and left A and B with zero eligible bindings. The same session's receipt remained present. Grant and explicit retry registered A again without losing the receipt. |
+| Post-permission duplicate | UNVERIFIED | FCM accepted the duplicate while the same session had permission and an eligible A binding. The receipt count stayed at one and no OS notification appeared over 121 seconds, but usable broadcast logs were absent, so device arrival and full duplicate suppression were not verified. The eight-send cap was exhausted; no retry was made. |
+| Final fresh-process logout | PASS | Normal native logout left A and B with zero eligible bindings, no SQLite session or receipts, and a signed-out screen. A confirmed fresh process also remained signed out with zero eligible bindings. No force-stop, data clear, or uninstall was used. |
 | Offline queued FCM | NOT RUN | The emulator could not be shown reliably offline; no offline send was attempted. Radio settings were restored. |
 
 ## Shared web and mobile API
@@ -58,16 +63,16 @@ refresh. No provider lookup, email, or FCM send was made for this cross-client p
 
 ## Remaining acceptance
 
-The permission-denial device-fix gate passed. Post-fix background receipt and tap,
-permission deny/grant receipt retention, duplicate suppression, and final-logout
-fresh-process verification are pending the final transport phases. Token rotation, revoked-session
-and deleted/foreign tracker tap cases, reliable offline recovery, and final-logout
-fresh-process restoration are not established by this desktop run. A real
+The permission-denial device-fix gate passed. The post-permission duplicate's
+arrival remains unverified, separate from the earlier duplicate and restart
+duplicate passes. Token rotation, revoked-session and deleted/foreign tracker tap
+cases, and offline queued recovery were not tested. A real
 qualifying episode with email and push through the durable outbox, repeated-check
 deduplication, and real mailbox receipt were not tested. No new price drop is
 claimed. The separately documented [live adapter lookup](live-adapter-2026-11-09.md)
-is not part of this transport fixture. The permission retest made no FCM, email,
-or provider sends; the recorded accepted FCM total remains six at this point.
+is not part of this transport fixture. The permission cleanup retest itself made
+no FCM, email, or provider sends; two subsequent controlled FCM sends brought the
+total to eight accepted.
 
 Live history collection is blocked pending team/source-owner retention review,
 including for disposable tests; therefore the real qualifying-episode test must

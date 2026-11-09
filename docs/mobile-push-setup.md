@@ -3,8 +3,9 @@
 The native client is implemented and builds without a Firebase project. Controlled
 real FCM transport reached an Android emulator; see the [desktop report](test-results/android-desktop-2026-11-09.md).
 Permission-denial cleanup failed on the initial build; the integrated fix passed
-the legacy-upgrade and fixed-restart device retests. Final transport phases and
-operational approval remain pending. Default/sample/unconfigured builds do not initialize
+the legacy-upgrade and fixed-restart device retests. Post-fix background receipt,
+receipt retention, and fresh-process logout passed; the last duplicate's arrival
+was unverified. Operational approval remains pending. Default/sample/unconfigured builds do not initialize
 Firebase, request permission/tokens, or register devices. Android auto-initialization
 is removed and messaging auto-init is disabled in the manifest.
 
