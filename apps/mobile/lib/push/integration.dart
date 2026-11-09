@@ -43,7 +43,8 @@ class PushEventDispatcher {
   Future<void> tokenChanged() async => _controller?.tokenChanged();
 }
 
-class _StoredDeviceEndpoint implements DeviceEndpoint {
+class _StoredDeviceEndpoint
+    implements DeviceEndpoint, InstallationDeviceEndpoint {
   _StoredDeviceEndpoint(this.api, this.storage, this.origin);
   final MobileApi api;
   final PushStorage storage;
@@ -66,6 +67,9 @@ class _StoredDeviceEndpoint implements DeviceEndpoint {
   @override
   Future<void> unregister(PushSession session, String id) async =>
       (await _get()).unregister(session, id);
+  @override
+  Future<void> unregisterInstallation(PushSession session) async =>
+      (await _get()).unregisterInstallation(session);
 }
 
 class PushIntegrationController extends ChangeNotifier {
@@ -74,11 +78,14 @@ class PushIntegrationController extends ChangeNotifier {
     required DeviceEndpoint devices,
     required this.storage,
     PushPermissionGateway gateway = const UnconfiguredPushGateway(),
+    DeviceBindingStore? bindingStore,
   }) {
     registration = PushRegistration(
       devices: devices,
       readSession: _snapshot,
       gateway: gateway,
+      bindingStore: bindingStore,
+      onEligibility: _setEligibility,
       // The device adapter bypasses MobileApi, so its 401 must invalidate the
       // captured session here instead of waiting for another API request.
       onUnauthorized: (pushSession) =>
@@ -163,6 +170,35 @@ class PushIntegrationController extends ChangeNotifier {
         : DateTime.now().add(Duration(seconds: wait));
   }
 
+  Future<void> _setEligibility(PushSession owner, bool eligible) async {
+    if (!eligible && _snapshot()?.id == owner.id) _ready = false;
+    final epoch = _epoch;
+    final work = _sessionWork.catchError((Object _) {}).then((_) async {
+      if (_disposed || epoch != _epoch || _snapshot()?.id != owner.id) return;
+      final durable = storage;
+      if (durable is PushEligibilityStorage && !eligible) {
+        await (durable as PushEligibilityStorage).suspendSession(owner.id);
+      } else if (durable is PushSessionStorage && eligible) {
+        final active = session.activeSession;
+        await (durable as PushSessionStorage).bindSession(
+          active?.sessionId,
+          active?.expiresAt,
+        );
+      }
+      if (!_disposed && epoch == _epoch) {
+        _ready = eligible && !localCleanupFailed;
+      }
+    });
+    _sessionWork = work;
+    try {
+      await work;
+    } catch (_) {
+      localCleanupFailed = true;
+      _ready = false;
+      rethrow;
+    }
+  }
+
   void _changed() {
     final active = session.activeSession;
     if (active?.sessionId == _current?.id) return;
@@ -183,7 +219,14 @@ class PushIntegrationController extends ChangeNotifier {
       if (_disposed || epoch != _epoch) return;
       if (storage case final PushSessionStorage durable) {
         try {
-          await durable.bindSession(active?.sessionId, active?.expiresAt);
+          if (active != null && durable is PushEligibilityStorage) {
+            await (durable as PushEligibilityStorage).prepareSession(
+              active.sessionId,
+              active.expiresAt,
+            );
+          } else {
+            await durable.bindSession(active?.sessionId, active?.expiresAt);
+          }
           localCleanupFailed = false;
         } catch (_) {
           localCleanupFailed = true;
@@ -196,7 +239,10 @@ class PushIntegrationController extends ChangeNotifier {
       await _sessionWork;
       await registrationWork;
       if (_disposed || epoch != _epoch) return;
-      _ready = !localCleanupFailed;
+      _ready =
+          !localCleanupFailed &&
+          registration.status != PushStatus.denied &&
+          registration.status != PushStatus.noToken;
       _rememberWait();
       _notify();
     }().ignore();
@@ -222,7 +268,16 @@ class PushIntegrationController extends ChangeNotifier {
         if (storage case final PushSessionStorage durable) {
           try {
             final active = session.activeSession;
-            await durable.bindSession(active?.sessionId, active?.expiresAt);
+            if ((registration.status == PushStatus.denied ||
+                    registration.status == PushStatus.noToken) &&
+                durable is PushEligibilityStorage &&
+                active != null) {
+              await (durable as PushEligibilityStorage).suspendSession(
+                active.sessionId,
+              );
+            } else {
+              await durable.bindSession(active?.sessionId, active?.expiresAt);
+            }
             localCleanupFailed = false;
           } catch (_) {
             localCleanupFailed = true;
@@ -277,10 +332,8 @@ class PushIntegrationController extends ChangeNotifier {
     busy = true;
     _ready = false;
     _notify();
-    if (storage case final PushSessionStorage durable) {
+    if (storage is PushSessionStorage) {
       try {
-        final active = session.activeSession;
-        await durable.bindSession(active?.sessionId, active?.expiresAt);
         await storage.clear();
         localCleanupFailed = false;
       } catch (_) {
@@ -289,7 +342,10 @@ class PushIntegrationController extends ChangeNotifier {
     } else {
       await _clearEvents();
     }
-    _ready = !localCleanupFailed;
+    _ready =
+        !localCleanupFailed &&
+        registration.status != PushStatus.denied &&
+        registration.status != PushStatus.noToken;
     busy = false;
     notice = localCleanupFailed
         ? 'Could not clear local alert keys. No server revocation is implied.'
@@ -363,6 +419,7 @@ class _PushSessionIntegrationState extends State<PushSessionIntegration>
       storage: storage,
       devices: _StoredDeviceEndpoint(widget.api, storage, widget.origin),
       gateway: widget.gateway,
+      bindingStore: SecureDeviceBindingStore(widget.origin),
     );
     widget.dispatcher?._controller = controller;
   }
@@ -510,7 +567,7 @@ class _PushAccountStatusState extends State<PushAccountStatus> {
         ),
         if (controller.registration.revocation == PushRevocation.unconfirmed)
           const Text(
-            'Earlier device removal was not confirmed. Local sign-out does not prove server revocation.',
+            'Device removal was not confirmed. Retry when connected; local cleanup does not prove server revocation.',
           ),
         if (controller.localCleanupFailed)
           const Text(

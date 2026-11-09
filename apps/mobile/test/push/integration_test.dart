@@ -326,7 +326,7 @@ void main() {
       await start(tester, gateway: gateway);
       await account(tester);
       expect(find.textContaining('permission denied'), findsOneWidget);
-      expect(getDeviceRequests(), isEmpty);
+      expect(getDeviceRequests().map((r) => r.method), ['DELETE']);
       gateway.result = PushPermission.granted;
       gateway.currentToken = null;
       await retryDevice(tester);
@@ -339,13 +339,17 @@ void main() {
       );
       expect(find.textContaining('delivery are not verified'), findsOneWidget);
       expect(find.textContaining('fixture-token-never-display'), findsNothing);
-      final firstId = (jsonDecode(
-        getDeviceRequests().single.body,
-      ) as Map)['installationId'];
+      final firstId =
+          (jsonDecode(getDeviceRequests().last.body) as Map)['installationId'];
       gateway.currentToken = 'rotated-token';
       await dispatcher.tokenChanged();
       await tester.pumpAndSettle();
-      expect(getDeviceRequests().map((r) => r.method), ['POST', 'PUT']);
+      expect(getDeviceRequests().map((r) => r.method), [
+        'DELETE',
+        'DELETE',
+        'POST',
+        'PUT',
+      ]);
       expect(
         (jsonDecode(getDeviceRequests().last.body) as Map)['installationId'],
         firstId,
