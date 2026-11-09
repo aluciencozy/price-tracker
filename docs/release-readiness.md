@@ -4,7 +4,7 @@ This is a handoff, not a release approval. It summarizes reviewed changes in
 backend runtime `6de4fb3`, dependency lockfile `b427837`, mobile push `d1a688c`
 with contention fix `d6d4b9e`, and portable browser-history fixtures
 `2e85fcb`/`8f167c5`. It does not say the app is deployed, that a chosen host costs
-$0, or that any live email, push, or price check has worked. The November 5 VM
+$0, or that deployed email, push, or daily price checks have worked. The November 5 VM
 record is still evidence only for its older sample-mode build `b668d1e`; see
 [the VM record](lab-vm-deployment.md).
 
@@ -15,8 +15,8 @@ record is still evidence only for its older sample-mode build `b668d1e`; see
 | Web sample and API boundary | Web sample data remains the default and stays in memory. API mode uses the shared Express API. | Sample success is not an account or saved-data result. A running health endpoint is not a live tracker. |
 | Accounts and private data | Verified account/session routes are mounted. With `PRICE_TRACKING_ENABLED=true`, the API composes Steam preview, owned tracker CRUD/history, and admin-only check routes. Device endpoints require a verified mobile session. | Tracking is off by default. Remote MongoDB, actual HTTPS/CORS, mailbox links, two-user ownership, and deployed cross-client acceptance are pending. |
 | Price checks | Scheduled and admin checks use the shared service. One bounded live application-adapter lookup for Portal 2 completed on November 9; see the [adapter report](test-results/live-adapter-2026-11-09.md). | No cron or second checker is part of this design. One dated lookup does not prove a deployed daily run, a checkout quote, or host uptime/cost acceptance. |
-| Alert state and delivery | Saved alert records remember each qualifying price episode and keep email and push delivery attempts separate. All live delivery flags default off. | Tests use fake email/push senders, so they do not prove sender approval, mailbox arrival, Firebase setup, Android receipt, or exactly-once delivery. An uncertain send may need owner review. |
-| Mobile push | The merged client has an opt-in Firebase gateway (`ANDROID_PUSH_ENABLED=true` plus explicit public Firebase build values). It includes notification channels/presentation, foreground/background/tap handling, and SQLite duplicate protection across isolates. | It stays off by default. A team Firebase project and real Android message receipt are still unaccepted; code/build tests do not prove device delivery. |
+| Alert state and delivery | Saved alert records remember each qualifying price episode and keep email and push delivery attempts separate. All live delivery flags default off. | Fixture tests and manual transport events do not prove sender approval, mailbox arrival, a qualifying outbox episode, or exactly-once delivery. An uncertain send may need owner review. |
+| Mobile push | The merged client has an opt-in Firebase gateway (`ANDROID_PUSH_ENABLED=true` plus explicit public Firebase build values). Controlled real FCM transport reached an Android emulator; see the [desktop report](test-results/android-desktop-2026-11-09.md). | It stays off by default. Permission-denial cleanup failed on the initial build; the integrated fix awaits a device retest. Project/billing and operational acceptance remain open. |
 
 The [mobile push setup](mobile-push-setup.md) lists the public Flutter defines:
 `ANDROID_PUSH_ENABLED=true`, `FIREBASE_API_KEY`, `FIREBASE_APP_ID`,
@@ -24,8 +24,8 @@ The [mobile push setup](mobile-push-setup.md) lists the public Flutter defines:
 client; they do not enable server sending. The server separately requires
 `PRICE_TRACKING_ENABLED=true`, `PRICE_PUSH_ENABLED=true`, `AUTH_JWT_SECRET`,
 `FIREBASE_PROJECT_ID`, and protected Application Default Credentials. Neither
-side initializes/sends by default. The team-owned Spark project and real Android
-receipt remain pending. See the [Android readiness notes](android-push-readiness.md)
+side initializes/sends by default. Controlled emulator receipt is recorded, but
+Spark/billing status and production approval remain pending. See the [Android readiness notes](android-push-readiness.md)
 for lifecycle boundaries.
 
 Runtime configuration, limits, recovery, and uncertain outcomes are described in
@@ -35,25 +35,21 @@ off-by-default settings or approves a live send.
 
 ## Recorded checks
 
-The root `npm run check` result recorded at integration snapshot `49d423d`
-passed lint, both TypeScript checks, both builds, and **690 tests**: 16 contract,
-400 API, and 274 web tests, with zero skips. The API test script uses
-`--maxWorkers=2`. `npm audit --omit=dev` reported zero vulnerabilities; the full
+The independently reviewed root `npm run check` at integration snapshot `ec59ddd`
+passed lint, both TypeScript checks, both builds, and **700 tests**: 17 contract,
+409 API, and 274 web tests, with zero skips. The API test script uses
+`--maxWorkers=2`. At the earlier `49d423d` snapshot, `npm audit --omit=dev` reported zero vulnerabilities; the full
 audit reported 10 moderate development-only findings and zero high or critical
 findings. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
 closed for fixture-tested backend results; that does not close deployed
-acceptance. The browser-only QA pass did not rerun the root check; its report
-retains the earlier 687-test result, separate from this 690-test run.
+acceptance. Earlier browser-only QA retains its historical 687-test result.
 
-Mobile push implementation `d1a688c`, SQLite contention fix `d6d4b9e`, and
-startup-reconciliation fix `85fa241` are merged; format-only follow-up
-`76c778a` is also integrated. The independent run recorded at `19e211b` passed
-`flutter pub get --enforce-lockfile`, formatting across 46 files with no changes,
-analysis with no issues, and all **229 Flutter tests** on Flutter 3.47.9 / Dart
-3.13.7. The author separately reported a debug APK build passing with `--no-pub`
-at `85fa241`; the APK was not rebuilt for the format-only `76c778a` change. The
-repository remains pinned to Flutter 3.47.7 / Dart 3.13.5. These checks do not
-prove a real Firebase project or message receipt on an Android device.
+The independent mobile review passed **237 Flutter tests** on Flutter 3.47.9 /
+Dart 3.13.7. The permission-cleanup debug APK at `4a9a968` built offline; its
+device retest remains pending. The repository remains pinned to Flutter 3.47.7 /
+Dart 3.13.5. Controlled real FCM receipt and local cross-client checks are recorded
+separately in the [desktop report](test-results/android-desktop-2026-11-09.md);
+they do not prove a qualifying outbox episode or deployed delivery.
 
 The independently reviewed dependency change `b427837` only updates the npm
 lockfile. It uses a same-major compatible Google/Firebase transitive resolution
@@ -107,7 +103,7 @@ fixture suite is not enough.
 | [#7](https://github.com/aluciencozy/price-tracker/issues/7), Nick | Confirm Resend sender-domain verification, recipient limits, shared account/alert allocation, published templates, and receipt at a team mailbox without paid billing or overages. |
 | [#8](https://github.com/aluciencozy/price-tracker/issues/8), [#9](https://github.com/aluciencozy/price-tracker/issues/9), [#10](https://github.com/aluciencozy/price-tracker/issues/10), James / Martin | Run the real verify, login, reset, logout/revocation, and browser-link flow against the approved service and mailbox; retain the two-user security and ownership checks. |
 | [#15](https://github.com/aluciencozy/price-tracker/issues/15), Nick | Observe the built-in daily UTC job and shared admin check on the approved always-running host; inspect run/retry recovery and sanitized logs. Do not add cron beside the API scheduler. |
-| [#17](https://github.com/aluciencozy/price-tracker/issues/17), Ibrahim | Approve the Spark Firebase/Android project and server credentials; configure the app's explicit public build values and record a real receipt on an Android device. Gateway implementation and fixture tests are complete, but keep `PRICE_PUSH_ENABLED=false` until operational acceptance. |
+| [#17](https://github.com/aluciencozy/price-tracker/issues/17), Ibrahim | Approve the Firebase project, Spark/billing status and server credentials; retest permission-denial cleanup on the integrated Android build. Controlled real emulator receipt is recorded, but keep `PRICE_PUSH_ENABLED=false` until operational acceptance. |
 | [#18](https://github.com/aluciencozy/price-tracker/issues/18), Nick | Verify real email and Android delivery for one eligible episode, channel isolation, retries, and repeated-check deduplication. A target edit demonstrates qualification, not a new sale. |
 | [#26](https://github.com/aluciencozy/price-tracker/issues/26), Ibrahim | Deploy an approved integration commit and verify HTTPS, production origins, database readiness/indexes, a daily run, recovery, email, push, and rollback. The November 5 `b668d1e` sample-mode record is not this deployment. |
 | [#27](https://github.com/aluciencozy/price-tracker/issues/27), James | Record the deployed two-user security and end-to-end acceptance, including a real supported Steam offer, failures, and recovery. |
