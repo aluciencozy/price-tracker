@@ -81,10 +81,10 @@ note bottom of AtomicPushStorage
  Binding metadata and session credentials use secure storage.
 end note
 note bottom of HttpDeviceEndpoint
- API mode is explicit opt-in. Logout tries device-ID removal; server logout
- revokes the session and deactivates its devices. Push-disable / permission
- cleanup uses installation removal (including legacy fallback), scoped to the
- current user and session. Session-race guards protect account switches.
+ API mode is explicit opt-in. Permission / missing-token cleanup: installation
+ deletion when supported; otherwise device-ID fallback. Logout: device-ID
+ attempt; server revokes session and deactivates devices. Installation deletion
+ is scoped to current user and session. Session-race guards protect switches.
 end note
 caption Mobile JWT is backed by a revocable server session; web uses an opaque cookie, not JWT storage.
 @enduml
