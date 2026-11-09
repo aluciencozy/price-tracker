@@ -4,7 +4,7 @@ Price Tracker is our COP 4331C large project for Fall 2026. The **October 26 gam
 
 **Development deadline: November 10, 2026. Presentation prep: November 11–15. Course deadline: November 15.**
 
-This file describes the intended app, not features already built. See the root [README](../README.md) for what the starter can run today and [the work plan](plan.md) for assignments and dates.
+The requirements below remain the intended app behavior. The current code and what still needs owner acceptance are summarized in the root [README](../README.md) and [release-readiness handoff](release-readiness.md); the November 5 VM record is historical, not proof this integration is deployed. See the [work plan](plan.md) for assignments and dates.
 
 ## Keep the first version small
 
@@ -85,9 +85,9 @@ Game/store offers are shared across users, but watchlists and notification setti
 
 ## API boundaries
 
-Use `/api` as the common prefix. Health/readiness, registration, email verification/resend, login/logout, forgot/reset, and web CSRF are mounted; see [account setup](registration.md). Tracking, device and admin business routes below remain planned. The [proposed shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors. It awaits team review and actual SwaggerHub publication; the contract alone does not implement routes.
+Use `/api` as the common prefix. Health/readiness and account/session/CSRF routes are mounted; verified mobile device routes are also mounted. Tracking, owned history, previews, and admin checks are composed when `PRICE_TRACKING_ENABLED=true`, with database/index readiness and a stable cursor secret required. The web app still defaults to local sample data, and background checks/delivery remain opt-in and unaccepted for live use. See [account setup](registration.md), [release readiness](release-readiness.md), and [backend runtime flags](backend-runtime.md). The [shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors; SwaggerHub publication and live deployment acceptance remain pending.
 
-Planned groups:
+Contract route groups:
 
 - `/api/auth/web` and `/api/auth/mobile`: register, verify/resend email, login, logout, forgot/reset password, current user; web adds CSRF bootstrap.
 - `/api/product-previews`: owned, authenticated, bounded Steam URL preview.
@@ -129,6 +129,8 @@ The local assignment PDF is reference material only and is not committed. It req
 - Web and mobile prototypes/wireframes. Simple sketches or screenshots are fine for planning; **Figma is not required**.
 
 Keep diagram and API documents consistent with the implemented system, not only this initial plan. Test reports should include actual commands, dates, results, and known failures; do not claim unrun tests passed.
+
+**Course-artifact status for this handoff:** wireframe work is cancelled. UML diagrams and PowerPoint are deferred to the final course-artifact pass. This is not a claim that the assignment artifacts are complete, and it does not block application release work.
 
 ## Team and review
 

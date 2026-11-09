@@ -105,3 +105,8 @@ This reuses the existing authorized VM. It creates no additional paid VM, storag
 plan, purchased domain or billing upgrade. It does not establish that the existing
 student VM's compute/disk allocation is an always-free service; the approved
 infrastructure budget and ongoing ownership still need team confirmation.
+
+For the current, not-yet-deployed integration handoff, see the [VM scheduling and
+worker procedure](vm-scheduling.md) and [release readiness](release-readiness.md).
+This November 5 evidence remains specific to commit `b668d1e` and its sample-mode
+frontend; it is not evidence that the newer integration is deployed.
