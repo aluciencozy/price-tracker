@@ -1,7 +1,9 @@
 # Android push setup
 
-The native client is implemented and builds without a Firebase project. **Real
-receipt is unverified.** Default/sample/unconfigured builds do not initialize
+The native client is implemented and builds without a Firebase project. Controlled
+real FCM transport reached an Android emulator; see the [desktop report](test-results/android-desktop-2026-11-09.md).
+Permission-denial cleanup failed on the initial build and the integrated fix still
+needs a device retest. Default/sample/unconfigured builds do not initialize
 Firebase, request permission/tokens, or register devices. Android auto-initialization
 is removed and messaging auto-init is disabled in the manifest.
 
@@ -29,7 +31,7 @@ flutter build apk --debug \
 ```
 
 Use the same defines with `flutter run` once a device is available. Android 7+
-with Google Play services, or a Google Play emulator image, is required by FCM.
+with Google Play services, including a compatible Google APIs emulator image, is required by FCM.
 For USB use `adb reverse tcp:4000 tcp:4000` and origin `http://127.0.0.1:4000`.
 Deployed builds require an HTTPS API origin, **without `/api`**. Values are compiled
 into the APK; rebuild when changing them. A local ignored JSON file can instead
@@ -86,7 +88,7 @@ Send the existing strict all-string, **data-only** PushEvent schema (see
 Android can auto-display it before Dart session/privacy checks. High-priority data
 delivery may still be throttled by Android/FCM; force-stop requires reopening.
 
-## Real-device proof still required
+## Remaining device proof
 
 Record device/Android/Google Play versions, build, date and pass/fail results,
 without tokens or user details. Test permission allowed/denied, token rotation,
@@ -97,5 +99,6 @@ fetch the owned tracker through the current authenticated API, never a payload U
 
 Use a supported real Steam base game, check below target, raise the target and run
 the admin check. Show one episode alert and repeat the check without a new alert.
-This is target qualification, not proof of a new price drop. No emulator, live
-Firebase, real device, cross-client CRUD or server-send test was run for this change.
+This is target qualification, not proof of a new price drop. The desktop run used
+manual transport events and synthetic trackers, not a qualifying price episode or
+real email. Spark/billing status and production delivery remain unapproved.
