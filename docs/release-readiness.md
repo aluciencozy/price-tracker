@@ -35,26 +35,24 @@ off-by-default settings or approves a live send.
 
 ## Recorded checks
 
-The root `npm run check` result recorded at test-configuration commit `256c23b`
-passed lint, both TypeScript checks, both builds, and **687 tests**: 16 contract,
-397 API, and 274 web tests, with zero skips. API Vitest used the configured
-`--maxWorkers=2` limit. This is the combined run; older partial API counts (371,
-392, and the 395 count before two parser regressions) are superseded, not tests to
-add. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
+The root `npm run check` result recorded at integration snapshot `49d423d`
+passed lint, both TypeScript checks, both builds, and **690 tests**: 16 contract,
+400 API, and 274 web tests, with zero skips. The API test script uses
+`--maxWorkers=2`. `npm audit --omit=dev` reported zero vulnerabilities; the full
+audit reported 10 moderate development-only findings and zero high or critical
+findings. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
 closed for fixture-tested backend results; that does not close deployed
 acceptance.
 
 Mobile push implementation `d1a688c`, SQLite contention fix `d6d4b9e`, and
 startup-reconciliation fix `85fa241` are merged; format-only follow-up
-`76c778a` is also integrated. At `85fa241`, the author reports **229 Flutter
-tests**, formatting and analysis checks, and a debug APK build passing on Flutter
-3.47.9 / Dart 3.13.7. After the format-only commit, the author reports
-`flutter pub get --enforce-lockfile`, all 229 tests, and formatting passing; the
-APK was not rebuilt for that formatting-only change. Independent review cleared
-the code review; the reviewer's separate test execution passed the earlier 220
-tests, not all 229 latest tests. The repository remains pinned to Flutter
-3.47.7 / Dart 3.13.5. These checks do not prove a real Firebase project or
-message receipt on an Android device.
+`76c778a` is also integrated. The independent run recorded at `19e211b` passed
+`flutter pub get --enforce-lockfile`, formatting across 46 files with no changes,
+analysis with no issues, and all **229 Flutter tests** on Flutter 3.47.9 / Dart
+3.13.7. The author separately reported a debug APK build passing with `--no-pub`
+at `85fa241`; the APK was not rebuilt for the format-only `76c778a` change. The
+repository remains pinned to Flutter 3.47.7 / Dart 3.13.5. These checks do not
+prove a real Firebase project or message receipt on an Android device.
 
 The independently reviewed dependency change `b427837` only updates the npm
 lockfile. It uses a same-major compatible Google/Firebase transitive resolution
@@ -75,12 +73,14 @@ adapter or proof of a deployed daily price check. The command for an explicitly
 approved adapter check is documented in the [README](../README.md); no live
 lookup was made for this handoff.
 
-Portable browser-history fixture work is merged in `2e85fcb` and `8f167c5`; five
-targeted fixture tests are included in the combined test run above. The optional
-nonempty synthetic-history scenario and exact local-only commands are documented
-in [browser fixture acceptance](browser-fixture-acceptance.md). These rows are QA
-fixtures, not real recorded Steam prices. The separate final browser-QA report is
-still pending; no browser result is claimed here.
+Portable browser-history fixtures are merged in `2e85fcb` and `8f167c5`; the
+test-only persistent fixture-disclosure setup in `c90eb0d` adds three targeted
+tests. Together, eight targeted fixture tests passed. The disclosure banner is
+present in the local fixture server and absent from the production build. The
+optional synthetic-history scenario and exact local-only commands are in
+[browser fixture acceptance](browser-fixture-acceptance.md). Synthetic rows are
+not real recorded Steam prices. The separate final browser-QA report is still
+pending; no browser result is claimed here.
 
 ## Owner acceptance still needed
 
