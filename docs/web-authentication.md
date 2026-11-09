@@ -114,6 +114,16 @@ Flutter/device checks were not rerun for this merge; mobile code was preserved
 from PR #61. Captured-message acceptance still does not establish real mailbox
 delivery.
 
+## PR #61 documentation refresh
+
+The branch also includes PR #61 through `c33f8d4`. Changes since `cda1096` are
+documentation-only: they record successful Android permission-cleanup and
+fresh-process logout device retests, distinguish the final unverified duplicate
+arrival, and consolidate remaining owner actions in [next steps](next-steps.md).
+No application code, dependencies or authentication behavior changed in this
+refresh; the 708-test combined validation above remains the recorded code result,
+not a new test run. Real mailbox acceptance for Issue #10 is still pending.
+
 ## Deferred real mailbox acceptance
 
 Issue [#10](https://github.com/aluciencozy/price-tracker/issues/10) still needs real

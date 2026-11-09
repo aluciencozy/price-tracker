@@ -16,7 +16,7 @@ record is still evidence only for its older sample-mode build `b668d1e`; see
 | Accounts and private data | Verified account/session routes are mounted. With `PRICE_TRACKING_ENABLED=true`, the API composes Steam preview, owned tracker CRUD/history, and admin-only check routes. Device endpoints require a verified mobile session. | Tracking is off by default. Remote MongoDB, actual HTTPS/CORS, mailbox links, two-user ownership, and deployed cross-client acceptance are pending. |
 | Price checks | Scheduled and admin checks use the shared service. One bounded live application-adapter lookup for Portal 2 completed on November 9; see the [adapter report](test-results/live-adapter-2026-11-09.md). | No cron or second checker is part of this design. One dated lookup does not prove a deployed daily run, a checkout quote, or host uptime/cost acceptance. |
 | Alert state and delivery | Saved alert records remember each qualifying price episode and keep email and push delivery attempts separate. All live delivery flags default off. | Fixture tests and manual transport events do not prove sender approval, mailbox arrival, a qualifying outbox episode, or exactly-once delivery. An uncertain send may need owner review. |
-| Mobile push | The merged client has an opt-in Firebase gateway (`ANDROID_PUSH_ENABLED=true` plus explicit public Firebase build values). Controlled real FCM transport reached an Android emulator; see the [desktop report](test-results/android-desktop-2026-11-09.md). | It stays off by default. Permission-denial cleanup failed on the initial build; the integrated fix awaits a device retest. Project/billing and operational acceptance remain open. |
+| Mobile push | The merged client has an opt-in Firebase gateway (`ANDROID_PUSH_ENABLED=true` plus explicit public Firebase build values). Controlled real FCM transport reached an Android emulator; see the [desktop report](test-results/android-desktop-2026-11-09.md). | It stays off by default. Permission-denial cleanup and fresh-process logout passed retesting, but the final post-permission duplicate's arrival was unverified. Other device cases, project/billing and operational acceptance remain open. |
 
 The [mobile push setup](mobile-push-setup.md) lists the public Flutter defines:
 `ANDROID_PUSH_ENABLED=true`, `FIREBASE_API_KEY`, `FIREBASE_APP_ID`,
@@ -44,9 +44,9 @@ findings. Issue [#23](https://github.com/aluciencozy/price-tracker/issues/23) is
 closed for fixture-tested backend results; that does not close deployed
 acceptance. Earlier browser-only QA retains its historical 687-test result.
 
-The independent mobile review passed **237 Flutter tests** on Flutter 3.47.9 /
-Dart 3.13.7. The permission-cleanup debug APK at `4a9a968` built offline; its
-device retest remains pending. The repository remains pinned to Flutter 3.47.7 /
+The independent mobile review passed formatting, analysis, and **237 Flutter tests**
+on Flutter 3.47.9 / Dart 3.13.7. The permission-cleanup debug APK at `4a9a968`
+built offline and passed the device permission retest. The repository remains pinned to Flutter 3.47.7 /
 Dart 3.13.5. Controlled real FCM receipt and local cross-client checks are recorded
 separately in the [desktop report](test-results/android-desktop-2026-11-09.md);
 they do not prove a qualifying outbox episode or deployed delivery.
@@ -70,9 +70,9 @@ application adapter, documented in the [adapter report](test-results/live-adapte
 That report records one exact Portal 2 identity and a dated provider response; it
 does not prove a checkout quote, broader catalog support, or a deployed daily
 check. The lookup created no price-history observation. The online adapter check
-for issue [#12](https://github.com/aluciencozy/price-tracker/issues/12) is ready
-for closure after this reviewed evidence is merged; the issue remains open until
-then.
+for issue [#12](https://github.com/aluciencozy/price-tracker/issues/12) is
+reviewed and the issue is closed. The evidence is integrated in the reviewed
+branch, not yet in Staging.
 
 Portable browser-history fixtures are merged in `2e85fcb` and `8f167c5`; the
 test-only persistent fixture-disclosure setup in `c90eb0d` adds three targeted
@@ -103,7 +103,7 @@ fixture suite is not enough.
 | [#7](https://github.com/aluciencozy/price-tracker/issues/7), Nick | Confirm Resend sender-domain verification, recipient limits, shared account/alert allocation, published templates, and receipt at a team mailbox without paid billing or overages. |
 | [#8](https://github.com/aluciencozy/price-tracker/issues/8), [#9](https://github.com/aluciencozy/price-tracker/issues/9), [#10](https://github.com/aluciencozy/price-tracker/issues/10), James / Martin | Run the real verify, login, reset, logout/revocation, and browser-link flow against the approved service and mailbox; retain the two-user security and ownership checks. |
 | [#15](https://github.com/aluciencozy/price-tracker/issues/15), Nick | Observe the built-in daily UTC job and shared admin check on the approved always-running host; inspect run/retry recovery and sanitized logs. Do not add cron beside the API scheduler. |
-| [#17](https://github.com/aluciencozy/price-tracker/issues/17), Ibrahim | Approve the Firebase project, Spark/billing status and server credentials; retest permission-denial cleanup on the integrated Android build. Controlled real emulator receipt is recorded, but keep `PRICE_PUSH_ENABLED=false` until operational acceptance. |
+| [#17](https://github.com/aluciencozy/price-tracker/issues/17), Ibrahim | Approve the Firebase project, Spark/billing status and server credentials; address remaining unverified device cases. Permission cleanup and controlled emulator receipt passed, but the final post-permission duplicate's arrival was unverified. Keep `PRICE_PUSH_ENABLED=false` until operational acceptance. |
 | [#18](https://github.com/aluciencozy/price-tracker/issues/18), Nick | Verify real email and Android delivery for one eligible episode, channel isolation, retries, and repeated-check deduplication. A target edit demonstrates qualification, not a new sale. |
 | [#26](https://github.com/aluciencozy/price-tracker/issues/26), Ibrahim | Deploy an approved integration commit and verify HTTPS, production origins, database readiness/indexes, a daily run, recovery, email, push, and rollback. The November 5 `b668d1e` sample-mode record is not this deployment. |
 | [#27](https://github.com/aluciencozy/price-tracker/issues/27), James | Record the deployed two-user security and end-to-end acceptance, including a real supported Steam offer, failures, and recovery. |
@@ -112,7 +112,8 @@ fixture suite is not enough.
 The remaining data-retention decision is whether to keep observed-price history
 for 90 days; source-owner/team approval is pending. The one-off adapter lookup
 created no history and does not resolve that decision. Do not enable live history
-collection until owners approve it. The source research issue #3 is closed; its
+collection, including disposable tests, until owners approve it. This blocks the
+real qualifying-episode test. The source research issue #3 is closed; its
 completed research does not need to be reopened for this separate decision.
 
 No issue state was changed for this documentation handoff. Real-price
