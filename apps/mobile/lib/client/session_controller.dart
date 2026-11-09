@@ -53,7 +53,14 @@ class SessionController extends ChangeNotifier {
       throw const ApiFailure('STORAGE', 'Could not read the secure session.');
     }
     if (_disposed) return;
-    if (saved == null) return;
+    if (saved == null) {
+      // A previous process may have deleted credentials before its native push
+      // cleanup committed. Only now is signed-out state known: await the same
+      // privacy barrier as rejected/expired restores, without clearing a valid
+      // session's durable episode receipts while its read or /me is pending.
+      await _clear();
+      return;
+    }
     Session session;
     try {
       session = Session.fromJson(jsonObject(jsonDecode(saved)));
