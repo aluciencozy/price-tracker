@@ -1,0 +1,41 @@
+@startuml
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 17
+skinparam shadowing false
+skinparam sequenceParticipantBackgroundColor #F1FAF9
+skinparam sequenceParticipantBorderColor #147D80
+skinparam ArrowColor #48677A
+title Price check | implementation flow, not live acceptance proof
+actor "Scheduler /\nadmin" as Trigger
+participant "Bounded check\nworker" as Worker
+database "MongoDB\nclaims + history" as DB
+participant "Provider cache\n+ budget" as Cache
+participant CheapShark as CS
+participant "Episode\nevaluator" as Eval
+participant "Delivery\ndispatch" as Dispatch
+participant "Resend / FCM" as External
+Trigger -> Worker : scheduled or admin-only manual run
+Worker -> DB : claim due product (fenced lease)
+Worker -> Cache : resolve shared game / Steam offer
+Cache -> CS : fixed endpoint; bounded request (if needed)
+CS --> Cache : offer / error / 429
+alt successful exact Steam offer
+ Cache --> Worker : normalized USD cents
+ Worker -> DB : fenced write: product + observed history
+ Worker -> Eval : evaluate owned trackers
+ Eval -> DB : episode state + unique channel outbox
+ note over Eval,DB : <= target opens once; successful > target rearms.\nTarget change can start new evaluation.
+ Worker -> Dispatch : post-check delivery hook
+ Dispatch -> DB : claim eligible channel delivery
+ Dispatch -> External : email or push independently
+ External --> Dispatch : accepted / failure / unknown
+ Dispatch -> DB : record channel outcome
+ note over Dispatch,External : Permission and active owned session gate push.\nUnknown send is reconciled, not blindly retried.\nNo end-to-end exactly-once guarantee.
+else error, missing offer or throttle
+ Cache --> Worker : failure / Retry-After
+ Worker -> DB : retain last success; record failure
+ note over Worker,DB : No zero fallback, history, alert or rearm.
+end
+caption History collection requires source-policy approval; diagram is not proof of live collection.
+@enduml

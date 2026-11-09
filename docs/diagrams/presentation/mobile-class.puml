@@ -1,0 +1,87 @@
+@startuml
+!pragma layout smetana
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 17
+skinparam shadowing false
+skinparam classBackgroundColor #F1FAF9
+skinparam classBorderColor #147D80
+skinparam ArrowColor #48677A
+hide empty members
+left to right direction
+title Flutter Android | principal implemented classes
+package "Screens / state" {
+ class WatchlistScreen
+ class DetailScreen
+ class LiveAuthScreen
+ class PushAccountStatus
+}
+package "API and session" {
+ class SessionController {
+ +restore()
+ +login()
+ +logout()
+ }
+ class SecureSessionStore
+ class HttpTrackerRepository {
+ +list()
+ +preview()
+ +history()
+ +create() / update() / delete()
+ }
+ class MobileApi {
+ +login()
+ +list()
+ +history()
+ }
+ class TrackedItem
+ class History
+}
+package "Android push" {
+ class PushIntegrationController {
+ +synchronize()
+ +tokenChanged()
+ +foreground() / tap()
+ }
+ class PushRegistration {
+ +synchronize()
+ }
+ class FirebasePushGateway {
+ +permission()
+ +token()
+ }
+ class HttpDeviceEndpoint {
+ +register()
+ +unregisterInstallation()
+ }
+ class AtomicPushStorage {
+ +claim()
+ +bindSession()
+ }
+ class SecureDeviceBindingStore
+}
+WatchlistScreen --> HttpTrackerRepository
+DetailScreen --> HttpTrackerRepository
+LiveAuthScreen --> SessionController
+PushAccountStatus --> PushIntegrationController
+SessionController --> SecureSessionStore
+SessionController --> MobileApi
+HttpTrackerRepository --> MobileApi
+MobileApi ..> TrackedItem
+MobileApi ..> History
+PushIntegrationController --> SessionController
+PushIntegrationController --> PushRegistration
+PushIntegrationController --> AtomicPushStorage
+PushRegistration --> FirebasePushGateway
+PushRegistration --> HttpDeviceEndpoint
+PushRegistration --> SecureDeviceBindingStore
+note bottom of AtomicPushStorage
+ SQLite atomically claims event IDs; no JWT stored in plain SQLite.
+ Binding metadata and session credentials use secure storage.
+end note
+note bottom of HttpDeviceEndpoint
+ API mode is explicit opt-in. Logout cleanup removes by installation,
+ scoped to current user and session; session-race guard protects switches.
+end note
+caption Mobile JWT is backed by a revocable server session; web uses an opaque cookie, not JWT storage.
+@enduml
