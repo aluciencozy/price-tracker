@@ -220,6 +220,14 @@
         "responses": {"201": {"description": "Owned session-bound device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Device"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "413": {"$ref": "#/components/responses/PayloadTooLarge"}, "415": {"$ref": "#/components/responses/UnsupportedMediaType"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
       }
     },
+    "/api/devices/installation/{installationId}": {
+      "delete": {
+        "operationId": "removeDeviceInstallation", "tags": ["Devices"], "security": [{"mobileBearer": []}],
+        "parameters": [{"name": "installationId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}, "description": "Locally generated installation UUID (including UUIDv4/v7), normalized to lowercase. A selector, never an authorization credential."}],
+        "description": "No body or query parameters. Recover permission-denial cleanup after process death without registering a device to discover its ID. Require a verified active mobile bearer session; reject web cookies and mixed credentials. Atomically delete only the binding matching the current user, current session and normalized installation UUID. Always 204 for a valid UUID with no owned match, including foreign users, other sessions and rebound installations; disclose no metadata. Invalid UUID/query returns 422; submitted body returns 400. Existing DELETE /devices/{id} retains its 404 behavior. Uses the shared 120/minute/session limit once per request.",
+        "responses": {"204": {"description": "Owned current-session installation unbound, or no matching binding; no body"}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "422": {"$ref": "#/components/responses/Validation"}, "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      }
+    },
     "/api/devices/{id}": {
       "parameters": [{"$ref": "#/components/parameters/Id"}],
       "put": {

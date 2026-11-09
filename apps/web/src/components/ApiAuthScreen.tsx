@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useApiSession, isAborted } from '../client/sessionContext';
 import type { EmailLink } from '../client/runtime';
 import { ClientError } from '../client/http';
@@ -10,11 +10,12 @@ import {
   FieldLabel,
   FieldSet,
   FieldDescription,
+  FieldError,
 } from './ui/field';
 import { Input } from './ui/input';
 import { Status } from './Ui';
 import { RequestError } from './RequestError';
-import { useRetryWait } from '../data/useRetryWait';
+import { errorDetails, useRetryWait } from '../data/useRetryWait';
 
 export type AuthPage = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 const titles = {
@@ -35,7 +36,9 @@ export default function ApiAuthScreen({
 }) {
   const { client, busy: restoring } = useApiSession()!;
   const navigate = useNavigate();
+  const location = useLocation();
   const controller = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
@@ -44,7 +47,9 @@ export default function ApiAuthScreen({
       controller.current?.abort();
     };
   }, []);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() =>
+    page === 'verify' && typeof location.state?.verificationEmail === 'string'
+      ? location.state.verificationEmail : '');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -54,10 +59,17 @@ export default function ApiAuthScreen({
   const [complete, setComplete] = useState(false);
   const wait = useRetryWait(error);
   const token = emailLink?.page === page ? emailLink.token : null;
+  const verificationState = { verificationEmail: email };
+  const fields = errorDetails(error)?.fields;
+  const fieldErrors = (name: string) => fields?.filter(field => field.path === `/${name}`);
+  const inputErrors = (name: string) => ({
+    'aria-invalid': fieldErrors(name)?.length ? true : undefined,
+    'aria-describedby': fieldErrors(name)?.length ? `${name}-error` : undefined,
+  });
   const needsPassword = ['login', 'register', 'reset'].includes(page);
   async function submit(event: SubmitEvent<HTMLFormElement>, resend = false) {
     event.preventDefault();
-    if (busy || wait || (restoring && page !== 'login')) return;
+    if (inFlight.current || wait || (restoring && page !== 'login')) return;
     setError(undefined);
     setMessage('');
     if (
@@ -80,6 +92,7 @@ export default function ApiAuthScreen({
     controller.current = current;
     const options = { signal: current.signal };
     const previousSession = client.getSession();
+    inFlight.current = true;
     setBusy(true);
     try {
       let result: { message: string } | undefined;
@@ -128,6 +141,7 @@ export default function ApiAuthScreen({
         } else setError(error);
       }
     } finally {
+      inFlight.current = false;
       if (active.current) setBusy(false);
     }
   }
@@ -152,12 +166,14 @@ export default function ApiAuthScreen({
                     <FieldLabel htmlFor="email">Email</FieldLabel>
                     <Input
                       id="email"
+                      {...inputErrors('email')}
                       type="email"
                       autoComplete="email"
                       required={page !== 'verify' || !token}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
+                    <FieldError id="email-error" errors={fieldErrors('email')} />
                   </Field>
                 ) : null}
                 {page === 'register' ? (
@@ -165,11 +181,13 @@ export default function ApiAuthScreen({
                     <FieldLabel htmlFor="name">Name (optional)</FieldLabel>
                     <Input
                       id="name"
+                      {...inputErrors('name')}
                       autoComplete="name"
                       maxLength={100}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                     />
+                    <FieldError id="name-error" errors={fieldErrors('name')} />
                   </Field>
                 ) : null}
                 {needsPassword ? (
@@ -179,6 +197,7 @@ export default function ApiAuthScreen({
                     </FieldLabel>
                     <Input
                       id="password"
+                      {...inputErrors('password')}
                       type="password"
                       autoComplete={
                         page === 'login' ? 'current-password' : 'new-password'
@@ -189,6 +208,7 @@ export default function ApiAuthScreen({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />
+                    <FieldError id="password-error" errors={fieldErrors('password')} />
                     <FieldDescription>
                       {page === 'login'
                         ? 'Use your verified account password.'
@@ -260,7 +280,7 @@ export default function ApiAuthScreen({
               <RequestError error={error} />
               {error instanceof ClientError &&
               error.details.code === 'EMAIL_UNVERIFIED' ? (
-                <Link className="text-link" to="/verify">
+                <Link className="text-link" to="/verify" state={verificationState}>
                   Verify or resend email
                 </Link>
               ) : null}
@@ -273,6 +293,11 @@ export default function ApiAuthScreen({
         {message ? (
           <div className="mt-5">
             <Status>{message}</Status>
+            {complete && page === 'register' ? (
+              <Link className="text-link" to="/verify" state={verificationState}>
+                Verify or resend email
+              </Link>
+            ) : null}
           </div>
         ) : null}
         <div className="auth-links">

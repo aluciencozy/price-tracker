@@ -1,17 +1,66 @@
-/** Explicit LOCAL TEST harness. Never imported by server.ts or normal test suites. */
+/** Explicit LOCAL TEST harness. Imported only by its fixture tests, never server.ts. */
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import express from 'express';
 import type { Server } from 'node:http';
+import { pathToFileURL } from 'node:url';
 import { createApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { createDatabaseIndexes } from '../../src/models/index.js';
 import { ProductModel } from '../../src/models/product.js';
+import { PriceHistoryModel } from '../../src/models/tracking.js';
 import { startAccountMailDispatcher } from '../../src/verificationDispatch.js';
 import { sendWithOutcome } from '../../src/emails.js';
 import { reserveEmailSend } from '../../src/emailBudget.js';
 
-const uri = 'mongodb://127.0.0.1:27060/?replicaSet=pt_test';
+const uri = 'mongodb://127.0.0.1:27119/?replicaSet=pt_mvp_test';
+const databasePattern = /^price_tracker_test_browser_[a-f0-9]{32}$/;
+
+/** Only a single loopback MongoDB host, without credentials or an application database. */
+export function browserTestMongoAddress(value: string | undefined): { host: string; port: number } {
+  try {
+    const url = new URL(value ?? '');
+    if (url.protocol !== 'mongodb:' || !['127.0.0.1', 'localhost'].includes(url.hostname) ||
+        !url.port || url.username || url.password || !['', '/'].includes(url.pathname) || url.hash) throw new Error();
+    const port = Number(url.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error();
+    return { host: url.hostname, port };
+  } catch {
+    throw new Error('A single local TEST_MONGODB_URI without credentials or a database is required.');
+  }
+}
+
+export function assertBrowserTestDatabase(dbName: string) {
+  const address = browserTestMongoAddress(process.env.TEST_MONGODB_URI);
+  if (process.env.BROWSER_TEST_DISPOSABLE !== '1' || !databasePattern.test(dbName) ||
+      mongoose.connection.name !== dbName || mongoose.connection.readyState !== 1 ||
+      mongoose.connection.host !== address.host || mongoose.connection.port !== address.port) {
+    throw new Error('Refusing to seed outside the guarded browser-test database.');
+  }
+}
+
+/** Synthetic QA-only observations, never recorded Steam prices. */
+export async function seedBrowserProducts(dbName: string, history: boolean, now = new Date()) {
+  assertBrowserTestDatabase(dbName);
+  for (const game of [{ steamAppId: '620', providerGameId: '36', title: 'Portal 2', prices: [1499, 1199, 999] },
+    { steamAppId: '220', providerGameId: '59', title: 'Half-Life 2', prices: [799, 1299, 999] }]) {
+    const product = await ProductModel.create({ provider: 'cheapshark', storeId: '1', market: 'US', currency: 'USD',
+      steamAppId: game.steamAppId, providerGameId: game.providerGameId, title: game.title,
+      canonicalSteamUrl: `https://store.steampowered.com/app/${game.steamAppId}/`,
+      currentPriceMinor: 999, retailPriceMinor: null, dealId: 'browser-fixture',
+      purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=browser-fixture',
+      lastSuccessfulCheckAt: new Date(now.getTime() - 60_000), lastAttemptAt: new Date(now.getTime() - 60_000), nextCheckAt: new Date(now.getTime() + 86400000) });
+    if (history) {
+      for (const [index, priceMinor] of game.prices.entries()) {
+        await PriceHistoryModel.create({ productId: product._id, checkId: `browser-qa-${game.steamAppId}-${index + 1}`,
+          priceMinor, currency: 'USD', observedAt: new Date(now.getTime() - (2 - index) * 86400000 - 60_000),
+          source: 'CheapShark', dealId: 'browser-fixture' });
+      }
+    }
+  }
+}
+
+async function main() {
 if (process.env.BROWSER_TEST_DISPOSABLE !== '1' || process.env.TEST_MONGODB_URI !== uri) {
   throw new Error('Explicit disposable browser-test opt-in and approved TEST_MONGODB_URI required.');
 }
@@ -30,18 +79,11 @@ process.once('SIGTERM', requestStop);
 try {
 await mongoose.connect(uri, { dbName, autoIndex: false, serverSelectionTimeoutMS: 1000,
   connectTimeoutMS: 1000, socketTimeoutMS: 1000, waitQueueTimeoutMS: 500, bufferCommands: false });
-if (mongoose.connection.name !== dbName || !/^price_tracker_test_browser_[a-f0-9]{32}$/.test(dbName)) {
+if (mongoose.connection.name !== dbName || !databasePattern.test(dbName)) {
   throw new Error('Refusing unexpected browser-test database.');
 }
 await createDatabaseIndexes();
-for (const game of [{ steamAppId: '620', providerGameId: '36', title: 'Portal 2' },
-  { steamAppId: '220', providerGameId: '59', title: 'Half-Life 2' }]) {
-  await ProductModel.create({ ...game, provider: 'cheapshark', storeId: '1', market: 'US', currency: 'USD',
-    canonicalSteamUrl: `https://store.steampowered.com/app/${game.steamAppId}/`,
-    currentPriceMinor: 999, retailPriceMinor: null, dealId: 'browser-fixture',
-    purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=browser-fixture',
-    lastSuccessfulCheckAt: new Date(), lastAttemptAt: new Date(), nextCheckAt: new Date(Date.now() + 86400000) });
-}
+await seedBrowserProducts(dbName, process.env.BROWSER_TEST_HISTORY === '1');
 const config = loadConfig({ NODE_ENV: 'test', WEB_ORIGINS: origin,
   AUTH_JWT_SECRET: 'local-browser-test-only-never-a-production-secret' });
 const app = express();
@@ -106,3 +148,6 @@ await stopped;
     process.removeListener('SIGTERM', requestStop);
   }
 }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
