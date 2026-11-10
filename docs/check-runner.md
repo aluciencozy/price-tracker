@@ -98,38 +98,40 @@ using this resolver.
 
 ## Scheduler / explicit executable
 
-`server.ts` starts `startPriceCheckScheduler` only after MongoDB connects and
-startup indexes finish, and only when both `PRICE_TRACKING_ENABLED=true` and
-`PRICE_SCHEDULER_ENABLED=true`. The scheduler runs in the API process; the host
-must keep that process alive. Its first tick is 24 hours after scheduler startup.
-After a tick completes, the next tick is scheduled 24 hours later. This is an
-elapsed interval, not a fixed UTC wall-clock hour. Persisted timestamps and the
-Unix-day run-ID slot are UTC-based. `runOnStart` remains off.
+After MongoDB connects and startup indexes finish, `server.ts` starts
+`startBackgroundWorkers`. The price schedule runs in the API process and requires
+both `PRICE_TRACKING_ENABLED=true` and `PRICE_SCHEDULER_ENABLED=true`; the host
+must keep that process alive. The worker checks the current UTC-day slot at
+startup and then polls once per minute. It uses the durable run ID
+`scheduled_<UTC-day-number>` so the same day does not create duplicate runs. This
+is a UTC calendar-day schedule, not a 24-hour delay after startup.
 
-Each tick first calls `resumeDuePriceChecks` to resume up to ten due or expired
-runs, including accepted admin work, then starts the scheduled run. A restart
-recovers due work on the next scheduled tick (within the following interval), or
-when an administrator submits a manual check. Stop the loop before disconnecting
-MongoDB. Completion logs contain the run ID, status, counts and retry time; error
-logs omit provider/database details. Monitor the API service journal and inspect
+Due or interrupted work is handled by a separate recovery loop when
+`PRICE_RETRY_WORKER_ENABLED=true`. It checks for resumable work every minute by
+default, including admin runs. A restart can resume the same durable run; downtime
+does not create a separate run for every missed UTC day. Stop the workers before
+disconnecting MongoDB. Worker errors use fixed codes and do not include provider
+or database details; successful run summaries are persisted, not written to the
+service journal. Monitor the API service and inspect
 `GET /api/admin/price-checks/{id}` as a verified administrator. A `partial` run
 has failed work or retryable items; keep the same run identity when resuming.
 
 On the documented VM, configure the existing root-managed API environment file
-with `PRICE_TRACKING_ENABLED=true`, `PRICE_SCHEDULER_ENABLED=true`, and the
-already-required stable `TRACKING_CURSOR_SECRET`. Preserve the existing Atlas URI
-and authentication secrets. Never copy values into this repository or enable
-the switches on a host that is not approved to make live provider requests.
+with `PRICE_TRACKING_ENABLED=true`, `PRICE_SCHEDULER_ENABLED=true`,
+`PRICE_RETRY_WORKER_ENABLED=true`, and the already-required stable
+`TRACKING_CURSOR_SECRET`. Preserve the existing Atlas URI and authentication
+secrets. Never copy values into this repository or enable the switches on a host
+that is not approved to make live provider requests.
 After updating settings, rebuild/redeploy the API, restart its systemd service,
-and verify `/api/ready`, the scheduler startup conditions, the completion log,
-and the persisted run through the admin status route. Do not infer a successful
-scheduled run from health/readiness alone.
+and verify `/api/ready`, the scheduler startup conditions, and the persisted run
+through the admin status route. Do not infer a successful scheduled run from
+health/readiness or service logs alone.
 
 The deployed VM notes currently identify release `b668d1e`; that commit's
-`server.ts` does not contain the scheduler wiring. A redeploy of a commit with
-the current `server.ts` and approved environment settings is required before
-Issue #15 can claim deployed scheduler evidence. Host uptime and cost approval
-remain infrastructure acceptance items.
+`server.ts` does not contain the current background-worker wiring. A redeploy of
+a commit with the current `server.ts` and approved environment settings is
+required before Issue #15 can claim deployed scheduler evidence. Host uptime and
+cost approval remain infrastructure acceptance items.
 
 ```sh
 npm run check:prices --workspace @price-tracker/api -- --run-id demo-check-20261106 --mode cli --max-products 20

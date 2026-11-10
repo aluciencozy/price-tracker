@@ -117,18 +117,21 @@ evidence that they have been deployed or enabled on the VM.
 To deploy the scheduler, first confirm the VM remains approved and continuously
 running within the project's $0 constraint. Then deploy a reviewed commit that
 contains the current API wiring and configure `PRICE_TRACKING_ENABLED=true`,
-`PRICE_SCHEDULER_ENABLED=true`, and the existing stable `TRACKING_CURSOR_SECRET`
-in `/etc/price-tracker/api.env`; retain the existing MongoDB and auth settings.
-Restart `price-tracker-api` using the documented deployment procedure. The
-scheduler starts after MongoDB and indexes are ready, waits 24 hours for its
-first tick, resumes due persisted runs before creating that tick's scheduled run,
-and waits another 24 hours after completion for the next tick.
+`PRICE_SCHEDULER_ENABLED=true`, `PRICE_RETRY_WORKER_ENABLED=true`, and the existing
+stable `TRACKING_CURSOR_SECRET` in `/etc/price-tracker/api.env`; retain the
+existing MongoDB and auth settings. Restart `price-tracker-api` using the
+documented deployment procedure. After MongoDB and indexes are ready, the API
+worker checks the current UTC-day slot at startup and polls every minute. It uses
+one durable run ID per UTC day. A separate recovery loop checks due persisted
+runs every minute by default; downtime does not create a run for every missed day.
 
-Issue #15 remains unverified on the live host until the service journal records a
-scheduled run and an authenticated admin can inspect that run at
-`GET /api/admin/price-checks/{id}`. Readiness alone does not prove the scheduler
-is enabled or has completed a check. Never run a live price check just to create
-evidence without the team's approved provider budget and authorized operator.
+Issue #15 remains unverified on the live host until an authenticated admin can
+inspect a completed scheduled run at `GET /api/admin/price-checks/{id}`. Worker
+errors are logged with fixed codes, but successful run summaries are persisted
+for the admin status route rather than written to the service journal. Readiness
+alone does not prove the scheduler is enabled or has completed a check. Never run
+a live price check just to create evidence without the team's approved provider
+budget and authorized operator.
 
 This reuses the existing authorized VM. It creates no additional paid VM, storage
 plan, purchased domain or billing upgrade. It does not establish that the existing

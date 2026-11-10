@@ -12,7 +12,7 @@ payment method, paid tier or billing upgrade has been created by this work.
 | --- | --- | --- |
 | Remote database | MongoDB Atlas Free/M0 | 512 MB including indexes, 100 operations/second, 10 GB in and out per rolling seven days. Provision and run our connection/index/transaction checks before acceptance. |
 | API and web | Azure App Service Linux F1 | Shared CPU, 60 CPU minutes/day, 1 GB memory and storage. Provider HTTPS hostname; cold starts and quota shutdown possible, no SLA. Intended for learning/demo rather than supported production use. |
-| Daily price scheduler | In-process timer in the API service on the documented Azure VM | No separate runner or service is added. The API process must stay running; checks begin 24 hours after scheduler startup and repeat 24 hours after each tick completes. Verify host uptime/cost approval, both opt-in flags, restricted Atlas access, and real persisted run evidence before acceptance. |
+| Daily price scheduler | In-process worker in the API service on the documented Azure VM | No separate runner or service is added. The API process checks the current UTC-day slot at startup and polls every minute, creating at most one durable scheduled run per UTC day. Verify host uptime/cost approval, tracking/scheduler/recovery flags, restricted Atlas access, and real persisted run evidence before acceptance. |
 | Email / Android push | Existing team email adapter / Firebase FCM | Coordinate #7/#17/#18. Configuration and real delivery proof remain required. Never enable billing to unlock cloud functions. |
 
 Sources checked November 4: [Atlas Free limits](https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/),
