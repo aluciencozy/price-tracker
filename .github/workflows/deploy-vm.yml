@@ -27,8 +27,8 @@ jobs:
     env:
       VM_HOST: price-tracker-ibrahim.northcentralus.cloudapp.azure.com
       VM_USER: azureuser
-      # Keep sample mode until the team explicitly enables and accepts API mode.
-      VITE_DATA_SOURCE: ${{ vars.VM_WEB_DATA_SOURCE || 'sample' }}
+      # Public releases must use the real API; sample data is local-only.
+      VITE_DATA_SOURCE: api
       VITE_API_BASE_URL: ''
     steps:
       - name: Select a tested main commit
@@ -58,7 +58,7 @@ jobs:
       - name: Build locked production assets
         run: |
           set -euo pipefail
-          [[ "$VITE_DATA_SOURCE" == sample || "$VITE_DATA_SOURCE" == api ]]
+          [[ "$VITE_DATA_SOURCE" == api ]]
           npm ci
           npm run build
       - name: Package the production release

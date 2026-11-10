@@ -122,9 +122,8 @@ export default function Account() {
         <section className="android-note">
           <h2>Notifications</h2>
           <p>
-            Manage alerts per game. Android push requires an opted-in registered
-            device; this website does not register devices or check readiness.
-            Browser push is not supported, and preferences do not confirm delivery.
+            Choose email and Android alerts for each game in your watchlist.
+            To receive push notifications, allow notifications in the Android app.
           </p>
           <Button asChild variant="outline">
             <Link to="/watchlist">Open watchlist</Link>

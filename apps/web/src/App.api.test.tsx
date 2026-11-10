@@ -78,6 +78,26 @@ afterEach(() => {
 });
 
 describe('explicit sample/API selection', () => {
+  it('defaults release builds to the API and rejects an explicitly configured sample', () => {
+    vi.stubEnv('PROD', true);
+    vi.stubEnv('VITE_DATA_SOURCE', undefined);
+    expect(createRuntime().mode).toBe('api');
+    expect(createRuntime('sample').mode).toBe('invalid');
+  });
+  it('keeps development controls and fixture content out of the production account flow', async () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('PROD', true);
+    open('/', () => undefined, null);
+    for (const link of await screen.findAllByRole('link', { name: 'Sign in' }))
+      expect(link).toHaveAttribute('href', '/login');
+    for (const link of screen.getAllByRole('link', { name: 'Create account' }))
+      expect(link).toHaveAttribute('href', '/register');
+    expect(screen.queryByText('Development tools')).not.toBeInTheDocument();
+    expect(screen.queryByText('API mode')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sample mode')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Example tracker')).not.toBeInTheDocument();
+    expect(screen.queryByText('$9.99')).not.toBeInTheDocument();
+  });
   it('defaults to a fresh sample boundary with no session restore, storage, or real credential fields', async () => {
     vi.stubEnv('VITE_DATA_SOURCE', undefined);
     const fetch = vi.fn();
@@ -111,7 +131,7 @@ describe('explicit sample/API selection', () => {
 describe('real cookie session screens', () => {
   it('adapts homepage actions and the header to an authenticated session', async () => {
     open('/');
-    await screen.findByText('Saved games use your private account and the shared API.');
+    await screen.findByText('Your watchlist and alert settings are private to your account.');
     const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
     expect(nav.getByRole('link', { name: 'Watchlist' })).toBeVisible();
     expect(nav.getByRole('link', { name: 'Account' })).toBeVisible();

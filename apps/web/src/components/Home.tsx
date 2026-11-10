@@ -22,8 +22,8 @@ export default function Home() {
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button asChild size="lg">
-            <Link to="/watchlist">
-              {api ? 'Open watchlist' : 'Try sample'}
+            <Link to={api && !authenticated ? '/login' : '/watchlist'}>
+              {api ? authenticated ? 'Open watchlist' : 'Sign in' : 'Try sample'}
             </Link>
           </Button>
           <Button asChild size="lg" variant="outline">
@@ -35,12 +35,12 @@ export default function Home() {
         <p className="hero-note">
           {api
             ? authenticated
-              ? 'Saved games use your private account and the shared API.'
-              : 'Sign in with a verified account. Saved games use the shared API.'
+              ? 'Your watchlist and alert settings are private to your account.'
+              : 'Create an account to save your games and price targets.'
             : 'No sign-up needed for the sample. Nothing is saved.'}
         </p>
       </section>
-      <section className="landing-example" aria-label="Example tracker">
+      {!api ? <section className="landing-example" aria-label="Example tracker">
         <div className="example-intro">
           <span>A small list. A clear target.</span>
           <span>Sample view</span>
@@ -70,7 +70,7 @@ export default function Home() {
         <p className="example-caption">
           October 26 snapshot via CheapShark. Not a live quote.
         </p>
-      </section>
+      </section> : null}
       <section className="how-it-works" aria-labelledby="how-title">
         <Separator />
         <div className="section-intro">
@@ -80,8 +80,7 @@ export default function Home() {
             More playing.
           </h2>
           <p>
-            The planned service follows one exact Steam base-game offer. No
-            all-store price guessing.
+            {api ? 'Track the Steam offer for each supported base game, in US dollars.' : 'The planned service follows one exact Steam base-game offer. No all-store price guessing.'}
           </p>
         </div>
         <div className="steps">
@@ -100,7 +99,7 @@ export default function Home() {
             <h3>Hear when it qualifies</h3>
             <p>
               {api
-                ? 'The server checks daily. Email and opted-in Android push depend on configured services; saving a target does not prove delivery.'
+                ? 'Choose email or Android notifications for each game. Enable Android notifications in the mobile app.'
                 : 'Planned daily checks, email, and opted-in Android push. Not connected in this sample.'}
             </p>
           </article>

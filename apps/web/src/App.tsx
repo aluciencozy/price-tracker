@@ -80,16 +80,14 @@ function AppContent({
         Skip to content
       </a>
       <Header />
-      <div className="sample-disclosure">
+      {!api ? <div className="sample-disclosure">
         <div className="shell">
-          <strong>{api ? 'API mode' : 'Sample mode'}</strong>
+          <strong>Sample mode</strong>
           <span>
-            {api
-              ? 'Connected data only. Availability and delivery depend on the shared service.'
-              : 'Not live. Changes reset on refresh; no real accounts or alerts.'}
+            Not live. Changes reset on refresh; no real accounts or alerts.
           </span>
         </div>
-      </div>
+      </div> : null}
       <main id="main" className="shell main-content" tabIndex={-1}>
         <Routes key={`${location.pathname}:${revision}`}>
           <Route path="/" element={<Home />} />
@@ -205,7 +203,7 @@ function AppContent({
             . Not affiliated with Steam.
           </p>
         </div>
-        <details className="developer-tools">
+        {import.meta.env.DEV ? <details className="developer-tools">
           <summary>Development tools</summary>
           <div className="developer-content">
             {onScenario ? (
@@ -244,7 +242,7 @@ function AppContent({
               <ConnectionCheck />
             </details>
           </div>
-        </details>
+        </details> : null}
       </footer>
     </div>
   );

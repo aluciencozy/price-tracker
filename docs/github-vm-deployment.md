@@ -47,9 +47,11 @@ open an ordinary shell, allocate a terminal, or forward ports. Deploy permission
 still allows replacing application code, so restrict repository write access.
 The helper uses the existing VM sudo access; it does not add a general sudo grant.
 
-`VM_WEB_DATA_SOURCE` is an optional repository **variable**, `sample` by default.
-Set it to `api` only after the team accepts the real API flow and configures the
-matching server flags. Do not put credentials in public `VITE_` settings. This
+The workflow builds the public website with `VITE_DATA_SOURCE=api`. It no longer
+uses `VM_WEB_DATA_SOURCE` or publishes sample-mode releases. Release builds reject
+an explicitly configured sample data source; local development can still use fixtures.
+Before promotion, configure and validate account mail and the matching server flags.
+Do not put credentials in public `VITE_` settings. This
 workflow does not turn on tracking, scheduled provider calls, account mail or
 push. These require separate operational acceptance and server configuration.
 

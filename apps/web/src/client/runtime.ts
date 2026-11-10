@@ -11,8 +11,13 @@ export type Runtime =
   | { mode: 'api'; client: WebClient }
   | { mode: 'invalid'; message: string };
 export function createRuntime(
-  source = import.meta.env.VITE_DATA_SOURCE ?? 'sample',
+  source = import.meta.env.VITE_DATA_SOURCE ?? (import.meta.env.PROD ? 'api' : 'sample'),
 ): Runtime {
+  if (import.meta.env.PROD && source === 'sample')
+    return {
+      mode: 'invalid',
+      message: 'Price Tracker is temporarily unavailable. Please try again later.',
+    };
   if (source === 'sample') {
     const repository = createSampleRepository();
     return {

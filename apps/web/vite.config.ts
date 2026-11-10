@@ -4,8 +4,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  if (command === 'build' && (process.env.VITE_DATA_SOURCE ?? env.VITE_DATA_SOURCE ?? 'api') !== 'api') {
+    throw new Error('Release builds require VITE_DATA_SOURCE=api. Sample mode is local development only.');
+  }
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
