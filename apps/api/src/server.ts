@@ -38,6 +38,22 @@ if (config.MONGODB_URI) {
     if (stopping) return;
     stopWorkers = startBackgroundWorkers(config, () => !stopping && indexesReady && databaseStatus(config.MONGODB_URI) === 'connected', priceChecks);
     indexesReady = true;
+<<<<<<< Updated upstream
+=======
+    stopScheduler = startPriceCheckScheduler({
+      enabled: config.PRICE_SCHEDULER_ENABLED,
+      run: priceChecks.run,
+      onRun: ({ runId, status, total, counts, nextRetryAt }) => {
+        console.info('Scheduled price check finished.', JSON.stringify({
+          runId, status, total, counts, nextRetryAt,
+        }));
+      },
+      onError: () => {
+        // Do not print provider, database, or configuration errors to service logs.
+        console.error('Scheduled price check failed; inspect its persisted run status.');
+      },
+    });
+>>>>>>> Stashed changes
   }).catch(() => {
     // Do not log driver/adapter errors: they may contain credentials or URLs.
     console.error('Database, indexes or worker setup failed; /api/ready will report unavailable.');

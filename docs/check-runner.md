@@ -1,14 +1,15 @@
 # Bounded price checks (#12, #14, #15)
 
-## Integration handoff (not mounted here)
+## Current API integration
 
 - `runPriceChecks({runId, mode, maxProducts?})` in `src/priceChecks.ts` runs/resumes
   one durable batch. Modes are `scheduled`, `admin`, and explicit `cli`.
 - `getPriceCheckRun(runId)` returns internal operational details. Do not serialize
   this object to clients. `publicPriceCheck` maps it to the existing strict OpenAPI
   aggregate DTO, without individual checks, users, leases or provider payloads.
-- `createAdminPriceCheckRouter(requireVerifiedUser(config))` mounts under `/api`.
-  The injected middleware must enforce verified/revocable sessions, transport
+- `server.ts` mounts tracking and the admin price-check routes only when
+  `PRICE_TRACKING_ENABLED=true`. `createAdminPriceCheckRouter` receives
+  `requireVerifiedUser(config)`, which enforces verified/revocable sessions, transport
   ambiguity, Origin and mutation CSRF before setting
   `res.locals.principal={userId,sessionId,transport,role}`. The router additionally
   requires the server-derived admin role. Do not add an admin bootstrap.
@@ -17,12 +18,8 @@
   {_id: Types.ObjectId}>`. Pass it to
   `createProductPreviewService({resolveProduct: resolveApprovedProductPreview})`.
   Mount history only through the tracking router, not again separately.
-- Both new models must be included in additive startup index creation (the local
-  `models/index.ts` change does this). Reconcile that file with other owners' new
-  models; do not replace their entries.
-
-No app/server/config/auth/tracking files are changed by this work. Enable only
-after independent review and source-retention approval required by `history.md`.
+- Price-check models are included in additive startup index creation. Keep them
+  registered alongside other model indexes.
 
 ## Admin contract and coordination
 
@@ -101,12 +98,38 @@ using this resolver.
 
 ## Scheduler / explicit executable
 
-`startPriceCheckScheduler({enabled:true, ...})` returns an async stop function.
-It is inert unless explicitly enabled; `runOnStart` is separately opt-in. Default
-24-hour slots are Unix/UTC-based. Each tick calls `resumeDuePriceChecks` to resume
-up to ten due/expired runs, including accepted admin work after restart,
-before starting its current slot. Stop the loop before disconnecting MongoDB.
-No hosting provider or external scheduling service is selected here.
+`server.ts` starts `startPriceCheckScheduler` only after MongoDB connects and
+startup indexes finish, and only when both `PRICE_TRACKING_ENABLED=true` and
+`PRICE_SCHEDULER_ENABLED=true`. The scheduler runs in the API process; the host
+must keep that process alive. Its first tick is 24 hours after scheduler startup.
+After a tick completes, the next tick is scheduled 24 hours later. This is an
+elapsed interval, not a fixed UTC wall-clock hour. Persisted timestamps and the
+Unix-day run-ID slot are UTC-based. `runOnStart` remains off.
+
+Each tick first calls `resumeDuePriceChecks` to resume up to ten due or expired
+runs, including accepted admin work, then starts the scheduled run. A restart
+recovers due work on the next scheduled tick (within the following interval), or
+when an administrator submits a manual check. Stop the loop before disconnecting
+MongoDB. Completion logs contain the run ID, status, counts and retry time; error
+logs omit provider/database details. Monitor the API service journal and inspect
+`GET /api/admin/price-checks/{id}` as a verified administrator. A `partial` run
+has failed work or retryable items; keep the same run identity when resuming.
+
+On the documented VM, configure the existing root-managed API environment file
+with `PRICE_TRACKING_ENABLED=true`, `PRICE_SCHEDULER_ENABLED=true`, and the
+already-required stable `TRACKING_CURSOR_SECRET`. Preserve the existing Atlas URI
+and authentication secrets. Never copy values into this repository or enable
+the switches on a host that is not approved to make live provider requests.
+After updating settings, rebuild/redeploy the API, restart its systemd service,
+and verify `/api/ready`, the scheduler startup conditions, the completion log,
+and the persisted run through the admin status route. Do not infer a successful
+scheduled run from health/readiness alone.
+
+The deployed VM notes currently identify release `b668d1e`; that commit's
+`server.ts` does not contain the scheduler wiring. A redeploy of a commit with
+the current `server.ts` and approved environment settings is required before
+Issue #15 can claim deployed scheduler evidence. Host uptime and cost approval
+remain infrastructure acceptance items.
 
 ```sh
 npm run check:prices --workspace @price-tracker/api -- --run-id demo-check-20261106 --mode cli --max-products 20
