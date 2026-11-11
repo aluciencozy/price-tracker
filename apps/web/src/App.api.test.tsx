@@ -156,12 +156,54 @@ describe('real cookie session screens', () => {
     expect(screen.getByText('Restoring your session…')).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
     await act(async () => me.resolve(json(error('AUTH_REQUIRED'), 401)));
-    expect(await screen.findByText('Sign in to continue')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Sign in to continue',
+      }),
+    ).toBeVisible();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole('list', { name: 'Saved games' }),
     ).not.toBeInTheDocument();
   });
+  it.each(['/watchlist', '/account'])(
+    'renders a signed-out H1 on %s without requesting private data',
+    async (path) => {
+      const { client, fetch, unexpected } = open(
+        path,
+        (requestPath) =>
+          requestPath.endsWith('/me')
+            ? json(error('AUTH_REQUIRED'), 401)
+            : undefined,
+        null,
+      );
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 1,
+          name: 'Sign in to continue',
+        }),
+      ).toBeVisible();
+      expect(client.getSession().status).toBe('anonymous');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [mePath, meRequest] = fetch.mock.calls[0]!;
+      expect(mePath).toBe('/api/auth/web/me');
+      expect(meRequest).toMatchObject({ method: 'GET' });
+      expect(
+        within(screen.getByRole('main')).getByRole('link', {
+          name: 'Sign in',
+        }),
+      ).toHaveAttribute('href', '/login');
+      expect(
+        screen.queryByRole('list', { name: 'Saved games' }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Sign out' }),
+      ).not.toBeInTheDocument();
+      expect(unexpected).toEqual([]);
+    },
+  );
   it('shows unknown/offline restore with explicit retry rather than pretending signed out', async () => {
     let attempts = 0;
     const { fetch } = open('/watchlist', (path) =>

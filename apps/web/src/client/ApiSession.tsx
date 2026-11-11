@@ -98,7 +98,10 @@ export function PrivateView({
       </Status>
     );
   return (
-    <Status title="Sign in to continue">
+    <Status>
+      <h1 className="mb-0.5 text-sm! font-medium text-foreground">
+        Sign in to continue
+      </h1>
       <p>
         Your session is missing, expired or revoked. Private data has been
         cleared.
