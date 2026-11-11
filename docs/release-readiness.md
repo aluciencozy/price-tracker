@@ -1,5 +1,12 @@
 # Release readiness — November 9, 2026
 
+**November 10 operational update:** the project lead approved the team's 90-day
+history policy. Tracking and the built-in daily/recovery workers are enabled on
+the existing VM. The first scheduled run completed without fetching prices,
+because no items were tracked. Account email and price email/push remain disabled
+and unaccepted. See [the live VM report](test-results/vm-operations-2026-11-10.md).
+The November 9 implementation and test evidence below remains historical.
+
 This is a handoff, not a release approval. It summarizes reviewed changes in
 backend runtime `6de4fb3`, dependency lockfile `b427837`, mobile push `d1a688c`
 with contention fix `d6d4b9e`, and portable browser-history fixtures
@@ -115,12 +122,12 @@ The required diagram sources and renders and the PowerPoint/PDF/presenter guide 
 
 Per the latest course instructions, **all five members upload the PPT to WebCourses individually**; Alex's coordination does not replace those uploads. Every member needs a meaningful speaking part; target 12 minutes and avoid exceeding 13. Bring PPT, PDF, and diagram exports on USB, not cloud-only. The signup spreadsheet needs the project title, GitHub URL, and verified current live domain (not an IP). Verify campus access two days and one day before the actual presentation date, allowing time for IT unblock; confirm the signup time and course date/deadline/time zone with the instructor. These presentation tasks do not close any application-release gate.
 
-The remaining data-retention decision is whether to keep observed-price history
-for 90 days; source-owner/team approval is pending. The one-off adapter lookup
-created no history and does not resolve that decision. Do not enable live history
-collection, including disposable tests, until owners approve it. This blocks the
-real qualifying-episode test. The source research issue #3 is closed; its
-completed research does not need to be reopened for this separate decision.
+The project lead approved the team's 90-day observed-price history policy on
+November 10. That internal decision is not a claim of special permission from
+Steam or CheapShark; provider usage rules still apply. The earlier one-off adapter
+lookup created no history. A real watched-game observation and qualifying episode
+remain unverified; the initial enabled scheduled run had no tracked items. Source
+research issue #3 remains closed.
 
 No issue state was changed for this documentation handoff. Real-price
 demonstrations must use a supported game and change the user's target around the
