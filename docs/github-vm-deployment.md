@@ -1,5 +1,9 @@
 # GitHub deployment to the existing Azure VM
 
+For the current custom domain, team SSH access, installed hourly timer and
+remaining email/push configuration, see the
+[November 10 operations checklist](vm-operations-2026-11-10.md).
+
 Supports [#26](https://github.com/aluciencozy/price-tracker/issues/26) and
 [#23](https://github.com/aluciencozy/price-tracker/issues/23). This uses the existing
 VM and HTTPS origin; it creates no additional cloud resources or paid services.

@@ -27,6 +27,7 @@ jobs:
     env:
       VM_HOST: price-tracker-ibrahim.northcentralus.cloudapp.azure.com
       VM_USER: azureuser
+      PUBLIC_ORIGIN: https://largeproject.cop4331cfall26jo.com
       # Public releases must use the real API; sample data is local-only.
       VITE_DATA_SOURCE: api
       VITE_API_BASE_URL: ''
@@ -104,7 +105,9 @@ jobs:
       - name: Verify the public release
         env:
           RELEASE_ID: ${{ steps.release.outputs.id }}
-        run: node scripts/verify-vm-release.mjs "https://$VM_HOST" "$RELEASE_ID"
+        run: |
+          node scripts/verify-vm-release.mjs "https://$VM_HOST" "$RELEASE_ID"
+          node scripts/verify-vm-release.mjs "$PUBLIC_ORIGIN" "$RELEASE_ID"
       - name: Roll back if the external check fails
         if: failure() && steps.deploy.outcome == 'success'
         env:
@@ -117,7 +120,7 @@ jobs:
         env:
           RELEASE_ID: ${{ steps.release.outputs.id }}
         run: |
-          printf 'Deployed `%s` to https://%s/ (frontend mode: `%s`).\n' "$RELEASE_ID" "$VM_HOST" "$VITE_DATA_SOURCE" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Deployed `%s` to %s/ (frontend mode: `%s`).\n' "$RELEASE_ID" "$PUBLIC_ORIGIN" "$VITE_DATA_SOURCE" >> "$GITHUB_STEP_SUMMARY"
           printf 'Health checks establish deployment readiness, not end-to-end account or notification acceptance.\n' >> "$GITHUB_STEP_SUMMARY"
       - name: Remove SSH files
         if: always()
