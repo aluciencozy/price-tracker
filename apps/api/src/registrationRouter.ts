@@ -225,6 +225,9 @@ export function registrationRouter(config: Config, connected: () => boolean) {
   for (const transport of ['web', 'mobile'] as const) {
     for (const action of ['register', 'resend-verification', 'verify-email'] as const) {
       router.post(`/${transport}/${action}`, async (req, res) => {
+        if (action !== 'verify-email' && config.NODE_ENV === 'production' && !config.ACCOUNT_MAIL_ENABLED) {
+          return fail(res, 503, 'SERVICE_UNAVAILABLE', 'Account email is temporarily unavailable. Please try again later.');
+        }
         try {
           const ipRate = await limited(res, 'auth-ip', req.ip ?? 'unknown');
           if (ipRate.blocked) return fail(res, 429, 'RATE_LIMITED', 'Try again later.');
@@ -260,6 +263,9 @@ export function registrationRouter(config: Config, connected: () => boolean) {
 
   for (const transport of ['web', 'mobile'] as const) {
     router.post(`/${transport}/forgot-password`, async (req, res) => {
+      if (config.NODE_ENV === 'production' && !config.ACCOUNT_MAIL_ENABLED) {
+        return fail(res, 503, 'SERVICE_UNAVAILABLE', 'Account email is temporarily unavailable. Please try again later.');
+      }
       try {
         const ipRate = await limited(res, 'auth-ip', req.ip ?? 'unknown');
         if (ipRate.blocked) return fail(res, 429, 'RATE_LIMITED', 'Try again later.');
