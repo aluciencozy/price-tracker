@@ -30,8 +30,11 @@ contract](api/README.md).
   before activation; checked-in template HTML is not a remote-template update.
 - Password reset mail uses `TEMPLATE_PASSWORD_RESET_ID`; publish and verify the
   matching remote template before enabling delivery.
-- Missing email configuration or failed/uncertain delivery keeps the account
-  and token intact. The generic 202 does not promise mailbox delivery. An
+- In production, when `ACCOUNT_MAIL_ENABLED=false`, register, resend and forgot
+  return a generic 503 without creating accounts or mail jobs. Existing token
+  verification and password reset remain available. When mail is enabled,
+  generic 202 responses do not promise provider acceptance or mailbox delivery.
+  Failed/uncertain delivery keeps the account and token intact. An
   explicit resend can recover after 60 seconds; no automatic replay of an
   attempted/uncertain delivery is implemented. No live send was used
   to validate this repair. Confirm sender/free-recipient permissions separately.
@@ -131,7 +134,8 @@ web cookies. All account responses use `no-store`.
   consumes a hashed 30-minute token once, changes the password and increments
   the account session version while revoking every session and device in one
   transaction. Reset does not log the user in.
-- Forgot-password always returns the same 202 message. Eligible requests queue
+- When account mail is enabled, forgot-password returns the same 202 message
+  for eligible and ineligible accounts. Eligible requests queue
   one account-mail generation with an atomic 60-second account cooldown. A raw
   reset token is minted only when the dispatcher claims the job; the outbox
   stores only hashes and never replays an interrupted or uncertain send.
