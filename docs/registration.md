@@ -94,8 +94,29 @@ returns 429 with `Retry-After`; email buckets for register/resend/forgot stay
 generic 202. CSRF bootstrap uses 60/min/IP.
 Resend also has an atomic 60-second account cooldown, including the initial
 registration send. Buckets survive API restarts and enforce time independently
-of delayed TTL deletion. Leave Express proxy trust disabled unless exact trusted
-proxy configuration is separately reviewed; do not trust arbitrary forwarded IPs.
+  of delayed TTL deletion. In production only, when `HOST` is exactly
+  `127.0.0.1` or `::1`, Express trusts loopback proxies for client IPs. Keep the
+  API port private and allow only trusted local processes to reach it. Apache
+  must remove incoming `X-Forwarded-For`, `X-Forwarded-Host` and
+  `X-Forwarded-Proto` headers before proxying, then append the actual remote IP
+  with `ProxyAddHeaders On`; do not place another proxy ahead of Apache without
+  separately reviewing its trusted client-IP handling. Verify the Apache header
+  directives execute before `ProxyPass` forwards requests. Other bind addresses
+  and nonproduction environments do not automatically trust forwarded headers.
+  For the direct-client Apache vhost, with `mod_headers` and `mod_proxy` enabled:
+
+  ```apache
+  RequestHeader unset X-Forwarded-For
+  RequestHeader unset X-Forwarded-Host
+  RequestHeader unset X-Forwarded-Proto
+  ProxyPreserveHost On
+  ProxyAddHeaders On
+  ProxyPass /api/ http://127.0.0.1:4000/api/
+  ProxyPassReverse /api/ http://127.0.0.1:4000/api/
+  ```
+
+  Test the actual vhost configuration and client-IP behavior before relying on
+  this setup; do not add a duplicate `ProxyPass` to an existing vhost.
 
 Web mutations require exact Origin plus a cookie-bound CSRF token. GET
 `/api/auth/web/csrf` creates a 30-minute HttpOnly pre-login cookie; repeated

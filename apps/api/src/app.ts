@@ -23,6 +23,11 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus, 
 }) {
   const app = express();
 
+  // Only a trusted local reverse proxy may supply the client address. The proxy
+  // must replace incoming forwarding headers; the local port is not public.
+  if (config.NODE_ENV === 'production' && ['127.0.0.1', '::1'].includes(config.HOST)) {
+    app.set('trust proxy', 'loopback');
+  }
   app.disable('x-powered-by');
   app.use(helmet());
 
