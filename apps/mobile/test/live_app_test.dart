@@ -84,6 +84,30 @@ void main() {
     expect(() => AppConfig.fromValues(source: 'API'), throwsArgumentError);
   });
 
+  test('build defaults and explicit source follow release policy', () {
+    final debug = AppConfig.fromBuildValues(isRelease: false);
+    expect(debug.source, DataSource.sample);
+    final release = AppConfig.fromBuildValues(isRelease: true);
+    expect(release.source, DataSource.api);
+    expect(release.apiBaseUrl, 'https://largeproject.cop4331cfall26jo.com');
+    expect(
+      AppConfig.fromBuildValues(source: 'api', isRelease: false).apiBaseUrl,
+      'http://10.0.2.2:4000',
+    );
+    expect(
+      () => AppConfig.fromBuildValues(source: 'sample', isRelease: true),
+      throwsArgumentError,
+    );
+    expect(
+      () => AppConfig.fromBuildValues(source: '', isRelease: true),
+      throwsArgumentError,
+    );
+    expect(
+      AppConfig.fromBuildValues(apiBaseUrl: '', isRelease: true).apiBaseUrl,
+      '',
+    );
+  });
+
   testWidgets(
     'sample mode never reads credentials or calls the injected live transport',
     (tester) async {
@@ -306,6 +330,16 @@ void main() {
       );
       expect(find.text('Recorded price observations'), findsOneWidget);
       expect(find.text('Illustrative sample history'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.textContaining('Manage Android notification permission'),
+        250,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Manage Android notification permission'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Push device not connected'), findsNothing);
       await tap(tester, find.text('Edit target and preferences'));
       await tester.enterText(field('Target price (USD)'), '-1');
       await tap(tester, find.text('Save changes'));

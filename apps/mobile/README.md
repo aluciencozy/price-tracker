@@ -40,9 +40,16 @@ save trackers. Sample push controls only save preferences; they never initialize
 
 ## Explicit API mode
 
-`DATA_SOURCE=sample` is the default. It initializes neither the live client nor
+Debug builds default to `DATA_SOURCE=sample`. It initializes neither the live client nor
 credential storage. `API_BASE_URL` alone does not enable live mode. Unknown
 `DATA_SOURCE` values show a configuration error, never sample success.
+
+Release builds default to API mode at `https://largeproject.cop4331cfall26jo.com`;
+explicit sample mode is rejected. An explicit API origin must still pass the HTTPS
+origin validation. Until the background push handler's default is aligned, supply
+`--dart-define=DATA_SOURCE=api` explicitly in any push-enabled release build.
+These defaults do not approve delivery or release signing. Release builds still use
+the debug signing key and must not be distributed as signed production releases.
 
 ```sh
 flutter run --dart-define=DATA_SOURCE=api --dart-define=API_BASE_URL=http://10.0.2.2:4000

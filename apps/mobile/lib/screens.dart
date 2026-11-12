@@ -873,7 +873,7 @@ class _DetailScreenState extends State<DetailScreen>
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Text(
-                'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\n${TrackerAppScope.isSample(context) ? 'Device unavailable. No emails or notifications are sent.' : 'Push device not connected. A saved preference does not enable delivery.'}',
+                'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\n${TrackerAppScope.isSample(context) ? 'Device unavailable. No emails or notifications are sent.' : 'Manage Android notification permission and connection in Account. A saved preference does not enable delivery.'}',
               ),
               FilledButton(
                 onPressed: _busy
