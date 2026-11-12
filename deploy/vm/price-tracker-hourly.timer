@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Price Tracker checks hourly without a client open
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+RandomizedDelaySec=45
+AccuracySec=15
+Persistent=true
+Unit=price-tracker-hourly.service
+
+[Install]
+WantedBy=timers.target

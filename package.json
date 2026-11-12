@@ -11,7 +11,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test:contract && npm run test:deployment && npm run test --workspaces",
-    "test:deployment": "node --test scripts/verify-vm-release.test.mjs",
+    "test:deployment": "node --test scripts/verify-vm-release.test.mjs scripts/hourly-price-check.test.mjs",
     "test:contract": "node --test scripts/api-contract.test.mjs",
     "build": "npm run build --workspaces",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"

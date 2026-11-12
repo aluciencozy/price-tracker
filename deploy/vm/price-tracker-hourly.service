@@ -1,0 +1,25 @@
+[Unit]
+Description=Price Tracker hourly observed-price check
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=price-tracker
+Group=price-tracker
+EnvironmentFile=/etc/price-tracker/api.env
+ExecStart=/opt/node-v24.22.1-linux-x64/bin/node --max-old-space-size=128 /usr/local/lib/price-tracker/hourly-price-check.mjs
+TimeoutStartSec=600
+TimeoutStopSec=70
+Restart=on-failure
+RestartSec=60
+Nice=10
+CPUQuota=50%
+MemoryHigh=256M
+MemoryMax=384M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
