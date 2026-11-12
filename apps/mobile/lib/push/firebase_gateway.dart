@@ -5,7 +5,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
 
+import '../app_config.dart';
+import '../client/mobile_api.dart';
 import 'atomic_store.dart';
 import 'integration.dart';
 import 'registration.dart';
@@ -150,14 +153,39 @@ AtomicPushStorage _storage(PushPresenter presenter) => AtomicPushStorage(
   installation: SecurePushStorage().installationId,
 );
 
+@visibleForTesting
+bool backgroundPushAllowed({
+  required bool configured,
+  required bool hasNotification,
+  required AppConfig Function() loadConfig,
+}) {
+  if (!configured || hasNotification) return false;
+  try {
+    final config = loadConfig();
+    if (config.source != DataSource.api) return false;
+    final client = http.Client();
+    try {
+      MobileApi(client: client, baseUrl: config.apiBaseUrl);
+    } finally {
+      client.close();
+    }
+    return true;
+  } on ArgumentError {
+    return false;
+  } on FormatException {
+    return false;
+  }
+}
+
 /// The server must send data-only messages, never auto-displayed notification text.
 @pragma('vm:entry-point')
 Future<void> priceTrackerBackgroundMessage(RemoteMessage message) async {
   final config = FirebasePushConfig.environment();
-  if (!config.configured ||
-      message.notification != null ||
-      const String.fromEnvironment('DATA_SOURCE', defaultValue: 'sample') !=
-          'api') {
+  if (!backgroundPushAllowed(
+    configured: config.configured,
+    hasNotification: message.notification != null,
+    loadConfig: AppConfig.fromEnvironment,
+  )) {
     return;
   }
   try {

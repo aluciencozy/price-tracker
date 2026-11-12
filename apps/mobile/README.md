@@ -46,8 +46,7 @@ credential storage. `API_BASE_URL` alone does not enable live mode. Unknown
 
 Release builds default to API mode at `https://largeproject.cop4331cfall26jo.com`;
 explicit sample mode is rejected. An explicit API origin must still pass the HTTPS
-origin validation. Until the background push handler's default is aligned, supply
-`--dart-define=DATA_SOURCE=api` explicitly in any push-enabled release build.
+origin validation. Background push follows the same build-mode source policy.
 These defaults do not approve delivery or release signing. Release builds still use
 the debug signing key and must not be distributed as signed production releases.
 

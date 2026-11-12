@@ -155,7 +155,14 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.textContaining('Invalid configuration'), findsOneWidget);
+        expect(
+          find.text(
+            'Price Tracker is unavailable. Please update the app or contact support.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('DATA_SOURCE'), findsNothing);
+        expect(find.textContaining('API_BASE_URL'), findsNothing);
         expect(find.text(sampleNotice), findsNothing);
         expect(tester.takeException(), isNull);
         expect(calls, 0);
