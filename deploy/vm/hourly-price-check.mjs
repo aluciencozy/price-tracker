@@ -14,7 +14,8 @@ export async function runHourlyPriceCheck(dependencies, uri, now = new Date()) {
     await dependencies.indexes();
     await dependencies.resume(1);
     const result = await dependencies.run({ runId, mode: 'scheduled', maxProducts: 100 });
-    // A concurrent admin/API run can hold the global lease. Retry this same slot.
+    // A concurrent admin/API run can hold the global lease. A later invocation
+    // resumes due work first and selects its current UTC-hour slot.
     if (result.runId !== runId) return { runId, status: 'deferred', exitCode: 75 };
     return { runId, status: result.status, counts: result.counts, exitCode: result.status === 'complete' ? 0 : 1 };
   } finally {

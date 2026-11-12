@@ -80,11 +80,14 @@ rollback. A file rollback cannot undo DNS, certificates or database changes.
 
 The wrapper imports the current release's shared `runPriceChecks` and
 `resumeDuePriceChecks`, which are also used by admin/API checks. It resolves the
-release path once, uses one stable UTC-hour run ID, recovers at most one existing
-run per attempt, and caps new selection at 100 products. MongoDB global/run/item
+release path once, selects a UTC-hour run ID, recovers at most one existing
+run per attempt, and caps new selection at 100 shared product records. Records
+without enabled watchers are skipped before provider work. MongoDB global/run/item
 leases and the shared provider budget remain authoritative. Systemd prevents
-overlap of this unit; contention or partial work retries with the same hour's ID,
-at most three starts in ten minutes. Interrupted work retains its persisted state.
+overlap of this unit and permits at most three starts in ten minutes. A retry
+within the same UTC hour reuses its ID; a retry crossing the hour boundary first
+recovers due work, then selects the new hour's ID. Interrupted work retains its
+persisted state; there is no guarantee that separate attempts use the same slot.
 
 The job is a lower-priority unprivileged process with CPU/memory limits. It performs
 no npm install. Operators explicitly approved an hourly cadence for this VM;

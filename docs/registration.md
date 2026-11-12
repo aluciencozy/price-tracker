@@ -106,9 +106,9 @@ registration send. Buckets survive API restarts and enforce time independently
   For the direct-client Apache vhost, with `mod_headers` and `mod_proxy` enabled:
 
   ```apache
-  RequestHeader unset X-Forwarded-For
-  RequestHeader unset X-Forwarded-Host
-  RequestHeader unset X-Forwarded-Proto
+  RequestHeader unset X-Forwarded-For early
+  RequestHeader unset X-Forwarded-Host early
+  RequestHeader unset X-Forwarded-Proto early
   ProxyPreserveHost On
   ProxyAddHeaders On
   ProxyPass /api/ http://127.0.0.1:4000/api/

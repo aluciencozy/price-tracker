@@ -7,9 +7,11 @@ It does not establish a real qualifying alert episode or production readiness.
    features enabled. Complete the remaining device cases, including the unverified
    post-permission duplicate arrival, under a separately approved test plan.
 2. **Price acceptance:** the project lead approved the team's 90-day history
-   policy on November 10. Tracking, the built-in daily scheduler, and recovery are
-   now enabled. Verify a supported watched game's real observation and episode;
-   the startup run skipped both products because there were no tracked items.
+   policy on November 10. Tracking and recovery are enabled. The teammate's
+   independent hourly VM timer now replaces the earlier built-in daily schedule;
+   the daily scheduler is disabled to avoid duplicate scheduling. Verify a
+   supported watched game's real observation and episode; recorded runs skipped
+   both products because there were no tracked items.
 3. **Email owner:** verify the sender domain, recipient delivery, templates, and
    shared free quota. Supply the necessary credentials through private deployment
    configuration, never Git.

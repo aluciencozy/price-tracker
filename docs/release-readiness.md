@@ -1,10 +1,12 @@
 # Release readiness — November 9, 2026
 
 **November 10 operational update:** the project lead approved the team's 90-day
-history policy. Tracking and the built-in daily/recovery workers are enabled on
-the existing VM. The first scheduled run completed without fetching prices,
-because no items were tracked. Account email and price email/push remain disabled
-and unaccepted. See [the live VM report](test-results/vm-operations-2026-11-10.md).
+history policy. Tracking and recovery are enabled on the existing VM. The teammate
+subsequently installed a single independent hourly timer and disabled the built-in
+daily scheduler. Recorded runs completed without fetching prices because no items
+were tracked. Account email and price email/push remain disabled and unaccepted.
+See [the live VM report](test-results/vm-operations-2026-11-10.md) and
+[the custom-domain/hourly-timer record](vm-operations-2026-11-10.md).
 The November 9 implementation and test evidence below remains historical.
 
 This is a handoff, not a release approval. It summarizes reviewed changes in
