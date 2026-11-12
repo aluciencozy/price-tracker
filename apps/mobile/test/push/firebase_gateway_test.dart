@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:price_tracker/app_config.dart';
 import 'package:price_tracker/push/events.dart';
 import 'package:price_tracker/push/firebase_gateway.dart';
 import 'package:price_tracker/push/integration.dart';
@@ -93,6 +94,30 @@ class RecordingDispatcher extends PushEventDispatcher {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('background gate uses build source policy and fails closed', () {
+    bool allowed(
+      AppConfig Function() load, {
+      bool configured = true,
+      bool notification = false,
+    }) => backgroundPushAllowed(
+      configured: configured,
+      hasNotification: notification,
+      loadConfig: load,
+    );
+    AppConfig build({String? source, String? url, required bool release}) =>
+        AppConfig.fromBuildValues(
+          source: source,
+          apiBaseUrl: url,
+          isRelease: release,
+        );
+    expect(allowed(() => build(release: true)), isTrue);
+    expect(allowed(() => build(release: false)), isFalse);
+    expect(allowed(() => build(source: 'sample', release: true)), isFalse);
+    expect(allowed(() => build(source: 'wrong', release: true)), isFalse);
+    expect(allowed(() => build(url: 'https://[', release: true)), isFalse);
+    expect(allowed(() => build(release: true), configured: false), isFalse);
+    expect(allowed(() => build(release: true), notification: true), isFalse);
+  });
   final configured = FirebasePushConfig(
     enabled: true,
     apiKey: 'AIza${List.filled(35, 'x').join()}',
