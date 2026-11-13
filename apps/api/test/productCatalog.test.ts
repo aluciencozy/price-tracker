@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import mongoose from 'mongoose';
-import type { SteamOffer } from '../src/cheapshark.js';
+import { SteamGameUnsupportedError, type SteamOffer } from '../src/cheapshark.js';
 
 const mocks = vi.hoisted(() => ({
   findById: vi.fn(),
@@ -38,6 +38,8 @@ function product() {
     market: 'US',
     currency: 'USD',
     canonicalSteamUrl: 'https://store.steampowered.com/app/620/',
+    steamTypeValidatedAt: new Date('2026-11-02T11:00:00Z') as Date | null,
+    steamTypeRejected: false,
     currentPriceMinor: null as number | null,
     lastSuccessfulCheckAt: null as Date | null,
     nextCheckAt: null as Date | null,
@@ -111,6 +113,29 @@ describe('product refresh retry scheduling', () => {
     expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it('does not trust a fresh legacy quote without positive type validation', async () => {
+    record.steamTypeValidatedAt = null;
+    record.currentPriceMinor = 999;
+    record.lastSuccessfulCheckAt = new Date(Date.now() - 60_000);
+    await expect(refreshSteamProductById(record._id)).rejects.toThrow('network failed');
+    expect(mocks.lookup).toHaveBeenCalledTimes(1);
+    expect(record.currentPriceMinor).toBe(999);
+  });
+
+  it('persists an authoritative non-game result across backoff without erasing the quote', async () => {
+    record.currentPriceMinor = 999;
+    record.lastSuccessfulCheckAt = new Date(Date.now() - 60_000);
+    mocks.lookup.mockRejectedValueOnce(new SteamGameUnsupportedError());
+    await expect(refreshSteamProductById(record._id, { force: true })).rejects.toBeInstanceOf(SteamGameUnsupportedError);
+    expect(record).toMatchObject({ steamTypeValidatedAt: null, steamTypeRejected: true, currentPriceMinor: 999 });
+    await expect(refreshSteamProductById(record._id)).rejects.toBeInstanceOf(SteamGameUnsupportedError);
+    expect(mocks.lookup).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(record.nextCheckAt!);
+    await expect(refreshSteamProductById(record._id)).rejects.toThrow('network failed');
+    expect(record).toMatchObject({ steamTypeValidatedAt: null, steamTypeRejected: true, currentPriceMinor: 999 });
+    await expect(refreshSteamProductById(record._id)).rejects.toBeInstanceOf(SteamGameUnsupportedError);
+  });
+
   it('allows an explicit forced retry while retaining the normal retry guard', async () => {
     record.lastError = 'Previous check failed';
     record.nextCheckAt = new Date(Date.now() + 60_000);
@@ -144,6 +169,8 @@ describe('product refresh retry scheduling', () => {
 
   it('resets failure metadata after a successful retry and caches the observation', async () => {
     record.lastError = 'Previous check failed';
+    record.steamTypeValidatedAt = null;
+    record.steamTypeRejected = true;
     record.nextCheckAt = new Date(Date.now());
     record.consecutiveFailures = 2;
     const offer: SteamOffer = {
@@ -157,7 +184,8 @@ describe('product refresh retry scheduling', () => {
     mocks.lookup.mockResolvedValue(offer);
 
     await expect(refreshSteamProductById(record._id)).resolves.toMatchObject({
-      currentPriceMinor: 999, lastError: null, consecutiveFailures: 0, refreshLeaseToken: null,
+      currentPriceMinor: 999, steamTypeValidatedAt: new Date(), steamTypeRejected: false,
+      lastError: null, consecutiveFailures: 0, refreshLeaseToken: null,
     });
     await refreshSteamProductById(record._id);
     expect(mocks.lookup).toHaveBeenCalledTimes(1);

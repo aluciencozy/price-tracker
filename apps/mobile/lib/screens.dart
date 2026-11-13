@@ -317,7 +317,7 @@ class _WatchlistScreenState extends State<WatchlistScreen>
           Text(
             TrackerAppScope.isSample(context)
                 ? 'Steam base games, US / USD. These dated examples are not live quotes.'
-                : 'Your saved Steam base games • US / USD.',
+                : 'Your saved Steam app offers • US / USD.',
           ),
           TextField(
             controller: _search,
@@ -483,14 +483,16 @@ class _TrackerEditorState extends State<TrackerEditor>
               Text(
                 TrackerAppScope.isSample(context)
                     ? 'Local sample preview only. Supports Portal 2 and Half-Life 2; submitted links are never fetched.'
-                    : 'Preview an exact supported Steam base-game offer through the API. Unknown editions, DLC and bundles are unsupported. Submitted links are never fetched directly.',
+                    : 'Preview a Steam app classified as a game after an exact app-ID match to a current US/USD Steam offer. DLC, bundles and subscriptions are unsupported; Steam’s type check cannot distinguish every special edition. Submitted URLs are never fetched directly.',
               ),
               TextField(
                 controller: _url,
                 enabled: !_busy,
                 keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Steam game URL',
+                decoration: InputDecoration(
+                  labelText: TrackerAppScope.isSample(context)
+                      ? 'Steam game URL'
+                      : 'Steam app URL',
                   hintText: 'https://store.steampowered.com/app/620/',
                 ),
               ),

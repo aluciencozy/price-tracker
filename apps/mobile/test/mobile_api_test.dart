@@ -133,6 +133,42 @@ void main() {
   );
 
   test(
+    'preview sends a dynamic Brotato URL only to the configured API',
+    () async {
+      const url = 'https://store.steampowered.com/app/1942280/';
+      final product = productJson();
+      product['identity'] = {
+        ...(product['identity'] as Map<String, dynamic>),
+        'providerGameId': '90001',
+      };
+      product['steamAppId'] = '1942280';
+      product['canonicalSteamUrl'] = url;
+      product['title'] = 'Brotato';
+      // This is an offline client fixture; provider game ID 90001 is synthetic.
+      final api = apiFor((request) async {
+        expect(
+          request.url.toString(),
+          'https://api.example.test/api/product-previews',
+        );
+        expect(jsonDecode(request.body), {'url': url});
+        expect(request.url.host, 'api.example.test');
+        return jsonResponse({
+          'id': 'preview_brotato_fixture',
+          'expiresAt': time,
+          'product': product,
+        }, 201);
+      });
+
+      final result = await api.preview(url);
+
+      expect(result.product.steamAppId, '1942280');
+      expect(result.product.title, 'Brotato');
+      expect(result.product.identity.providerGameId, '90001');
+      expect(result.product.currentPrice!.amountMinor, 999);
+    },
+  );
+
+  test(
     'create whitelists fields and reuses caller supplied idempotency key',
     () async {
       var calls = 0;

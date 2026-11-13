@@ -120,7 +120,10 @@ function cheapSharkPurchaseUrl(dealId: string): string {
   url.searchParams.set('dealID', rawDealId);
   return url.href;
 }
+// Kept for legacy API responses and historical fixtures written before the
+// exact-app wording. Current API responses use currentAttribution.
 export const attribution = 'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
+export const currentAttribution = 'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.';
 export function product(value: unknown): Product {
   const data = object(value, [
     'id', 'identity', 'steamAppId', 'canonicalSteamUrl', 'title', 'storeName', 'imageUrl', 'source', 'currentPrice',
@@ -146,7 +149,7 @@ export function product(value: unknown): Product {
     steamAppId, canonicalSteamUrl, title: text(data.title, 300), storeName: oneOf(data.storeName, ['Steam']),
     imageUrl: nullable(data.imageUrl, https), source: {
       name: oneOf(source.name, ['CheapShark']), url: oneOf(source.url, ['https://www.cheapshark.com/']),
-      attribution: oneOf(source.attribution, [attribution]),
+      attribution: oneOf(source.attribution, [attribution, currentAttribution]),
     },
     currentPrice: nullable(data.currentPrice, money), retailPrice: nullable(data.retailPrice, money), dealId, purchaseUrl,
     observedAt: nullable(data.observedAt, timestamp), providerChangedAt: nullable(data.providerChangedAt, timestamp),

@@ -47,7 +47,7 @@ export async function seedBrowserProducts(dbName: string, history: boolean, now 
     const product = await ProductModel.create({ provider: 'cheapshark', storeId: '1', market: 'US', currency: 'USD',
       steamAppId: game.steamAppId, providerGameId: game.providerGameId, title: game.title,
       canonicalSteamUrl: `https://store.steampowered.com/app/${game.steamAppId}/`,
-      currentPriceMinor: 999, retailPriceMinor: null, dealId: 'browser-fixture',
+      currentPriceMinor: 999, retailPriceMinor: null, dealId: 'browser-fixture', steamTypeValidatedAt: now,
       purchaseUrl: 'https://www.cheapshark.com/redirect?dealID=browser-fixture',
       lastSuccessfulCheckAt: new Date(now.getTime() - 60_000), lastAttemptAt: new Date(now.getTime() - 60_000), nextCheckAt: new Date(now.getTime() + 86400000) });
     if (history) {

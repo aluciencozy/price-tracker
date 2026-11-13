@@ -1,7 +1,7 @@
 import mongoose, { Schema } from 'mongoose';
 
 type ProviderBudgetRecord = {
-  _id: 'cheapshark';
+  _id: 'cheapshark' | 'steam';
   leaseUntil: Date;
   leaseToken: string | null;
   nextRequestAt: Date;

@@ -17,7 +17,9 @@ The web app uses **React, TypeScript, and Tailwind**. The mobile app uses **Flut
 - Email and Android push alerts when a price reaches or drops below the target.
 - No repeated alerts while the game stays below the target. Email and push retries are tracked separately.
 - Shared game/store offers and our own observed price history, with the same watchlist on web and mobile.
-- Individual base games only. No bundles, DLC, subscriptions, guessed editions, regional switching, or arbitrary URLs in the MVP.
+- Individual Steam `/app/<id>` entries classified by Steam as `game`. No bundles, DLC, subscriptions, guessed editions, regional switching, or arbitrary URLs. Steam's undocumented type check cannot distinguish every special edition, so this does not guarantee base-game/edition exclusion.
+
+API mode resolves submitted Steam app IDs on demand; it is not limited to the two games in the local sample catalog. This does not guarantee that every Steam app can be matched or supported.
 
 See [the project details](docs/project.md) for the data model, alert rules, security boundaries, and course checklist. See [the work plan](docs/plan.md) for owners, dates, dependencies, and the Gantt chart.
 
@@ -67,7 +69,7 @@ The sample starts with Portal 2 and Half-Life 2. Search your saved games, open d
 
 Preview reports an already-saved game before asking for a target and links to its existing tracker. In API mode, it checks the owned watchlist after validating the offer; a failed duplicate lookup requires Retry before continuing. API search waits 300 ms after typing and labels retained results while searching or after a failure. Corrected target errors clear when the value becomes valid. Reduced motion disables preview and confirmation entry animations.
 
-Prices and human purchase redirects are stale snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. Only these two identities were validated. The multi-day chart is **explicitly labeled illustrative**, with a data table; its invented values are not recorded Steam history. Purchase links can expire and are never fetched automatically. No other store or historical low substitutes for a missing Steam offer.
+In sample mode, prices and human purchase redirects are stale snapshots from [the October 26 source proof](docs/cheapshark-proof.json), not live quotes. That proof records only those two identities; it is neither a fixed API-mode allowlist nor a guarantee for other Steam apps. The multi-day chart is **explicitly labeled illustrative**, with a data table; its invented values are not recorded Steam history. Purchase links can expire and are never fetched automatically. No other store or historical low substitutes for a missing Steam offer.
 
 In sample mode, registration, verification/resend, login/logout, forgot/reset, and account pages are honest local previews. Use made-up sample credentials only. They do not store/transmit credentials, create sessions, send email, register devices, or deliver alerts. Android push is a per-game preference, not browser push.
 
@@ -199,19 +201,19 @@ flutter test
 
 For a short explanation of why Best Buy, Amazon, Target, and other options are excluded, read [the provider decision guide](docs/provider-decisions.md). It separates confirmed restrictions from information we could not verify.
 
-The planned provider is **[CheapShark](https://apidocs.cheapshark.com/)**. Its public API is free and does not require an API key. It supplies real store prices; we still build our own accounts, watchlists, daily checks, history, email, push, and deduplication.
+The selected price provider is **[CheapShark](https://apidocs.cheapshark.com/)**. Its public API is free and does not require an API key. It supplies store prices; our API handles exact matching, private watchlists, history, checks, and alert preferences.
 
 | Store | MVP status |
 | --- | --- |
-| Steam | First required store. Accept validated base-game Steam URLs and compare only the matching Steam offer. |
+| Steam | Required store. Discover exact Steam app IDs positively classified as games; compare only their matching Steam US/USD offers. See the type/edition limitation below. |
 | GOG, Fanatical | Optional later. Verify exact game/edition/store matching before enabling; no title-only guesses or promised URL support yet. |
 | Other CheapShark stores | Not supported automatically just because the upstream API lists them. |
 
-Extract the Steam app ID locally, resolve its exact CheapShark game ID, and select `storeID=1` (Steam). **Do not substitute the cheapest price across all stores or the historical low.** Reject ambiguous matches and games without a qualifying Steam offer. Begin with a small validated base-game catalog because a Steam app URL can also identify DLC or other unsupported content.
+For a new app, the API parses the submitted Steam app ID locally, validates it through Steam's undocumented `appdetails` endpoint, and requires a positive result with type `game`. It then resolves that exact Steam app ID through CheapShark, requires an unambiguous match and selects only the current US/USD `storeID=1` Steam offer. This is on-demand discovery, not a fixed two-game API catalog. The `game` type cannot distinguish every special edition, so it does not prove every edition is excluded or guarantee availability for every Steam app. **Do not substitute the cheapest price across all stores or the historical low.** Unsupported URLs/types, ambiguous matches, and missing offers return 422 when no validated quote can be returned; provider/service failures return 503, while throttling returns 429 with `Retry-After`. When an earlier validated quote is available, a failed refresh may return that quote as stale with failure metadata, never as a new current price.
 
-All outbound pricing requests go to fixed CheapShark API endpoints, not the submitted Steam URL. Cache shared lookups, honor `429`/`Retry-After`, and use CheapShark's required deal redirect links for purchase buttons. See [the integration research](docs/retailer-research.md) for the endpoint sequence and safety rules.
+Outbound lookups use fixed Steam `appdetails` and CheapShark API endpoints, never the submitted Steam URL. Cache shared lookups, honor `429`/`Retry-After`, and use CheapShark's required deal redirect links for purchase buttons. Purchase redirects are human links only and are never fetched by the API. See [the integration research](docs/retailer-research.md) for the endpoint sequence and safety rules.
 
-**Source proof passed, October 26:** Portal 2 (`620` → CheapShark `36`) and Half-Life 2 (`220` → `59`) both resolved to current Steam offers at USD 9.99. All four API requests returned HTTP 200 using Node.js and the provider-required descriptive `User-Agent`. See [the measured results](docs/cheapshark-proof.json). Only these two games are validated so far; this is not support for every Steam app. Earlier automated attempts were rate-limited (429); they are not the current result. This proves the source lookup, not the unfinished Express/watchlist/notification features.
+**Source proof passed, October 26:** Portal 2 (`620` → CheapShark `36`) and Half-Life 2 (`220` → `59`) both resolved to current Steam offers at USD 9.99. All four API requests returned HTTP 200 using Node.js and the provider-required descriptive `User-Agent`. See [the measured results](docs/cheapshark-proof.json). These are the only identities in that dated proof; the current API discovers submitted IDs on demand, but this evidence does not establish support for any other particular game, universal availability, or deployment. Earlier automated attempts were rate-limited (429); they are not the current result. The proof is source evidence, not deployed end-to-end acceptance.
 
 To reproduce the live check explicitly, run `node scripts/verify-cheapshark.mjs`. It paces four requests, stops on 429, and is **not part of CI**. Do not fetch purchase redirects from the server: the provider documents that `/redirect` blocks automated access and is for human clicks only.
 

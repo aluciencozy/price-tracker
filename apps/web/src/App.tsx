@@ -190,7 +190,7 @@ function AppContent({
             price tracker.
           </Link>
           <p>
-            Steam base games. US / USD.
+            {api ? 'Steam app offers. US / USD.' : 'Steam base games. US / USD.'}
             <br />
             Price data attributed to{' '}
             <a

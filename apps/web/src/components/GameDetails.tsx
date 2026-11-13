@@ -117,7 +117,7 @@ export default function GameDetails({
         <GameArt product={product} />
         <div>
           <h1 tabIndex={-1}>{product.title}</h1>
-          <p>Steam base game / US / USD</p>
+          <p>{api ? 'Steam app / US / USD' : 'Steam base game / US / USD'}</p>
         </div>
         <Badge variant="secondary">{trackerStatus(item, !api)}</Badge>
       </div>

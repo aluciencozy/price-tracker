@@ -1,9 +1,10 @@
 # Tracking API integration notes
 
-This adds injectable preview, tracker, and owned-history routes for #13/#14. It
-does not mount them in `app.ts` or configure authentication. The public schemas
-remain the existing [shared OpenAPI contract](api/README.md); this document only
-describes implementation wiring.
+This document records the tracking and preview integration for #13/#14. These
+routes and their verified-session middleware are mounted in the current API
+source when tracking options are configured. The public schemas remain the
+[shared OpenAPI contract](api/README.md); the notes below explain the resolver
+boundary and its safety rules.
 
 ## Required auth and preview seams
 
@@ -34,33 +35,32 @@ type ProductPreviewResolver = (approvedProductId: string, signal: AbortSignal) =
 createProductPreviewService({ resolveProduct: previewResolver });
 ```
 
-It is called only after local Steam host/path parsing, confirmed-catalog lookup,
-and an exact seeded Product identity check. It must return the resolved
-`ProductRecord` (including `_id`) and must use the shared safe CheapShark adapter,
-cache, and provider budget. It must honor the abort signal, settle only after its
-upstream work has actually stopped, and must not create trackers, alert episodes, or
+It is called after local Steam host/path parsing and exact app-ID extraction. A
+new app is discovered on demand: Steam's undocumented `appdetails` response must
+positively identify that exact app ID as type `game`, then CheapShark must return
+one exact Steam app-ID match and a current US/USD Steam offer. The API does not
+require a manually seeded two-game catalog. Steam's coarse `game` type does not
+distinguish every special edition, so discovery is not proof that all editions
+are excluded or every app is supported. The resolver must return the resolved
+`ProductRecord` (including `_id`) and use the shared safe provider adapters,
+cache, and request budget. It must honor cancellation, settle only after upstream
+work has actually stopped, and must not create trackers, alert episodes, or
 history observations. A successful scheduled/manual check owns the
 `recordObservation` Product+history transaction; preview must not enter that
-pipeline. The preview route returns only an honestly fresh/stale normalized Product snapshot.
+pipeline. Preview returns an honestly fresh/stale normalized Product snapshot.
 
-The service uses the current `ProductModel` row as the shared identity and
-returns `503 SERVICE_UNAVAILABLE` if the confirmed metadata catalog has not been
-seeded. Run the existing `npm run db:indexes --workspace @price-tracker/api`
-and `npm run db:seed --workspace @price-tracker/api` setup commands before
-enabling tracking routes. The seed contains metadata only, never a quote.
+The service persists successfully validated discoveries as shared `ProductModel`
+rows. A missing local Product triggers bounded discovery rather than a seeded
+catalog miss; unsafe or unsupported app/type/offer results are rejected. Startup
+indexes are still required. Seed data is not an eligibility allowlist and its
+historical examples do not prove support for other Steam apps.
 
 ## Mount point
 
-The central integration owner can mount one router after JSON parsing and the
-shared auth/session middleware is available, but before the API 404 handler:
-
-```ts
-app.use('/api', createTrackingRouter(
-  requireVerifiedUser,
-  trackingCursorSigningSecret,
-  { createPreview: createProductPreviewService({ resolveProduct: previewResolver }) },
-));
-```
+`apps/api/src/app.ts` constructs the router when `options.tracking` is supplied,
+after JSON parsing and device routes. A path gate sends only product-preview and
+tracked-item paths to it and returns 503 while the database is unavailable. The
+router owns the nested history route; do not mount a duplicate handler.
 
 `trackingCursorSigningSecret` must be a deployment secret of at least 32 bytes,
 shared across API instances. The router includes
@@ -69,27 +69,21 @@ also mount a second handler for that path. The existing `createHistoryRouter`
 accepts a request-only async authenticator; it is not directly compatible with
 the new `res.locals.principal` middleware without a small shared auth bridge.
 
-The current starter's global CORS policy does not yet allow tracking `PATCH` /
-`DELETE` or the complete web cookie/CSRF header policy. Its JSON parser and final
-error handler also run before this router and currently return legacy string
-errors for malformed JSON/oversized bodies. The central app integration must
-apply the contract's exact credentialed same-site web CORS/preflight policy and
-translate parser errors into the common error envelope with `no-store`; this
-router cannot intercept parser errors raised earlier in the stack.
+`app.ts` owns the configured CORS/preflight policy, JSON parser and API error
+envelope before mounting tracking routes. Keep those shared middleware boundaries
+aligned with the contract; this router cannot intercept parser failures raised
+earlier in the stack.
 
 Mutations depend on the shared middleware's current-session CSRF/Origin checks.
 The router sets `Cache-Control: no-store`, uses standard error envelopes, applies
 database-backed preview request limits, and caps in-process per-user preview
 concurrency at two. CheapShark's provider budget remains shared in MongoDB.
 
-The preview service requests cancellation at 10 seconds, but holds the user's
-concurrency slot and waits until the resolver actually settles. A resolver that
-ignores cancellation can therefore delay the response indefinitely; abort alone
-is not evidence that upstream work ended. The current adapter's internal total
-lookup deadline is 30 seconds and does not expose cancellation. The price-check
-worker must supply a resolver that stops all provider work and settles within the
-contract's 10-second total deadline before this route is enabled. No live
-provider calls are made by normal tests.
+The preview service has a 10-second deadline and passes cancellation through
+discovery/refresh to bounded provider requests. It holds the user's concurrency
+slot until resolver work settles; abort alone is not evidence that upstream work
+ended. Preserve that cancellation/settlement behavior when changing the resolver
+or provider adapter. Normal tests do not call live providers.
 
 ## Data and tests
 

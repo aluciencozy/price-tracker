@@ -13,7 +13,7 @@ The live Steam URL-to-offer test was completed on October 26. It is not an unres
 | `https://store.steampowered.com/app/620/` (Portal 2) | `620` | `36` | Steam `1` | USD 9.99 / `999` cents |
 | `https://store.steampowered.com/app/220/` (Half-Life 2) | `220` | `59` | Steam `1` | USD 9.99 / `999` cents |
 
-These two games are the initial validated base-game catalog. This is not support for every Steam app. Add a game only after the same exact-match and current-Steam-offer tests pass.
+These two games are the identities covered by this dated source proof, not a fixed API catalog. The API now resolves submitted Steam app IDs on demand, subject to exact identity and offer checks. This is not support for every Steam app; no other specific game is established by this proof.
 
 Both ID-resolution requests and both game-offer requests returned **HTTP 200**, from **16:34:26 to 16:34:42 UTC** on October 26. No API key, account, payment, proxy rotation, or fabricated data was used. The returned historical lows were USD 0.99; the check correctly used the current Steam offers instead.
 
@@ -22,7 +22,7 @@ Both ID-resolution requests and both game-offer requests returned **HTTP 200**, 
 - The script uses Node.js's normal `fetch`, one honest application `User-Agent`, five-second pacing between requests, and no retries after a 429. Five seconds is our conservative test spacing, not a published provider quota.
 - The API docs **require a User-Agent**. The successful value was `PriceTracker-COP4331C/0.1 (+https://github.com/aluciencozy/price-tracker)`. Earlier generic requests were rate-limited (429). We did not establish that the header alone caused the different results; the actual backend-compatible client is now proven.
 - The provider's `/redirect` route is **not an API**. Its docs explicitly say it blocks automation. An unnecessary server-side redirect probe returned 403; no bypass or further automated redirect probe was attempted. Generate its documented link for human navigation, not worker fetching.
-- This proves the source and exact two-game mapping. It does not mean our Express adapter, notifications, UI, every game, or long-term service availability are already implemented or proven. The live script is opt-in and never runs in normal CI.
+- This proves the source and these two exact mappings. The dynamic API preview/resolution implementation now exists in the repository, but this historical proof does not establish another specific game's support, notification behavior, deployment, or long-term service availability. The live script is opt-in and never runs in normal CI.
 
 ## Decision
 
@@ -49,17 +49,19 @@ Use **CheapShark's free public API**, with **Steam URLs first**, **individual PC
 
 **Research result:** [#3](https://github.com/aluciencozy/price-tracker/issues/3) is complete with two real Steam URL-to-current-offer lookups and the published usage rules. [#12](https://github.com/aluciencozy/price-tracker/issues/12) implements the actual application adapter from that proof. Keep its normal failure/identity tests; do not hand the completed research back to Nick as a blocker.
 
-## Endpoint sequence for Nick
+## Current on-demand preview sequence
 
-These are implementation instructions, not endpoints already implemented in our Express API.
+The Express API performs bounded discovery for each submitted Steam app ID. It does not rely on a manually seeded two-game catalog. This flow does not guarantee that every app is available from CheapShark or safely classifiable by Steam.
 
-1. Parse an allowed Steam URL locally, for example `https://store.steampowered.com/app/286690/`. Extract the numeric Steam app ID. Never fetch the submitted URL.
-2. Call the fixed CheapShark lookup endpoint: `GET https://www.cheapshark.com/api/1.0/games?steamAppID=<appId>`.
-3. Require an exact `steamAppID` match and an unambiguous CheapShark `gameID`. Do not use title similarity or pick the first unrelated search result. Steam `/app/` URLs can identify DLC as well as games: begin with a small confirmed base-game catalog and reject unvalidated content types.
-4. Use `GET https://www.cheapshark.com/api/1.0/games?id=<gameId>` to obtain game details and its store offers. The successful proof confirms `info.steamAppID`, `info.title`, and `deals[]` with `storeID`, `price`, `retailPrice`, and `dealID`.
-5. Select only the current offer whose `storeID` is `1` (Steam). Do not use `cheapest`, `cheapestPriceEver`, a normal/list price, or a different store's offer as the current Steam price. A missing Steam offer is unavailable/unsupported, not zero and not permission to switch stores.
-6. Parse the reported USD decimal string exactly into integer cents, e.g. `"1.99"` becomes `199`. Validate safe integer/range, currency, game ID, store ID, and price presence. A genuine reported zero price is valid only after those checks; never default missing prices to zero.
+1. Parse an allowlisted Steam URL locally and extract its numeric `/app/<id>` value. Never fetch the submitted URL.
+2. Check that ID through Steam's undocumented `appdetails` endpoint. Discovery requires a valid positive result with the exact requested app ID and type `game`. A valid negative result or a valid non-`game` type (including an unrecognized type) is unsupported. Malformed/mismatched metadata or an endpoint failure is a service failure, not evidence that the app is unsupported. The coarse type cannot distinguish every special edition, so do not claim complete edition validation.
+3. Call the fixed CheapShark lookup endpoint: `GET https://www.cheapshark.com/api/1.0/games?steamAppID=<appId>`. Require an exact Steam app ID match and one unambiguous CheapShark `gameID`. Do not use title similarity or choose the first unrelated result.
+4. Use `GET https://www.cheapshark.com/api/1.0/games?id=<gameId>` to obtain game details and store offers. The source proof confirms the response fields `info.steamAppID`, `info.title`, and `deals[]` with `storeID`, `price`, `retailPrice`, and `dealID` for its two dated examples.
+5. Select only the current US/USD offer whose `storeID` is `1` (Steam). Do not use `cheapest`, `cheapestPriceEver`, a normal/list price, or another store's offer. A missing qualifying Steam offer is unsupported, not zero and not permission to switch stores.
+6. Parse the reported USD decimal string exactly into integer cents, e.g. `"1.99"` becomes `199`. Validate safe integer/range, currency, exact game identity, store ID, and price presence. A genuine reported zero price is valid only after those checks; never default missing prices to zero.
 7. Return normalized metadata plus provider game ID, Steam app ID, store ID, market/currency, price, successful fetch time, optional source-change time, and the current CheapShark deal purchase link.
+
+Unsupported URL/type/content, no exact match, ambiguity, or no current Steam offer is rejected with 422 when no validated quote can be returned. Malformed/mismatched provider metadata and other provider/service failures return 503; throttling returns 429 and honors `Retry-After`. If a prior validated quote exists, a failed refresh may instead return it as stale with failure metadata. Failures never become a new price observation or a zero-price offer.
 
 Steam app IDs, CheapShark game IDs, store IDs, and deal IDs are different identifiers. Store them separately as strings. A changing deal ID must not create a duplicate tracked game or reset alert state.
 
@@ -73,7 +75,7 @@ GOG and Fanatical stay disabled until an explicit extension validates their URL/
 
 - Use the documented public API rather than scraping CheapShark HTML or individual stores. No API key or paid subscription is needed for this provider.
 - Send a descriptive, honest application `User-Agent` on every API request; it is required. Do not impersonate a browser or search engine.
-- Free does not mean unlimited. Cache metadata/offer lookups, share them across users, and choose a small initial catalog. Start with one in-flight provider request; tune only from documented guidance and observed behavior.
+- Free does not mean unlimited. Cache metadata/offer lookups, share them across users, and bound per-user preview concurrency and the watched products checked by workers. Start with one in-flight provider request; tune only from documented guidance and observed behavior.
 - Honor `429` and `Retry-After`. Where no retry duration is supplied, use bounded backoff and postpone the job rather than hammering the endpoint. No proxy/IP rotation, extra accounts, or rate-limit workarounds.
 - Preview must be authenticated/rate-limited and reuse valid cached data; opening the dashboard must not trigger a provider call. Scheduler and admin checks share the same provider budget and locks.
 - Keep attribution visible. Purchase buttons in web, Flutter, and alert messages use the documented CheapShark redirect format, `https://www.cheapshark.com/redirect?dealID=...`, preserving the deal ID correctly. Test encoding offline; do not strip affiliate routing, replace it with direct purchase links, or automatically fetch the redirect.

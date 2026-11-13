@@ -4,6 +4,7 @@ import { PriceHistoryModel } from './models/tracking.js';
 import {
   lookupSteamOffer,
   parseSteamAppIdFromUrl,
+  SteamGameUnsupportedError,
   type SteamOffer,
 } from './cheapshark.js';
 import {
@@ -198,6 +199,8 @@ export async function refreshSteamProductById(
         {
           $set: {
             title: offer.title,
+            steamTypeValidatedAt: observedAt,
+            steamTypeRejected: false,
             canonicalSteamUrl: offer.canonicalSteamUrl,
             dealId: offer.dealId,
             purchaseUrl: offer.purchaseUrl,
@@ -232,7 +235,7 @@ export async function refreshSteamProductById(
     const failureCount = leased.consecutiveFailures + 1;
     const retryAt = retryTime(error, failureCount);
 
-    // Only failure metadata changes; price, deal, and last-success fields remain intact.
+    // A positive non-game classification invalidates public eligibility, not the last-good quote.
     await ProductModel.updateOne(
       { _id: leased._id, refreshLeaseToken: leaseToken, refreshLeaseUntil: { $gt: new Date() } },
       {
@@ -243,6 +246,7 @@ export async function refreshSteamProductById(
           consecutiveFailures: failureCount,
           refreshLeaseUntil: null,
           refreshLeaseToken: null,
+          ...(error instanceof SteamGameUnsupportedError ? { steamTypeValidatedAt: null, steamTypeRejected: true } : {}),
         },
       },
       { timeoutMS: 500, maxTimeMS: 500 },
@@ -251,7 +255,8 @@ export async function refreshSteamProductById(
   }
 }
 
-async function canReusePrice(product: { _id: unknown; currentPriceMinor: number | null; lastSuccessfulCheckAt: Date | null; lastError: string | null }, options: RefreshOptions) {
+async function canReusePrice(product: { _id: unknown; steamTypeValidatedAt?: Date | null; steamTypeRejected?: boolean; currentPriceMinor: number | null; lastSuccessfulCheckAt: Date | null; lastError: string | null }, options: RefreshOptions) {
+  if (!product.steamTypeValidatedAt || product.steamTypeRejected) return false;
   if (!hasFreshPrice(product)) return false;
   if (!options.requireObservation) return true;
   return Boolean(await PriceHistoryModel.exists({
@@ -276,10 +281,12 @@ function hasFreshPrice(product: {
 function deferFailedCheck(product: {
   lastError: string | null;
   nextCheckAt: Date | null;
+  steamTypeRejected?: boolean;
 }): void {
   // Retry scheduling applies even before the first successful observation.
   // It is separate from freshness: a retry time cannot renew an old price.
   if (product.lastError && product.nextCheckAt && product.nextCheckAt.getTime() > Date.now()) {
+    if (product.steamTypeRejected) throw new SteamGameUnsupportedError();
     throw new ProviderDeferredError(product.nextCheckAt);
   }
 }

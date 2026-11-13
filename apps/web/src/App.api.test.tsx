@@ -658,8 +658,8 @@ describe('live tracker screens', () => {
         : undefined,
     );
     const url = 'https://store.steampowered.com/app/620/';
-    await screen.findByLabelText('Steam base-game URL');
-    change('Steam base-game URL', url);
+    await screen.findByLabelText('Steam app URL');
+    change('Steam app URL', url);
     click('Preview offer');
 
     expect(
@@ -677,7 +677,7 @@ describe('live tracker screens', () => {
       if (path.startsWith('/api/tracked-items?'))
         return json({ items: [], page });
     });
-    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
+      fireEvent.change(await screen.findByLabelText('Steam app URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await waitFor(() =>
       expect(
@@ -699,7 +699,7 @@ describe('live tracker screens', () => {
       ),
     );
     fireEvent.click(screen.getByRole('link', { name: 'Add game' }));
-    expect(await screen.findByLabelText('Steam base-game URL')).toHaveValue(
+    expect(await screen.findByLabelText('Steam app URL')).toHaveValue(
       '',
     );
     expect(
@@ -765,7 +765,7 @@ describe('live tracker screens', () => {
         return json(error('RATE_LIMITED', 2), 429, { 'Retry-After': '2' });
       }
     });
-    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
+    fireEvent.change(await screen.findByLabelText('Steam app URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');
@@ -803,8 +803,8 @@ describe('live tracker screens', () => {
       if (path === '/api/product-previews') return json({ id: 'preview_example', expiresAt: csrf().expiresAt, product }, 201);
       if (path === '/api/tracked-items?limit=100') return lookup.promise;
     });
-    await screen.findByLabelText('Steam base-game URL');
-    change('Steam base-game URL', 'https://store.steampowered.com/app/620/');
+    await screen.findByLabelText('Steam app URL');
+    change('Steam app URL', 'https://store.steampowered.com/app/620/');
     click('Preview offer');
     await screen.findByRole('button', { name: 'Checking your watchlist…' });
     expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
@@ -822,12 +822,12 @@ describe('live tracker screens', () => {
       if (path === '/api/tracked-items?limit=100') return ++lookups === 1
         ? json(error('VALIDATION_ERROR'), 422) : json({ items: [], page });
     });
-    await screen.findByLabelText('Steam base-game URL');
-    change('Steam base-game URL', 'https://store.steampowered.com/app/620/');
+    await screen.findByLabelText('Steam app URL');
+    change('Steam app URL', 'https://store.steampowered.com/app/620/');
     click('Preview offer');
     await screen.findByRole('button', { name: 'Retry' });
     expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Steam base-game URL')).toHaveValue('https://store.steampowered.com/app/620/');
+    expect(screen.getByLabelText('Steam app URL')).toHaveValue('https://store.steampowered.com/app/620/');
     click('Retry');
     await screen.findByLabelText('Target price (USD)');
     expect(fetch.mock.calls.filter(([path]) => path === '/api/product-previews')).toHaveLength(1);
@@ -912,7 +912,7 @@ describe('live tracker screens', () => {
       if (path === `/api/tracked-items/${item.id}/history?limit=100`)
         return json(history);
     });
-    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
+    fireEvent.change(await screen.findByLabelText('Steam app URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');
@@ -957,6 +957,144 @@ describe('live tracker screens', () => {
       expect(img.getAttribute('src')).toMatch(/^\/art\//);
     expect(unexpected).toEqual([]);
   });
+  it('uses an API-returned synthetic Brotato through preview, CRUD, list, and empty history without sample fallback', async () => {
+    const url = 'https://store.steampowered.com/app/1942280/';
+    const trackerId = 'tracker_brotato_fixture';
+    // Synthetic provider ID/offer payload for client coverage only; not source proof.
+    const brotato = {
+      ...product,
+      id: 'product_brotato_fixture',
+      identity: { ...product.identity, providerGameId: '90001' },
+      steamAppId: '1942280',
+      canonicalSteamUrl: url,
+      title: 'Brotato',
+      currentPrice: { amountMinor: 0, currency: 'USD' as const },
+      imageUrl: null,
+    };
+    const previewValue = {
+      id: 'preview_brotato_fixture',
+      expiresAt: csrf().expiresAt,
+      product: brotato,
+    };
+    const emptyHistory = {
+      ...history,
+      trackedItemId: trackerId,
+      product: brotato,
+      items: [],
+    };
+    let current = {
+      ...item,
+      id: trackerId,
+      product: brotato,
+      alerts: { email: false, push: false },
+    };
+    let saved = false;
+    const { fetch, unexpected } = open('/add', (path, init) => {
+      if (path === '/api/product-previews')
+        return json(previewValue, 201);
+      if (path.startsWith('/api/tracked-items?'))
+        return json({ items: saved ? [current] : [], page });
+      if (path === `/api/tracked-items/${trackerId}/history?limit=100`)
+        return json(emptyHistory);
+      if (path === `/api/tracked-items/${trackerId}` && init.method === 'PATCH') {
+        const body = JSON.parse(init.body as string);
+        current = {
+          ...current,
+          targetPrice: body.targetPrice,
+          enabled: body.enabled,
+          alerts: body.alerts,
+        };
+        return json(current);
+      }
+      if (path === `/api/tracked-items/${trackerId}` && init.method === 'DELETE') {
+        saved = false;
+        return new Response(null, { status: 204 });
+      }
+      if (path === `/api/tracked-items/${trackerId}`) return json(current);
+      if (path === '/api/tracked-items' && init.method === 'POST') {
+        const body = JSON.parse(init.body as string);
+        expect(body.previewId).toBe(previewValue.id);
+        current = {
+          ...current,
+          targetPrice: body.targetPrice,
+          enabled: body.enabled,
+          alerts: body.alerts,
+        };
+        saved = true;
+        return json(current, 201);
+      }
+    });
+
+    await screen.findByLabelText('Steam app URL');
+    change('Steam app URL', url);
+    click('Preview offer');
+    expect(await screen.findByRole('heading', { name: 'Set your target' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Brotato' })).toBeVisible();
+    expect(screen.getByText('$0.00')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Portal 2' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Half-Life 2' })).not.toBeInTheDocument();
+    const previewRequest = fetch.mock.calls.find(([path]) => path === '/api/product-previews');
+    expect(JSON.parse(previewRequest?.[1]?.body as string)).toEqual({ url });
+    expect(fetch.mock.calls.some(([path, init]) =>
+      String(path).includes('/history') || (path === '/api/tracked-items' && init?.method === 'POST'),
+    )).toBe(false);
+
+    change('Target price (USD)', '0');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Email' }));
+    click('Save game');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Brotato' })).toBeVisible();
+    expect(await screen.findByText('No observations yet')).toBeVisible();
+    const createRequest = fetch.mock.calls.find(([path, init]) => path === '/api/tracked-items' && init?.method === 'POST');
+    expect(JSON.parse(createRequest?.[1]?.body as string)).toMatchObject({
+      previewId: previewValue.id,
+      targetPrice: { amountMinor: 0, currency: 'USD' },
+      alerts: { email: false, push: false },
+    });
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to watchlist' }));
+    expect(await screen.findByRole('link', { name: 'Details for Brotato' })).toBeVisible();
+    fireEvent.click(screen.getByRole('link', { name: 'Details for Brotato' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Brotato' })).toBeVisible();
+    fireEvent.click(screen.getByRole('link', { name: 'Edit tracker' }));
+    await screen.findByLabelText('Target price (USD)');
+    change('Target price (USD)', '1.25');
+    click('Save changes');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Brotato' })).toBeVisible();
+    const patch = fetch.mock.calls.find(([path, init]) => path === `/api/tracked-items/${trackerId}` && init?.method === 'PATCH');
+    expect(JSON.parse(patch?.[1]?.body as string)).toEqual({
+      targetPrice: { amountMinor: 125, currency: 'USD' },
+      enabled: true,
+      alerts: { email: false, push: false },
+    });
+    click('Remove game');
+    click('Remove from watchlist');
+    expect(await screen.findByText('Your watchlist is empty')).toBeVisible();
+    expect(fetch.mock.calls.some(([path, init]) => path === `/api/tracked-items/${trackerId}` && init?.method === 'DELETE')).toBe(true);
+    expect(unexpected).toEqual([]);
+  });
+  it('does not substitute sample content or expose save controls when Brotato preview is unsupported', async () => {
+    const url = 'https://store.steampowered.com/app/1942280/';
+    const { fetch, unexpected } = open('/add', (path) =>
+      path === '/api/product-previews'
+        ? json({
+            error: {
+              ...error('UNSUPPORTED_PRODUCT').error,
+              message: 'This exact app has no supported match.',
+            },
+          }, 422)
+        : undefined,
+    );
+    await screen.findByLabelText('Steam app URL');
+    change('Steam app URL', url);
+    click('Preview offer');
+    expect(await screen.findByText('This exact app has no supported match.')).toBeVisible();
+    expect(screen.queryByLabelText('Target price (USD)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save game' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Portal 2' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Half-Life 2' })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([path, init]) => path === '/api/tracked-items' && init?.method === 'POST')).toBe(false);
+    expect(unexpected).toEqual([]);
+  });
   it('surfaces server validation fields and an owned duplicate with a useful link', async () => {
     let attempts = 0;
     const { unexpected } = open('/add', (path) => {
@@ -971,7 +1109,7 @@ describe('live tracker screens', () => {
                     {
                       path: '/url',
                       code: 'unsupported',
-                      message: 'This base game is not supported.',
+                      message: 'This Steam app is not supported.',
                     },
                   ],
                 },
@@ -993,10 +1131,10 @@ describe('live tracker screens', () => {
           409,
         );
     });
-    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
+    fireEvent.change(await screen.findByLabelText('Steam app URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     expect(
-      await screen.findByText('/url: This base game is not supported.'),
+      await screen.findByText('/url: This Steam app is not supported.'),
     ).toBeVisible();
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
@@ -1024,7 +1162,7 @@ describe('live tracker screens', () => {
       if (path.startsWith(`/api/tracked-items/${item.id}/history`))
         return json(history);
     });
-    fireEvent.change(await screen.findByLabelText('Steam base-game URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
+    fireEvent.change(await screen.findByLabelText('Steam app URL'), { target: { value: 'https://store.steampowered.com/app/620/' } });
     click('Preview offer');
     await screen.findByLabelText('Target price (USD)');
     change('Target price (USD)', '0');

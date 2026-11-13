@@ -57,7 +57,7 @@ describe.skipIf(!uri)('real sessions with offline preview and isolated MongoDB',
       { email: 'two@example.invalid', passwordHash, emailVerifiedAt: new Date() }]);
     await ProductModel.create({ provider: 'cheapshark', providerGameId: '36', steamAppId: '620', storeId: '1', market: 'US', currency: 'USD',
       canonicalSteamUrl: 'https://store.steampowered.com/app/620/', title: 'Portal 2', dealId: 'fixture',
-      purchaseUrl: cheapSharkPurchaseUrl('fixture'), currentPriceMinor: 999, lastSuccessfulCheckAt: new Date(), lastAttemptAt: new Date() });
+      purchaseUrl: cheapSharkPurchaseUrl('fixture'), currentPriceMinor: 999, steamTypeValidatedAt: new Date(), lastSuccessfulCheckAt: new Date(), lastAttemptAt: new Date() });
   }, 30_000);
   afterAll(async () => {
     if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
@@ -114,6 +114,17 @@ describe.skipIf(!uri)('real sessions with offline preview and isolated MongoDB',
       .set('Cookie', 'price_tracker_prelogin_dev=fixture').expect(400);
     await request(app).post('/api/auth/mobile/logout').set('Authorization', authorization).expect(204);
     await request(app).get('/api/tracked-items').set('Authorization', authorization).expect(401);
+  });
+  it('rejects an unvalidated cached product even when an injected resolver returns it', async () => {
+    const login = await request(app).post('/api/auth/mobile/login')
+      .send({ email: 'one@example.invalid', password }).expect(200);
+    await ProductModel.updateOne({ steamAppId: '620' }, { $set: { steamTypeValidatedAt: null } });
+    try {
+      await request(app).post('/api/product-previews').set('Authorization', `Bearer ${login.body.accessToken}`)
+        .send({ url: 'https://store.steampowered.com/app/620/' }).expect(503);
+    } finally {
+      await ProductModel.updateOne({ steamAppId: '620' }, { $set: { steamTypeValidatedAt: new Date() } });
+    }
   });
   it('mounts shared admin checks with current roles and contract rate metadata, without watched products', async () => {
     const login = await request(app).post('/api/auth/mobile/login')

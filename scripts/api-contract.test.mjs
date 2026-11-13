@@ -233,6 +233,11 @@ test('client writes cannot spoof ownership, provider identity, price or history'
 
 test('product examples keep real proof identity separate from dated observations and absent data', () => {
   for (const product of [...products, unavailableProduct]) validate({ $ref: '#/components/schemas/Product' }, product);
+  // Keep the dated Portal 2/Half-Life 2 proof examples on their legacy literal.
+  assert.ok(products.every(({ source }) => source.attribution === 'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.'));
+  const currentAttribution = 'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.';
+  validate({ $ref: '#/components/schemas/Product' }, { ...products[0], source: { ...products[0].source, attribution: currentAttribution } });
+  reject('Product', { ...products[0], source: { ...products[0].source, attribution: 'Prices supplied by CheapShark; Steam game offer.' } });
   assert.deepEqual(products.map(({ steamAppId, identity }) => [steamAppId, identity.providerGameId]), [['620', '36'], ['220', '59']]);
   for (const product of products) {
     assert.equal(product.canonicalSteamUrl, `https://store.steampowered.com/app/${product.steamAppId}/`);
@@ -255,6 +260,19 @@ test('product examples keep real proof identity separate from dated observations
   reject('Product', missing);
   validate({ $ref: '#/components/schemas/Product' }, { ...products[0], currentPrice: { amountMinor: 0, currency: 'USD' } });
   validate({ $ref: '#/components/schemas/TrackedItem' }, tracker);
+});
+
+test('Product schema permits a separate synthetic dynamic Steam app identity', () => {
+  // Shape-only fixture. providerGameId 90001 is synthetic, not a Brotato source mapping.
+  const brotatoShape = {
+    ...products[0],
+    identity: { ...products[0].identity, providerGameId: '90001' },
+    steamAppId: '1942280',
+    canonicalSteamUrl: 'https://store.steampowered.com/app/1942280/',
+    title: 'Brotato',
+  };
+  validate({ $ref: '#/components/schemas/Product' }, brotatoShape);
+  assert.notEqual(brotatoShape.steamAppId, brotatoShape.identity.providerGameId);
 });
 
 test('purchase redirects use one strict decode and canonical form serialization', () => {

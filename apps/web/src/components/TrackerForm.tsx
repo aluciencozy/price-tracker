@@ -207,7 +207,7 @@ export default function TrackerForm({
                 <FieldGroup>
                   <Field data-invalid={invalidUrl}>
                     <FieldLabel htmlFor="steam-url">
-                      Steam base-game URL
+                      {api ? 'Steam app URL' : 'Steam base-game URL'}
                     </FieldLabel>
                     <Input
                       id="steam-url"
@@ -222,7 +222,7 @@ export default function TrackerForm({
                     />
                     <FieldDescription id="url-help">
                       {api
-                        ? 'Only supported Steam base-game links. The submitted URL is parsed, never fetched; the API validates the exact offer.'
+                        ? 'Preview Steam apps classified as games after an exact app-ID match to a current US/USD Steam offer. DLC, bundles and subscriptions are unsupported; Steam’s type check cannot distinguish every special edition. The URL is parsed locally, never fetched.'
                         : 'Parsed locally; never fetched. This sample recognizes Portal 2 and Half-Life 2.'}
                     </FieldDescription>
                   </Field>
@@ -273,7 +273,7 @@ export default function TrackerForm({
                       <p>Steam / US / USD</p>
                       <Badge variant="secondary">
                         {api
-                          ? 'Validated base-game offer'
+                          ? 'Exact Steam app offer'
                           : 'Base game / sample match'}
                       </Badge>
                     </div>

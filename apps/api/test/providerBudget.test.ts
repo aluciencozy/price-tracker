@@ -38,7 +38,7 @@ vi.mock('node:timers/promises', () => ({
   }),
 }));
 
-import { ProviderDeferredError, ProviderRateLimitError, withCheapSharkRequestBudget } from '../src/providerBudget.js';
+import { ProviderDeferredError, ProviderRateLimitError, withCheapSharkRequestBudget, withProviderRequestBudget } from '../src/providerBudget.js';
 
 let budget: Budget;
 function query<T>(value: T) {
@@ -90,6 +90,31 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('shared CheapShark request budget', () => {
+  it.each(['steam', 'cheapshark'] as const)('keeps %s rate-limit cooldown separate from the other provider', async limited => {
+    const steam = budget;
+    const cheap = { ...budget };
+    const states: Record<string, Budget> = { steam, cheapshark: cheap };
+    mocks.updateOne.mockImplementation((filter: Filter & { _id: string }, update: Update) => {
+      budget = states[filter._id]!;
+      const eligible = matches(filter);
+      if (eligible) apply(update);
+      return query({ modifiedCount: eligible ? 1 : 0 });
+    });
+    mocks.findOneAndUpdate.mockImplementation((filter: Filter & { _id: string }, update: Update) => {
+      budget = states[filter._id]!;
+      if (!matches(filter)) return query(null);
+      apply(update);
+      return query({ ...budget });
+    });
+    mocks.findById.mockImplementation((key: string) => query({ ...states[key]! }));
+    await expect(withProviderRequestBudget(limited, Date.now() + 30_000, async () => {
+      throw new ProviderRateLimitError(null, '120');
+    })).rejects.toMatchObject({ retryAfterHeader: '120' });
+    const other = limited === 'steam' ? 'cheapshark' : 'steam';
+    expect(states[limited]!.cooldownUntil.getTime()).toBe(Date.now() + 120_000);
+    await expect(withProviderRequestBudget(other, Date.now() + 30_000, async () => 'ok')).resolves.toBe('ok');
+    expect(states[other]!.cooldownUntil).toEqual(new Date(0));
+  });
   it('releases its own lease and paces the next request', async () => {
     await withCheapSharkRequestBudget(Date.now() + 30_000, async () => 'ok');
     expect(budget.leaseToken).toBeNull();

@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { cheapSharkPurchaseUrl, parseSteamUrl } from './cheapshark.js';
+import { cheapSharkPurchaseUrl, parseSteamUrl, SteamGameUnsupportedError } from './cheapshark.js';
 import { ProductModel, type ProductRecord } from './models/product.js';
 import { ProductPreviewModel } from './models/trackingApi.js';
-import { initialCatalog } from './databaseSetup.js';
+import { discoverSteamProduct, type DiscoveryLookup } from './productDiscovery.js';
 import { ProviderDeferredError, ProviderRateLimitError } from './providerBudget.js';
 import { publicProduct } from './history.js';
 import { TrackingError, validationError } from './trackingErrors.js';
@@ -37,9 +37,12 @@ function providerFailure(error: unknown): TrackingError {
       'The shared price source is temporarily rate limited.', [], seconds);
   }
   if (error instanceof Error && error.message.includes('No unambiguous current Steam offer')) return productUnavailable();
+  if (error instanceof SteamGameUnsupportedError) {
+    return new TrackingError(422, 'UNSUPPORTED_PRODUCT', 'This Steam app is not a supported game.');
+  }
   if (error instanceof Error && error.message.includes('did not return one exact match')) {
-    return new TrackingError(422, 'AMBIGUOUS_PRODUCT', 'CheapShark did not confirm one exact Steam base-game match.',
-      [{ path: '/url', code: 'unsupported', message: 'The submitted game could not be matched exactly.' }]);
+    return new TrackingError(422, 'AMBIGUOUS_PRODUCT', 'CheapShark did not confirm one exact Steam app ID match.',
+      [{ path: '/url', code: 'unsupported', message: 'The submitted Steam app ID could not be matched exactly.' }]);
   }
   return new TrackingError(503, 'PROVIDER_UNAVAILABLE', 'The Steam price source is temporarily unavailable.');
 }
@@ -82,10 +85,10 @@ function toProductRecord(value: unknown): ProductRecord & { _id: mongoose.Types.
 }
 
 /**
- * Resolves only pre-approved, seeded Product identities through the injected
- * shared preview/cache adapter. The resolver must not write history or alerts.
+ * Resolves or discovers shared Products through the bounded provider cache.
+ * The resolver must not write history or alerts.
  */
-export function createProductPreviewService(options: { resolveProduct: ProductPreviewResolver; now?: Clock; deadlineMs?: number }) {
+export function createProductPreviewService(options: { resolveProduct: ProductPreviewResolver; discover?: DiscoveryLookup; now?: Clock; deadlineMs?: number }) {
   const resolveProduct = options.resolveProduct;
   const now = options.now ?? (() => new Date());
   const deadlineMs = options.deadlineMs ?? PREVIEW_DEADLINE_MS;
@@ -99,41 +102,38 @@ export function createProductPreviewService(options: { resolveProduct: ProductPr
     let game: ReturnType<typeof parseSteamUrl>;
     try {
       game = parseSteamUrl(parsedBody.data.url);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('confirmed supported-game list')) {
-        throw new TrackingError(422, 'UNSUPPORTED_PRODUCT', 'This Steam game is not in the confirmed supported-game list.',
-          [{ path: '/url', code: 'unsupported', message: 'This game is not currently supported.' }]);
-      }
+    } catch {
       throw unsupportedUrl();
     }
 
-    const approved = initialCatalog.find(entry => entry.steamAppId === game.steamAppId && entry.title === game.title);
-    if (!approved) {
-      throw new TrackingError(422, 'UNSUPPORTED_PRODUCT', 'This Steam game is not in the confirmed supported-game list.',
-        [{ path: '/url', code: 'unsupported', message: 'This game is not currently supported.' }]);
-    }
-
+    return withPreviewDeadline(async signal => {
+    const dbOptions = { signal, timeoutMS: deadlineMs, maxTimeMS: 500 };
     const filter = {
       steamAppId: game.steamAppId,
       provider: 'cheapshark' as const,
       storeId: '1' as const,
       market: 'US' as const,
       currency: 'USD' as const,
-      canonicalSteamUrl: game.canonicalSteamUrl,
-      providerGameId: approved.providerGameId,
     };
-    const cached = await ProductModel.findOne(filter).lean().exec();
-    if (!cached) throw new TrackingError(503, 'SERVICE_UNAVAILABLE', 'The confirmed product catalog is not initialized.');
+    let cached = await ProductModel.findOne(filter).setOptions(dbOptions).lean().exec();
+    signal.throwIfAborted();
+    if (!cached) {
+      try { cached = await discoverSteamProduct(game.canonicalSteamUrl, signal, options.discover); }
+      catch (error) { signal.throwIfAborted(); throw providerFailure(error); }
+    }
 
     let resolved: unknown;
     let refreshFailure: unknown;
     try {
-      resolved = await withPreviewDeadline(signal => resolveProduct(String(cached._id), signal), deadlineMs);
+      resolved = await resolveProduct(String(cached._id), signal);
+      signal.throwIfAborted();
     } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof SteamGameUnsupportedError) throw providerFailure(error);
       refreshFailure = error;
       // A prior successful quote may be returned honestly as stale when a bounded refresh fails.
-      const retained = await ProductModel.findOne(filter).lean().exec();
-      if (!retained || retained.currentPriceMinor === null || !retained.lastSuccessfulCheckAt || !retained.dealId || !retained.purchaseUrl) {
+      const retained = await ProductModel.findOne(filter).setOptions(dbOptions).lean().exec();
+      if (!retained || !retained.steamTypeValidatedAt || retained.steamTypeRejected || retained.currentPriceMinor === null || !retained.lastSuccessfulCheckAt || !retained.dealId || !retained.purchaseUrl) {
         throw providerFailure(error);
       }
       resolved = retained;
@@ -141,7 +141,7 @@ export function createProductPreviewService(options: { resolveProduct: ProductPr
 
     const product = toProductRecord(resolved);
     if (String(product._id) !== String(cached._id) || product.steamAppId !== game.steamAppId ||
-        product.providerGameId !== approved.providerGameId || product.storeId !== '1' || product.market !== 'US' ||
+        !product.steamTypeValidatedAt || product.steamTypeRejected || product.provider !== 'cheapshark' || product.providerGameId !== cached.providerGameId || product.storeId !== '1' || product.market !== 'US' ||
         product.currency !== 'USD' || product.canonicalSteamUrl !== game.canonicalSteamUrl) {
       throw new TrackingError(503, 'SERVICE_UNAVAILABLE', 'The confirmed product identity changed during preview.');
     }
@@ -178,7 +178,8 @@ export function createProductPreviewService(options: { resolveProduct: ProductPr
 
     const createdAt = now();
     const expiresAt = new Date(createdAt.getTime() + PREVIEW_LIFETIME_MS);
-    const preview = await ProductPreviewModel.create({
+    signal.throwIfAborted();
+    const preview = new ProductPreviewModel({
       _id: new mongoose.Types.ObjectId(),
       userId,
       productId: product._id,
@@ -186,7 +187,12 @@ export function createProductPreviewService(options: { resolveProduct: ProductPr
       expiresAt,
       purgeAt: new Date(expiresAt.getTime() + PREVIEW_PURGE_DELAY_MS),
     });
+    await preview.validate();
+    signal.throwIfAborted();
+    await ProductPreviewModel.collection.insertOne(preview.toObject(), dbOptions);
+    signal.throwIfAborted();
     return { id: String(preview._id), expiresAt: expiresAt.toISOString(), product: publicView };
+    }, deadlineMs);
   };
 }
 

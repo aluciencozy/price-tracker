@@ -10,10 +10,42 @@ function apiProductForDealId(dealId: string) {
 }
 
 describe('wire boundary validation', () => {
+  it('accepts a synthetic third-game identity without conflating Steam and provider IDs', () => {
+    // Synthetic DTO shape only; provider game ID 90001 is not a live mapping claim.
+    const brotato = {
+      ...product,
+      identity: { ...product.identity, providerGameId: '90001' },
+      steamAppId: '1942280',
+      canonicalSteamUrl: 'https://store.steampowered.com/app/1942280/',
+      title: 'Brotato',
+    };
+    expect(dto.product(brotato)).toMatchObject({
+      steamAppId: '1942280',
+      canonicalSteamUrl: 'https://store.steampowered.com/app/1942280/',
+      title: 'Brotato',
+      identity: { providerGameId: '90001', storeId: '1', market: 'US', currency: 'USD' },
+    });
+    expect(() => dto.product({
+      ...brotato,
+      canonicalSteamUrl: 'https://store.steampowered.com/app/620/',
+    })).toThrow();
+  });
   it('preserves distinct IDs, source, retained successful price, and failed-attempt metadata', () => {
     expect(dto.trackedItem(item)).toEqual(item);
     expect(dto.history(history)).toEqual(history);
     expect(dto.user(user)).toEqual(user);
+  });
+  it('accepts only the current exact-app or known legacy attribution wording', () => {
+    expect(dto.product({
+      ...product,
+      source: { ...product.source, attribution: dto.currentAttribution },
+    }).source.attribution).toBe(dto.currentAttribution);
+    // Existing offline fixtures model the legacy exact literal.
+    expect(dto.product(product).source.attribution).toBe(dto.attribution);
+    expect(() => dto.product({
+      ...product,
+      source: { ...product.source, attribution: 'Prices supplied by CheapShark; Steam game offer.' },
+    })).toThrow();
   });
   it('distinguishes free from unavailable and accepts safe integer money limits', () => {
     expect(dto.money({ amountMinor: 0, currency: 'USD' })).toEqual({ amountMinor: 0, currency: 'USD' });

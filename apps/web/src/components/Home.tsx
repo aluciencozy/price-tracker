@@ -80,14 +80,14 @@ export default function Home() {
             More playing.
           </h2>
           <p>
-            {api ? 'Track the Steam offer for each supported base game, in US dollars.' : 'The planned service follows one exact Steam base-game offer. No all-store price guessing.'}
+            {api ? 'Track US/USD Steam offers matched to apps classified as games. Steam’s type check cannot distinguish every special edition.' : 'The planned service follows one exact Steam base-game offer. No all-store price guessing.'}
           </p>
         </div>
         <div className="steps">
           <article>
             <Link2 aria-hidden="true" />
             <h3>Save the game</h3>
-            <p>Start with a supported Steam base-game link.</p>
+            <p>{api ? 'Preview an individual Steam app URL after an exact app-ID match to a supported offer.' : 'Start with a supported Steam base-game link.'}</p>
           </article>
           <article>
             <SlidersHorizontal aria-hidden="true" />

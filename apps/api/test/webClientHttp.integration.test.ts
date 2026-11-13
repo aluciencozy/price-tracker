@@ -52,7 +52,7 @@ describe.skipIf(!uri)('WebClient over real HTTP', () => {
     await mongoose.connect(uri!, { dbName, autoIndex: false, serverSelectionTimeoutMS: 5000 });
     if (mongoose.connection.name !== dbName || !/^price_tracker_test_[a-f0-9]{32}$/.test(dbName)) throw new Error('Unexpected database');
     await createDatabaseIndexes();
-    await ProductModel.create({ provider: 'cheapshark', providerGameId: '36', steamAppId: '620', storeId: '1', market: 'US', currency: 'USD', canonicalSteamUrl: 'https://store.steampowered.com/app/620/', title: 'Portal 2', dealId: 'fixture', purchaseUrl: cheapSharkPurchaseUrl('fixture'), currentPriceMinor: 999, lastSuccessfulCheckAt: new Date(), lastAttemptAt: new Date() });
+    await ProductModel.create({ provider: 'cheapshark', providerGameId: '36', steamAppId: '620', storeId: '1', market: 'US', currency: 'USD', canonicalSteamUrl: 'https://store.steampowered.com/app/620/', title: 'Portal 2', dealId: 'fixture', purchaseUrl: cheapSharkPurchaseUrl('fixture'), currentPriceMinor: 999, steamTypeValidatedAt: new Date(), lastSuccessfulCheckAt: new Date(), lastAttemptAt: new Date() });
     const app = createApp(config, () => 'connected', { tracking: {
       cursorSigningSecret: 'fixture-only-cursor-secret-at-least-32-characters',
       resolveProduct: async (id, signal) => { signal.throwIfAborted(); return ProductModel.findById(id).orFail().lean().exec(); },

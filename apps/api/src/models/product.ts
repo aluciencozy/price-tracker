@@ -9,6 +9,8 @@ export type ProductRecord = {
   currency: 'USD';
   canonicalSteamUrl: string;
   title: string;
+  steamTypeValidatedAt?: Date | null;
+  steamTypeRejected?: boolean;
   dealId: string | null;
   purchaseUrl: string | null;
   currentPriceMinor: number | null;
@@ -34,6 +36,8 @@ const productSchema = new Schema<ProductRecord>(
     currency: { type: String, enum: ['USD'], required: true },
     canonicalSteamUrl: { type: String, required: true },
     title: { type: String, required: true, trim: true, maxlength: 300 },
+    steamTypeValidatedAt: { type: Date, default: null },
+    steamTypeRejected: { type: Boolean, default: false },
     dealId: { type: String, default: null },
     purchaseUrl: { type: String, default: null },
     currentPriceMinor: { type: Number, default: null, min: 0, validate: (value: number | null) => value === null || Number.isSafeInteger(value) },

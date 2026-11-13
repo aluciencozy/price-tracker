@@ -19,6 +19,39 @@ Map<String, dynamic> freshSession() => sessionJson()
       .toIso8601String();
 http.Response response(Object value, [int status = 200]) =>
     http.Response(jsonEncode(value), status);
+Map<String, dynamic> syntheticBrotatoProductJson() {
+  final product = productJson()
+    ..['id'] = 'product_brotato_fixture'
+    ..['steamAppId'] = '1942280'
+    ..['canonicalSteamUrl'] = 'https://store.steampowered.com/app/1942280/'
+    ..['title'] = 'Brotato'
+    ..['currentPrice'] = moneyJson(0)
+    ..['freshness'] = 'fresh'
+    ..['lastAttemptAt'] = observed
+    ..['lastError'] = null;
+  product['identity'] = {
+    ...(product['identity'] as Map<String, dynamic>),
+    'providerGameId': '90001',
+  };
+  // The synthetic provider game ID is not an upstream match or price claim.
+  return product;
+}
+
+Map<String, dynamic> syntheticBrotatoTrackerJson({
+  int targetCents = 0,
+  bool email = false,
+  bool push = false,
+}) => trackerJson()
+  ..['id'] = 'tracker_brotato_fixture'
+  ..['product'] = syntheticBrotatoProductJson()
+  ..['targetPrice'] = moneyJson(targetCents)
+  ..['alerts'] = {'email': email, 'push': push};
+
+Map<String, dynamic> syntheticBrotatoHistoryJson() => historyJson()
+  ..['trackedItemId'] = 'tracker_brotato_fixture'
+  ..['product'] = syntheticBrotatoProductJson()
+  ..['items'] = <dynamic>[];
+
 Finder field(String label) => find.byWidgetPredicate(
   (widget) => widget is TextField && widget.decoration?.labelText == label,
 );
@@ -427,7 +460,7 @@ void main() {
       }, signedIn: true);
       await tap(tester, find.text('Add game'));
       await tester.enterText(
-        field('Steam game URL'),
+        field('Steam app URL'),
         'https://store.steampowered.com/app/620/',
       );
       await tap(tester, find.text('Preview game'));
@@ -445,6 +478,132 @@ void main() {
       await tap(tester, find.widgetWithText(FilledButton, 'Remove'));
       expect(deletes, 1);
       expect(find.text('Your next game starts here.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'API UI previews and reads a synthetic dynamic Brotato offer without sample fallback',
+    (tester) async {
+      const url = 'https://store.steampowered.com/app/1942280/';
+      var saved = false;
+      var historyReads = 0;
+      Map<String, dynamic>? current;
+      Map<String, dynamic>? createBody;
+      final paths = <String>[];
+      final destinations = <Uri>[];
+      await start(tester, (request) async {
+        paths.add(request.url.path);
+        destinations.add(request.url);
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/product-previews') {
+          expect(request.method, 'POST');
+          expect(jsonDecode(request.body), {'url': url});
+          final expires = DateTime.now()
+              .toUtc()
+              .add(const Duration(minutes: 10))
+              .toIso8601String();
+          return response({
+            'id': 'preview_brotato_fixture',
+            'expiresAt': expires,
+            'product': syntheticBrotatoProductJson(),
+          }, 201);
+        }
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson()..['items'] = saved ? [current] : []);
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(syntheticBrotatoHistoryJson());
+        }
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'POST') {
+          createBody = jsonDecode(request.body) as Map<String, dynamic>;
+          current = syntheticBrotatoTrackerJson(
+            targetCents:
+                (createBody!['targetPrice']
+                        as Map<String, dynamic>)['amountMinor']
+                    as int,
+            email:
+                (createBody!['alerts'] as Map<String, dynamic>)['email']
+                    as bool,
+            push:
+                (createBody!['alerts'] as Map<String, dynamic>)['push'] as bool,
+          );
+          saved = true;
+          return response(current!, 201);
+        }
+        if (request.url.path == '/api/tracked-items/tracker_brotato_fixture') {
+          return response(current ?? syntheticBrotatoTrackerJson());
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+
+      await tap(tester, find.text('Add game'));
+      await tester.enterText(field('Steam app URL'), url);
+      await tap(tester, find.text('Preview game'));
+      expect(find.text('Brotato'), findsOneWidget);
+      expect(find.textContaining('\$0.00'), findsOneWidget);
+      expect(find.text(sampleNotice), findsNothing);
+      expect(historyReads, 0);
+      expect(createBody, isNull);
+
+      await tester.enterText(field('Target price (USD)'), '0');
+      await tap(tester, find.text('Email preference'));
+      await tap(tester, find.text('Save tracker'));
+      expect(createBody!['previewId'], 'preview_brotato_fixture');
+      expect(createBody!['targetPrice'], moneyJson(0));
+      expect(createBody!['alerts'], {'email': false, 'push': false});
+      expect(find.text(sampleNotice), findsNothing);
+
+      await tap(tester, find.text('Brotato'));
+      expect(find.text('Brotato'), findsWidgets);
+      expect(find.textContaining('\$0.00'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.text('No observations available.'),
+        250,
+        scrollable: verticalScroll,
+      );
+      expect(find.text('No observations available.'), findsOneWidget);
+      expect(find.text('Illustrative sample history chart.'), findsNothing);
+      expect(historyReads, 1);
+      expect(destinations.every((uri) => uri.host == 'api.example.test'), true);
+      expect(paths, isNot(contains('/redirect')));
+    },
+  );
+
+  testWidgets(
+    'unsupported dynamic preview shows an error, not sample success',
+    (tester) async {
+      const url = 'https://store.steampowered.com/app/1942280/';
+      var creates = 0;
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) {
+          return response(userJson());
+        }
+        if (request.url.path == '/api/tracked-items') {
+          return response(pageJson()..['items'] = []);
+        }
+        if (request.url.path == '/api/product-previews') {
+          expect(jsonDecode(request.body), {'url': url});
+          return response(errorJson('UNSUPPORTED_PRODUCT'), 422);
+        }
+        if (request.method == 'POST') {
+          creates++;
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+
+      await tap(tester, find.text('Add game'));
+      await tester.enterText(field('Steam app URL'), url);
+      await tap(tester, find.text('Preview game'));
+
+      expect(find.textContaining('Fixture error.'), findsOneWidget);
+      expect(find.text(sampleNotice), findsNothing);
+      expect(find.text('Portal 2'), findsNothing);
+      expect(find.text('Half-Life 2'), findsNothing);
+      expect(find.text('Save tracker'), findsNothing);
+      expect(creates, 0);
     },
   );
 
@@ -486,7 +645,7 @@ void main() {
       }, signedIn: true);
       await tap(tester, find.text('Add game'));
       await tester.enterText(
-        field('Steam game URL'),
+        field('Steam app URL'),
         'https://store.steampowered.com/app/620/',
       );
       await tap(tester, find.text('Preview game'));

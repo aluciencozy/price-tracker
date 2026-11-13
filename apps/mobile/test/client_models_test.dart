@@ -3,6 +3,18 @@ import 'package:price_tracker/client/models.dart';
 
 import 'client_fixtures.dart';
 
+Json syntheticBrotatoProductJson() {
+  final json = productJson();
+  final identity = Map<String, dynamic>.from(json['identity'] as Map);
+  identity['providerGameId'] = '90001';
+  json['identity'] = identity;
+  json['steamAppId'] = '1942280';
+  json['canonicalSteamUrl'] = 'https://store.steampowered.com/app/1942280/';
+  json['title'] = 'Brotato';
+  // providerGameId 90001 is deliberately synthetic, not a verified mapping.
+  return json;
+}
+
 void main() {
   test('purchase URLs match strict one-decode form serialization', () {
     const prefix = 'https://www.cheapshark.com/redirect?dealID=';
@@ -71,6 +83,43 @@ void main() {
       History.fromJson(historyJson()).page.items.single.price.amountMinor,
       999,
     );
+  });
+  test('accepts current exact-app and known legacy attribution literals only', () {
+    const legacy =
+        'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
+    const current =
+        'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.';
+    // productJson() retains the old literal used by historical contract examples.
+    final legacyProduct = productJson();
+    expect(Product.fromJson(legacyProduct).source.attribution, legacy);
+    final currentProduct = productJson();
+    currentProduct['source'] = {
+      ...(currentProduct['source'] as Map<String, dynamic>),
+      'attribution': current,
+    };
+    expect(Product.fromJson(currentProduct).source.attribution, current);
+
+    final unknown = productJson();
+    unknown['source'] = {
+      ...(unknown['source'] as Map<String, dynamic>),
+      'attribution': 'Prices supplied by CheapShark; Steam game offer.',
+    };
+    expect(() => Product.fromJson(unknown), throwsFormatException);
+  });
+  test('accepts a synthetic dynamic Brotato app ID without conflating provider identity', () {
+    final product = Product.fromJson(syntheticBrotatoProductJson());
+    expect(product.steamAppId, '1942280');
+    expect(
+      product.canonicalSteamUrl,
+      'https://store.steampowered.com/app/1942280/',
+    );
+    expect(product.title, 'Brotato');
+    expect(product.identity.providerGameId, '90001');
+    expect(product.identity.providerGameId, isNot(product.steamAppId));
+
+    final mismatched = syntheticBrotatoProductJson()
+      ..['canonicalSteamUrl'] = 'https://store.steampowered.com/app/620/';
+    expect(() => Product.fromJson(mismatched), throwsFormatException);
   });
   test(
     'zero is free, null is unavailable and failed checks preserve last success',

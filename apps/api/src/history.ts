@@ -52,6 +52,7 @@ export async function recordObservation(productId: string, checkId: string, leas
     }, { $set: {
       currentPriceMinor: offer.currentPrice.amountMinor, retailPriceMinor: offer.retailPrice?.amountMinor ?? null,
       dealId: offer.dealId, purchaseUrl: offer.purchaseUrl, title: offer.title,
+      steamTypeValidatedAt: at, steamTypeRejected: false,
       lastSuccessfulCheckAt: at, providerChangedAt: offer.providerChangedAt,
       lastAttemptAt: at, lastError: null, consecutiveFailures: 0,
       nextCheckAt: new Date(at.getTime() + DAY), refreshLeaseToken: null, refreshLeaseUntil: null,
@@ -66,14 +67,14 @@ export async function recordObservation(productId: string, checkId: string, leas
 }
 
 export function publicProduct(product: ProductRecord & { _id: mongoose.Types.ObjectId }, now: Date) {
-  const success = product.currentPriceMinor !== null && product.lastSuccessfulCheckAt !== null;
+  const success = Boolean(product.steamTypeValidatedAt) && !product.steamTypeRejected && product.currentPriceMinor !== null && product.lastSuccessfulCheckAt !== null;
   const staleAt = success ? new Date(product.lastSuccessfulCheckAt!.getTime() + DAY) : null;
   return {
     id: String(product._id),
     identity: { provider: product.provider, providerGameId: product.providerGameId, storeId: product.storeId, market: product.market, currency: product.currency },
     steamAppId: product.steamAppId, canonicalSteamUrl: product.canonicalSteamUrl, title: product.title,
     storeName: 'Steam', imageUrl: null,
-    source: { name: 'CheapShark', url: 'https://www.cheapshark.com/', attribution: 'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.' },
+    source: { name: 'CheapShark', url: 'https://www.cheapshark.com/', attribution: 'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.' },
     currentPrice: success ? { amountMinor: product.currentPriceMinor, currency: 'USD' } : null,
     retailPrice: success && product.retailPriceMinor !== null ? { amountMinor: product.retailPriceMinor, currency: 'USD' } : null,
     dealId: success ? product.dealId : null, purchaseUrl: success ? product.purchaseUrl : null,

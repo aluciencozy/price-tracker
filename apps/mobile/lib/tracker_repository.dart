@@ -191,7 +191,7 @@ String parseSteamAppId(String input) {
       .firstMatch(uri.path);
   if (match == null) {
     throw const RepositoryException(
-      'Only base-game /app/ links are supported. Bundles and subscriptions are unsupported.',
+      'Only individual Steam /app/ links are supported. Bundles and subscriptions are unsupported.',
     );
   }
   return match.group(1)!;

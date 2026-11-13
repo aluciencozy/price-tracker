@@ -16,14 +16,56 @@ import {
 describe('API presentation repository', () => {
   const url = 'https://store.steampowered.com/app/620/';
   const preview = { id: 'preview_example', expiresAt: csrf().expiresAt, product };
-  function previewRepository(list: (path: string) => Response | Promise<Response>) {
+  function previewRepository(
+    list: (path: string) => Response | Promise<Response>,
+    previewValue = preview,
+  ) {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
       if (String(path) === '/api/auth/web/csrf') return json(csrf());
-      if (String(path) === '/api/product-previews') return json({ ...preview, expiresAt: new Date(Date.now() + 600_000).toISOString() }, 201);
+      if (String(path) === '/api/product-previews') return json({ ...previewValue, expiresAt: new Date(Date.now() + 600_000).toISOString() }, 201);
       return list(String(path));
     });
     return { fetch, repository: createApiRepository(new WebClient({ fetch })) };
   }
+  it('passes through a synthetic Brotato preview without substituting a sample product', async () => {
+    const brotatoUrl = 'https://store.steampowered.com/app/1942280/';
+    const brotatoProduct = {
+      ...product,
+      id: 'product_brotato_fixture',
+      identity: { ...product.identity, providerGameId: '90001' },
+      steamAppId: '1942280',
+      canonicalSteamUrl: brotatoUrl,
+      title: 'Brotato',
+      currentPrice: { amountMinor: 0, currency: 'USD' as const },
+      imageUrl: null,
+    };
+    const brotatoPreview = {
+      id: 'preview_brotato_fixture',
+      expiresAt: csrf().expiresAt,
+      product: brotatoProduct,
+    };
+    // Synthetic provider ID and zero price exercise client shape only, not source support.
+    const { fetch, repository } = previewRepository(
+      () => json({ items: [], page }),
+      brotatoPreview,
+    );
+
+    const result = await repository.preview(brotatoUrl);
+
+    expect(result.product).toMatchObject({
+      steamAppId: '1942280',
+      title: 'Brotato',
+      currentPrice: { amountMinor: 0, currency: 'USD' },
+      identity: { providerGameId: '90001', storeId: '1', market: 'US', currency: 'USD' },
+      imageUrl: '/art/fallback.svg',
+    });
+    const request = fetch.mock.calls.find(
+      ([path]) => path === '/api/product-previews',
+    );
+    expect(request?.[1]?.method).toBe('POST');
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({ url: brotatoUrl });
+    expect(fetch.mock.calls.every(([path]) => String(path).startsWith('/api/'))).toBe(true);
+  });
   it('finds an owned duplicate on a later page before returning a preview', async () => {
     const { repository, fetch } = previewRepository((path) => json(path.includes('cursor=')
       ? { items: [item], page: { limit: 100, nextCursor: 'unused' } }

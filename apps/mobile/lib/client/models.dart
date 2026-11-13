@@ -201,6 +201,11 @@ class OfferIdentity {
 }
 
 class Source {
+  static const _legacyAttribution =
+      'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
+  static const _currentAttribution =
+      'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.';
+
   Source.fromJson(Json json)
     : name = jsonString(json['name']),
       url = jsonString(json['url']),
@@ -208,8 +213,7 @@ class Source {
     requireKeys(json, ['name', 'url', 'attribution']);
     if (name != 'CheapShark' ||
         url != 'https://www.cheapshark.com/' ||
-        attribution !=
-            'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.') {
+        ![_legacyAttribution, _currentAttribution].contains(attribution)) {
       invalidJson();
     }
   }

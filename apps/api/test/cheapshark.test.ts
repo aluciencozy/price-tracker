@@ -23,6 +23,7 @@ const mockState = vi.hoisted(() => ({
   resolve6: vi.fn(),
   cancelResolver: vi.fn(),
   withBudget: vi.fn(),
+  withSteamBudget: vi.fn(),
   activeRequests: 0,
   maximumActiveRequests: 0,
 }));
@@ -58,9 +59,10 @@ vi.mock('../src/providerBudget.js', () => ({
     }
   },
   withCheapSharkRequestBudget: mockState.withBudget,
+  withProviderRequestBudget: mockState.withSteamBudget,
 }));
 
-import { parseSteamAppId, lookupSteamOffer, usdToCents } from '../src/cheapshark.js';
+import { parseSteamAppId, lookupSteamOffer, usdToCents, validateSteamGameType, SteamGameUnsupportedError } from '../src/cheapshark.js';
 import { recordObservation } from '../src/history.js';
 
 /** Make the shape returned by CheapShark's steamAppID lookup endpoint. */
@@ -107,12 +109,16 @@ function jsonResponse(body: unknown, statusCode = 200): FakeResponse {
   };
 }
 
-/** Queue the two ordered responses used by lookupSteamOffer. */
+function steamMetadata(id = '620', type = 'game') {
+  return jsonResponse({ [id]: { success: true, data: { steam_appid: Number(id), type } } });
+}
+
+/** Queue the three ordered responses used by lookupSteamOffer. */
 function queueSuccessfulLookup(
   matches: unknown = [gameMatch()],
   details: unknown = gameDetails(),
 ) {
-  queueResponses(jsonResponse(matches), jsonResponse(details));
+  queueResponses(steamMetadata(), jsonResponse(matches), jsonResponse(details));
 }
 
 function queueResponses(...responses: FakeResponse[]) {
@@ -144,9 +150,12 @@ beforeEach(() => {
   mockState.withBudget.mockImplementation(
     async (_deadline: number, request: () => Promise<unknown>) => request(),
   );
+  mockState.withSteamBudget.mockImplementation(
+    async (_provider: string, _deadline: number, request: () => Promise<unknown>) => request(),
+  );
 
   mockState.httpsRequest.mockImplementation(
-    (_url: URL, options: { lookup?: (...args: unknown[]) => void }, onResponse: (response: PassThrough) => void) => {
+    (url: URL, options: { lookup?: (...args: unknown[]) => void }, onResponse: (response: PassThrough) => void) => {
       const request = new EventEmitter() as EventEmitter & {
         end: () => void;
         destroy: (error?: Error) => void;
@@ -192,7 +201,7 @@ beforeEach(() => {
           if (!fixture.leaveOpen) { response.end(fixture.body); deactivate(); }
         };
 
-        lookup('www.cheapshark.com', {}, callback as (...args: unknown[]) => void);
+        lookup(url.hostname, {}, callback as (...args: unknown[]) => void);
       };
 
       request.destroy = (error?: Error) => {
@@ -210,14 +219,59 @@ afterEach(() => {
 });
 
 describe('CheapShark adapter helpers', () => {
+  it('discovers a synthetic new app by exact ID without using titles as identity', async () => {
+    queueResponses(steamMetadata('1942280'), jsonResponse([gameMatch('1942280', '456', 'unrelated label')]),
+      jsonResponse(gameDetails([storeDeal({ price: '0' })], '1942280', 'Synthetic Deluxe')));
+    const offer = await lookupSteamOffer('https://store.steampowered.com/app/1942280/');
+    expect(offer).toMatchObject({ steamAppId: '1942280', title: 'Synthetic Deluxe', identity: { providerGameId: '456' }, currentPrice: { amountMinor: 0 } });
+    expect(mockState.withSteamBudget.mock.calls[0]?.[0]).toBe('steam');
+  });
+
+  it.each(['dlc', 'demo', 'software', 'unknown'])('rejects Steam type %s before CheapShark', async type => {
+    queueResponses(steamMetadata('620', type));
+    await expect(lookupSteamOffer('https://store.steampowered.com/app/620/')).rejects.toBeInstanceOf(SteamGameUnsupportedError);
+    expect(mockState.httpsRequest).toHaveBeenCalledOnce();
+  });
+
+  it('classifies a valid unsuccessful metadata response as unsupported', async () => {
+    queueResponses(jsonResponse({ '620': { success: false } }));
+    await expect(validateSteamGameType('620', Date.now() + 1000)).rejects.toBeInstanceOf(SteamGameUnsupportedError);
+  });
+
+  it.each([
+    { '620': { success: true, data: { steam_appid: 220, type: 'game' } } },
+    { '620': { success: true, data: { steam_appid: 620 } } },
+    { '620': { success: true, data: { steam_appid: 9007199254740992, type: 'game' } } },
+    { '620': { success: true, data: { type: 'game' } } },
+    { '620': {} },
+    {},
+  ])('treats malformed or mismatched metadata %# as an upstream integrity error', async metadata => {
+    queueResponses(jsonResponse(metadata));
+    const error = await validateSteamGameType('620', Date.now() + 1000).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SteamGameUnsupportedError);
+    expect((error as Error).message).toMatch(/invalid metadata/);
+  });
+
+  it('rejects unsafe numeric IDs before any provider request', async () => {
+    const max = String(Number.MAX_SAFE_INTEGER);
+    const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+    expect(parseSteamAppId(`https://store.steampowered.com/app/${max}/`)).toBe(max);
+    expect(() => parseSteamAppId(`https://store.steampowered.com/app/${unsafe}/`)).toThrow();
+    await expect(lookupSteamOffer(`https://store.steampowered.com/app/${unsafe}/`)).rejects.toThrow();
+    await expect(validateSteamGameType(unsafe, Date.now() + 1000)).rejects.toThrow(/Invalid Steam app ID/);
+    expect(mockState.httpsRequest).not.toHaveBeenCalled();
+    expect(mockState.withSteamBudget).not.toHaveBeenCalled();
+  });
+
   it('gets the Steam app ID from a confirmed URL', () => {
     expect(parseSteamAppId('https://store.steampowered.com/app/620/')).toBe('620');
   });
 
-  it('rejects an unsupported game', () => {
-    expect(() =>
+  it('parses an arbitrary numeric game ID without deciding support', () => {
+    expect(
       parseSteamAppId('https://store.steampowered.com/app/999999/'),
-    ).toThrow();
+    ).toBe('999999');
   });
 
   it('converts a USD price to cents', () => {
@@ -236,7 +290,7 @@ describe('CheapShark adapter helpers', () => {
 
     expect(offer.identity.providerGameId).toBe('36');
     expect(offer.currentPrice.amountMinor).toBe(999);
-    expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(3);
   });
 
   it('returns separate exact Steam, CheapShark game, store, and deal IDs', async () => {
@@ -271,7 +325,7 @@ describe('CheapShark adapter helpers', () => {
     await expect(
       lookupSteamOffer('https://store.steampowered.com/app/620/'),
     ).rejects.toThrow(/exact match/i);
-    expect(mockState.httpsRequest).toHaveBeenCalledTimes(1);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
   });
 
   it('rejects an ambiguous exact app ID mapping', async () => {
@@ -283,7 +337,7 @@ describe('CheapShark adapter helpers', () => {
     await expect(
       lookupSteamOffer('https://store.steampowered.com/app/620/'),
     ).rejects.toThrow(/exact match/i);
-    expect(mockState.httpsRequest).toHaveBeenCalledTimes(1);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
   });
 
   it('rejects details for a different game even after an exact app ID match', async () => {
@@ -371,7 +425,7 @@ describe('CheapShark adapter helpers', () => {
   });
 
   it('rejects malformed response schemas and invalid JSON', async () => {
-    queueResponses(jsonResponse([{ gameID: '36', steamAppID: '620' }]));
+    queueResponses(steamMetadata(), jsonResponse([{ gameID: '36', steamAppID: '620' }]));
     await expect(
       lookupSteamOffer('https://store.steampowered.com/app/620/'),
     ).rejects.toThrow(/invalid game-lookup data/i);
@@ -394,7 +448,6 @@ describe('CheapShark adapter helpers', () => {
       'https://store.steampowered.com/app/620/?campaign=x',
       'https://store.steampowered.com/bundle/123/',
       'https://store.steampowered.com/sub/123/',
-      'https://store.steampowered.com/app/999999/',
     ];
 
     for (const url of urls) {
@@ -442,6 +495,44 @@ describe('CheapShark adapter helpers', () => {
       lookupSteamOffer('https://store.steampowered.com/app/620/'),
     ).rejects.toThrow(/unsuccessful response/i);
     expect(mockState.httpsRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['redirect', { statusCode: 302, headers: { 'content-type': 'application/json', location: 'http://127.0.0.1/' }, body: '{}' }, /unsuccessful response/i],
+    ['oversize', jsonResponse({ padding: 'x'.repeat(1_000_001) }), /size limit/i],
+    ['invalid JSON', { headers: { 'content-type': 'application/json' }, body: '{invalid' }, /invalid JSON/i],
+  ] as const)('rejects CheapShark details %s after Steam and exact mapping', async (_name, failure, message) => {
+    queueResponses(steamMetadata(), jsonResponse([gameMatch()]), failure);
+    await expect(lookupSteamOffer('https://store.steampowered.com/app/620/')).rejects.toThrow(message);
+    const urls = mockState.httpsRequest.mock.calls.map(([url]) => String(url));
+    expect(urls).toHaveLength(3);
+    expect(urls[2]).toBe('https://www.cheapshark.com/api/1.0/games?id=36');
+    expect(mockState.withSteamBudget).toHaveBeenCalledOnce();
+    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects unsafe DNS on the CheapShark details request', async () => {
+    let cheapLookups = 0;
+    mockState.resolve4.mockImplementation(async (hostname: string) => {
+      if (hostname === 'www.cheapshark.com' && ++cheapLookups === 2) return ['127.0.0.1'];
+      return ['93.184.216.34'];
+    });
+    queueResponses(steamMetadata(), jsonResponse([gameMatch()]));
+    await expect(lookupSteamOffer('https://store.steampowered.com/app/620/')).rejects.toThrow(/could not be reached/i);
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(3);
+    expect(String(mockState.httpsRequest.mock.calls[2]?.[0])).toBe('https://www.cheapshark.com/api/1.0/games?id=36');
+    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates CheapShark details 429 through the CheapShark budget, not Steam', async () => {
+    queueResponses(steamMetadata(), jsonResponse([gameMatch()]), {
+      statusCode: 429, headers: { 'retry-after': '120', 'content-type': 'application/json' }, body: '{}',
+    });
+    await expect(lookupSteamOffer('https://store.steampowered.com/app/620/')).rejects.toMatchObject({ retryAfterHeader: '120' });
+    expect(mockState.httpsRequest).toHaveBeenCalledTimes(3);
+    expect(mockState.withSteamBudget).toHaveBeenCalledOnce();
+    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+    expect(String(mockState.httpsRequest.mock.calls[2]?.[0])).toBe('https://www.cheapshark.com/api/1.0/games?id=36');
   });
 
   it('keeps Retry-After on a 429 response for the shared budget', async () => {
@@ -542,7 +633,7 @@ describe('CheapShark adapter helpers', () => {
     await rejected;
     await Promise.resolve();
     expect(mockState.cancelResolver).toHaveBeenCalledOnce();
-    expect(mockState.withBudget).toHaveBeenCalledOnce();
+    expect(mockState.withSteamBudget).toHaveBeenCalledOnce();
     expect(mockState.httpsRequest).toHaveBeenCalledOnce();
     expect(mockState.responses).toHaveLength(2);
   });
@@ -559,11 +650,11 @@ describe('CheapShark adapter helpers', () => {
     expect(mockState.maximumActiveRequests).toBe(2);
     expect(mockState.activeRequests).toBe(0);
     expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
-    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+    expect(mockState.withSteamBudget).toHaveBeenCalledTimes(2);
     expect(mockState.activeRequests).toBe(0);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mockState.httpsRequest).toHaveBeenCalledTimes(2);
-    expect(mockState.withBudget).toHaveBeenCalledTimes(2);
+    expect(mockState.withSteamBudget).toHaveBeenCalledTimes(2);
   });
 
   it('does not start provider work for an already-aborted signal', async () => {
@@ -586,6 +677,7 @@ describe('CheapShark adapter helpers', () => {
     const purchase = new URL(offer.purchaseUrl);
 
     expect(requestedUrls).toEqual([
+      'https://store.steampowered.com/api/appdetails?appids=620&cc=us&l=english',
       'https://www.cheapshark.com/api/1.0/games?steamAppID=620',
       'https://www.cheapshark.com/api/1.0/games?id=36',
     ]);

@@ -13,7 +13,7 @@ import { NotificationDeliveryModel, PriceHistoryModel, TrackedItemModel } from '
 import { ProductPreviewModel, TrackingIdempotencyModel } from '../src/models/trackingApi.js';
 import { createProductPreviewService } from '../src/productPreviews.js';
 import { createTrackingRouter } from '../src/trackingRouter.js';
-import { cheapSharkPurchaseUrl } from '../src/cheapshark.js';
+import { cheapSharkPurchaseUrl, SteamGameUnsupportedError } from '../src/cheapshark.js';
 import { consumePrivateSessionLimit } from '../src/sessionRateLimit.js';
 
 const uri = process.env.TEST_MONGODB_URI;
@@ -66,6 +66,7 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
     now: () => new Date(now),
     createPreview: createProductPreviewService({
       now: () => new Date(now),
+      discover: async () => { throw new SteamGameUnsupportedError(); },
       resolveProduct: async productId => {
         previewResolverCalls += 1;
         if (previewResolverFailure) throw previewResolverFailure;
@@ -81,7 +82,7 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
       provider: 'cheapshark', providerGameId: gameId, steamAppId: appId,
       storeId: '1', market: 'US', currency: 'USD',
       canonicalSteamUrl: `https://store.steampowered.com/app/${appId}/`,
-      title, dealId: `fixture-${gameId}`, purchaseUrl: cheapSharkPurchaseUrl(`fixture-${gameId}`),
+      title, steamTypeValidatedAt: at, dealId: `fixture-${gameId}`, purchaseUrl: cheapSharkPurchaseUrl(`fixture-${gameId}`),
       currentPriceMinor: 999, retailPriceMinor: 1999,
       lastSuccessfulCheckAt: at, providerChangedAt: null,
       nextCheckAt: new Date(at.getTime() + 86_400_000), lastAttemptAt: at,
@@ -156,7 +157,7 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
     await mongoose.disconnect();
   });
 
-  it('previews only locally allowlisted supported Steam URLs and stores an owned, expiring snapshot', async () => {
+  it('rejects invalid and unsupported URLs and stores an owned, expiring snapshot', async () => {
     const bad = await preview('https://attacker.example/app/620').expect(422);
     expect(bad.body.error.code).toBe('UNSUPPORTED_URL');
     const unknown = await preview('https://store.steampowered.com/app/999/').expect(422);
@@ -242,8 +243,8 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
     const submit = () => request(appWithSlowResolver).post('/api/product-previews').send({ url: 'https://store.steampowered.com/app/620/' });
     let firstFinished = false;
     let secondFinished = false;
-    const first = submit().expect(201).then(response => { firstFinished = true; return response; });
-    const second = submit().expect(201).then(response => { secondFinished = true; return response; });
+    const first = submit().expect(503).then(response => { firstFinished = true; return response; });
+    const second = submit().expect(503).then(response => { secondFinished = true; return response; });
     try {
       await bothAborted;
       expect(firstFinished).toBe(false);
@@ -254,6 +255,7 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
       allowResolverToFinish();
     }
     await Promise.all([first, second]);
+    expect(await ProductPreviewModel.countDocuments()).toBe(0);
   });
 
   it('validates target/preferences strictly while accepting zero integer cents', async () => {
@@ -449,6 +451,25 @@ describe.skipIf(!uri)('owned tracking API with disposable MongoDB', () => {
     const history = await request(app).get(`/api/tracked-items/${created.body.id}/history`).expect(200);
     expect(history.body).toMatchObject({ trackedItemId: created.body.id, items: [], product: { steamAppId: '620' } });
     expect(history.body.page.nextCursor).toBeNull();
+  });
+
+  it('hides an unvalidated legacy current quote in list and history without deleting past observations', async () => {
+    const previewResult = await preview().expect(201);
+    const created = await createFromPreview(previewResult.body.id).expect(201);
+    await PriceHistoryModel.create({ productId: portalId, checkId: 'legacy-fixture', priceMinor: 999,
+      currency: 'USD', observedAt: new Date(now.getTime() - 10_000), source: 'CheapShark', dealId: 'fixture-36' });
+    const validated = await request(app).get('/api/tracked-items').expect(200);
+    expect(validated.body.items[0].product).toMatchObject({ currentPrice: { amountMinor: 999 }, freshness: 'fresh' });
+    await ProductModel.updateOne({ _id: portalId }, { $unset: { steamTypeValidatedAt: 1 } });
+    const list = await request(app).get('/api/tracked-items').expect(200);
+    const history = await request(app).get(`/api/tracked-items/${created.body.id}/history`).expect(200);
+    for (const product of [list.body.items[0].product, history.body.product]) {
+      expect(product).toMatchObject({ currentPrice: null, retailPrice: null, dealId: null, purchaseUrl: null,
+        observedAt: null, providerChangedAt: null, staleAt: null, freshness: 'unavailable' });
+    }
+    expect(history.body.items).toHaveLength(1);
+    expect(history.body.items[0].price.amountMinor).toBe(999);
+    expect((await ProductModel.findById(portalId).lean())?.currentPriceMinor).toBe(999);
   });
 
   it('returns preview, tracker, and page shapes matching the shared OpenAPI schemas', async () => {

@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 import { parseSteamUrl } from './cheapshark.js';
-import { initialCatalog } from './databaseSetup.js';
 import { ProductModel, type ProductRecord } from './models/product.js';
 import { refreshSteamProductById } from './productCatalog.js';
 
@@ -17,22 +16,19 @@ function assertApprovedProduct(value: unknown): asserts value is ProductPreviewP
     throw new Error('The approved product catalog is temporarily unavailable.');
   }
   const product = value as ProductPreviewProduct;
-  const catalog = initialCatalog.find(entry =>
-    entry.steamAppId === product.steamAppId && entry.providerGameId === product.providerGameId,
-  );
-  if (!catalog || product.provider !== 'cheapshark' || product.storeId !== '1' ||
-      product.market !== 'US' || product.currency !== 'USD' || product.title !== catalog.title) {
-    throw new Error('The Product is not in the approved Steam catalog.');
+  if (!/^[1-9]\d*$/.test(product.providerGameId) || !product.title || product.provider !== 'cheapshark' || product.storeId !== '1' ||
+      product.market !== 'US' || product.currency !== 'USD') {
+    throw new Error('The Product identity is invalid.');
   }
   const game = parseSteamUrl(product.canonicalSteamUrl);
-  if (game.steamAppId !== product.steamAppId || game.title !== product.title ||
+  if (game.steamAppId !== product.steamAppId ||
       game.canonicalSteamUrl !== product.canonicalSteamUrl) {
     throw new Error('The Product Steam identity is invalid.');
   }
 }
 
 /**
- * Resolver for createProductPreviewService. It accepts only an approved Product
+ * Resolver for createProductPreviewService. It accepts a normalized Product
  * ID, honors the shared 24-hour cache, failure backoff and MongoDB provider budget,
  * and passes cancellation through to the bounded CheapShark request. It never
  * writes history or evaluates alert episodes.

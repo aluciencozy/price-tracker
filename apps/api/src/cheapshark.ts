@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   ProviderRateLimitError,
   withCheapSharkRequestBudget,
+  withProviderRequestBudget,
 } from './providerBudget.js';
 
 const API_ORIGIN = 'https://www.cheapshark.com';
@@ -39,13 +40,6 @@ const BLOCKED_IPV4_CIDRS: Array<[string, number]> = [
   ['224.0.0.0', 4],
   ['240.0.0.0', 4],
 ];
-
-// These are the only confirmed base games from issue #3. Expand this list only
-// after the same exact-match/current-Steam-offer checks have been completed.
-const CONFIRMED_GAMES = new Map([
-  ['620', 'Portal 2'],
-  ['220', 'Half-Life 2'],
-]);
 
 const lookupMatchSchema = z.object({
   gameID: z.string().regex(/^[1-9]\d*$/),
@@ -95,7 +89,18 @@ export type SteamOffer = {
 };
 
 const attribution =
-  'Prices supplied by CheapShark; Steam US/USD base-game offer, excluding taxes and checkout adjustments.';
+  'Prices supplied by CheapShark; exact Steam app US/USD offer, excluding taxes and checkout adjustments.';
+
+export class SteamGameUnsupportedError extends Error {
+  constructor() {
+    super('Steam game type is unsupported or unclassifiable.');
+    this.name = 'SteamGameUnsupportedError';
+  }
+}
+
+function validSteamAppId(id: string): boolean {
+  return /^[1-9]\d{0,31}$/.test(id) && BigInt(id) <= BigInt(Number.MAX_SAFE_INTEGER);
+}
 
 /** Parse a Steam /app/ URL locally. This function never requests Steam. */
 function parseSteamUrlLocally(input: string) {
@@ -125,7 +130,7 @@ function parseSteamUrlLocally(input: string) {
 
   const match = /^\/app\/([1-9]\d{0,31})(?:\/[^/]+)?\/?$/.exec(url.pathname);
   const steamAppId = match?.[1];
-  if (!steamAppId) {
+  if (!steamAppId || !validSteamAppId(steamAppId)) {
     throw new Error('Use an individual Steam /app/<id>/ game URL.');
   }
 
@@ -140,20 +145,9 @@ export function parseSteamAppIdFromUrl(input: string): string {
   return parseSteamUrlLocally(input).steamAppId;
 }
 
-/** Parse a URL and require that the app ID is in the initial confirmed catalog. */
-export function parseSteamUrl(input: string) {
-  const parsed = parseSteamUrlLocally(input);
-  const title = CONFIRMED_GAMES.get(parsed.steamAppId);
-
-  if (!title) {
-    throw new Error('This Steam game is not in the confirmed supported-game list.');
-  }
-
-  return {
-    steamAppId: parsed.steamAppId,
-    title,
-    canonicalSteamUrl: parsed.canonicalSteamUrl,
-  };
+/** Syntax only: eligibility must be established by the provider lookup. */
+export function parseSteamUrl(input: string): ReturnType<typeof parseSteamUrlLocally> & { title?: string } {
+  return parseSteamUrlLocally(input);
 }
 
 // Convenience helper for callers that only need the numeric ID.
@@ -255,9 +249,9 @@ function isPublicAddress(address: string): boolean {
   return globalUnicast && !documentation && !transitionOrSpecial;
 }
 
-function safeCheapSharkLookup(signal: AbortSignal): NonNullable<https.RequestOptions['lookup']> {
+function safeCheapSharkLookup(signal: AbortSignal, allowedHost: 'www.cheapshark.com' | 'store.steampowered.com'): NonNullable<https.RequestOptions['lookup']> {
   return (hostname, options, callback) => {
-    if (hostname.toLowerCase() !== 'www.cheapshark.com') {
+    if (hostname.toLowerCase() !== allowedHost) {
       const error = Object.assign(new Error('Blocked outbound hostname.'), { code: 'EACCES' });
       callback(error, '', 0);
       return;
@@ -356,17 +350,21 @@ async function readJsonResponse(response: IncomingMessage): Promise<unknown> {
   }
 }
 
-async function requestJson(path: string, deadline: number, signal?: AbortSignal): Promise<unknown> {
+async function requestJson(path: string, deadline: number, signal?: AbortSignal, provider: 'cheapshark' | 'steam' = 'cheapshark'): Promise<unknown> {
   signal?.throwIfAborted();
   const requestController = new AbortController();
   const requestSignal = signal ? AbortSignal.any([signal, requestController.signal]) : requestController.signal;
   // Callers construct paths only from validated numeric provider IDs.
-  const url = new URL(path, API_ORIGIN);
-  if (url.origin !== API_ORIGIN || !url.pathname.startsWith('/api/1.0/games')) {
-    throw new Error('Invalid CheapShark endpoint.');
+  const origin = provider === 'steam' ? 'https://store.steampowered.com' : API_ORIGIN;
+  const url = new URL(path, origin);
+  if (url.origin !== origin || url.pathname !== (provider === 'steam' ? '/api/appdetails' : '/api/1.0/games')) {
+    throw new Error('Invalid provider endpoint.');
   }
 
-  return withCheapSharkRequestBudget(deadline, async () => {
+  const budget = provider === 'steam'
+    ? <T>(work: () => Promise<T>) => withProviderRequestBudget('steam', deadline, work, requestSignal)
+    : <T>(work: () => Promise<T>) => withCheapSharkRequestBudget(deadline, work, requestSignal);
+  return budget(async () => {
     requestSignal.throwIfAborted();
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('CheapShark lookup deadline expired.');
@@ -394,7 +392,7 @@ async function requestJson(path: string, deadline: number, signal?: AbortSignal)
           headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
           agent: false,
           servername: url.hostname,
-          lookup: safeCheapSharkLookup(requestSignal),
+          lookup: safeCheapSharkLookup(requestSignal, provider === 'steam' ? 'store.steampowered.com' : 'www.cheapshark.com'),
         },
         (response) => {
           responseReceived = true;
@@ -428,7 +426,21 @@ async function requestJson(path: string, deadline: number, signal?: AbortSignal)
       else requestSignal.addEventListener('abort', onAbort, { once: true });
       if (!settled) request.end();
     });
-  }, requestSignal);
+  });
+}
+
+/** Positive storefront type classification only; Steam does not guarantee edition classification. */
+export async function validateSteamGameType(steamAppId: string, deadline: number, signal?: AbortSignal): Promise<void> {
+  if (!validSteamAppId(steamAppId)) throw new Error('Invalid Steam app ID.');
+  const raw = await requestJson(`/api/appdetails?appids=${steamAppId}&cc=us&l=english`, deadline, signal, 'steam');
+  const envelope = z.record(z.string(), z.unknown()).safeParse(raw);
+  if (!envelope.success) throw new Error('Steam returned invalid metadata.');
+  const entry = z.object({ success: z.boolean(), data: z.unknown().optional() }).safeParse(envelope.data[steamAppId]);
+  if (!entry.success) throw new Error('Steam returned invalid metadata.');
+  if (!entry.data.success) throw new SteamGameUnsupportedError();
+  const data = z.object({ steam_appid: z.number().int().safe(), type: z.string() }).safeParse(entry.data.data);
+  if (!data.success || String(data.data.steam_appid) !== steamAppId) throw new Error('Steam returned invalid metadata.');
+  if (data.data.type !== 'game') throw new SteamGameUnsupportedError();
 }
 
 /** Build a human purchase link only; never fetch this redirect automatically. */
@@ -478,6 +490,7 @@ export async function lookupSteamOffer(input: string, options: SteamOfferLookupO
 
 async function lookupSteamOfferWithinDeadline(game: ReturnType<typeof parseSteamUrl>, deadline: number, signal: AbortSignal): Promise<SteamOffer> {
   signal.throwIfAborted();
+  await validateSteamGameType(game.steamAppId, deadline, signal);
   const rawMatches = await requestJson(
     `/api/1.0/games?steamAppID=${encodeURIComponent(game.steamAppId)}`,
     deadline,
@@ -491,11 +504,12 @@ async function lookupSteamOfferWithinDeadline(game: ReturnType<typeof parseSteam
   const matches = matchesResult.data.filter(
     (match) => match.steamAppID === game.steamAppId,
   );
-  if (matches.length !== 1 || matches[0]!.external !== game.title) {
+  const gameIds = [...new Set(matches.map(match => match.gameID))];
+  if (gameIds.length !== 1) {
     throw new Error('CheapShark did not return one exact match for this Steam game.');
   }
 
-  const providerGameId = matches[0]!.gameID;
+  const providerGameId = gameIds[0]!;
   const rawDetails = await requestJson(
     `/api/1.0/games?id=${encodeURIComponent(providerGameId)}`,
     deadline,
@@ -508,8 +522,7 @@ async function lookupSteamOfferWithinDeadline(game: ReturnType<typeof parseSteam
 
   const details = detailsResult.data;
   if (
-    details.info.steamAppID !== game.steamAppId ||
-    details.info.title !== game.title
+    details.info.steamAppID !== game.steamAppId
   ) {
     throw new Error('CheapShark returned details for a different game.');
   }
@@ -534,7 +547,7 @@ async function lookupSteamOfferWithinDeadline(game: ReturnType<typeof parseSteam
     },
     steamAppId: game.steamAppId,
     canonicalSteamUrl: game.canonicalSteamUrl,
-    title: game.title,
+    title: details.info.title,
     storeName: 'Steam',
     source: {
       name: 'CheapShark',

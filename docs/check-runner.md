@@ -45,7 +45,10 @@ the last selected candidate and wrap at the end, so Products after 100 are not
 starved. Selection rows and cursor commit in one transaction fenced by global/run
 tokens; a crash rolls both back. Retries do not append another page. `truncated`
 is internal operational information, not a public DTO
-field. The small approved MVP catalog remains two games.
+field. Validated products can be added by on-demand preview; the two-game sample and
+dated source proof are not a fixed API catalog. The 100-product run bound limits
+each batch, not the Steam app IDs users may submit, and discovery does not promise
+availability for every Steam app.
 
 The existing provider-wide request budget/cache/backoff applies everywhere.
 Failures preserve the last successful quote and do not create history or rearm an

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ProviderBudgetModel } from './models/providerBudget.js';
 
-const PROVIDER_KEY = 'cheapshark' as const;
+type ProviderKey = 'cheapshark' | 'steam';
 // Conservative application pacing; this is not a published CheapShark quota.
 const MIN_REQUEST_INTERVAL_MS = 5_000;
 const REQUEST_LEASE_MS = 15_000;
@@ -41,10 +41,10 @@ function parseRetryAfter(value: string | null, now: number): Date | null {
   return Number.isFinite(date) ? new Date(date) : null;
 }
 
-async function ensureBudgetRecord(signal?: AbortSignal): Promise<void> {
+async function ensureBudgetRecord(provider: ProviderKey, signal?: AbortSignal): Promise<void> {
   try {
     await ProviderBudgetModel.updateOne(
-      { _id: PROVIDER_KEY },
+      { _id: provider },
       {
         $setOnInsert: {
           leaseUntil: EPOCH,
@@ -64,9 +64,9 @@ async function ensureBudgetRecord(signal?: AbortSignal): Promise<void> {
   }
 }
 
-async function acquireRequestSlot(deadline: number, signal?: AbortSignal): Promise<string> {
+async function acquireRequestSlot(provider: ProviderKey, deadline: number, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
-  await ensureBudgetRecord(signal);
+  await ensureBudgetRecord(provider, signal);
   signal?.throwIfAborted();
 
   while (Date.now() < deadline) {
@@ -76,7 +76,7 @@ async function acquireRequestSlot(deadline: number, signal?: AbortSignal): Promi
     const leaseToken = randomUUID();
     const lease = await ProviderBudgetModel.findOneAndUpdate(
       {
-        _id: PROVIDER_KEY,
+        _id: provider,
         leaseUntil: { $lte: now },
         nextRequestAt: { $lte: now },
         cooldownUntil: { $lte: now },
@@ -89,13 +89,13 @@ async function acquireRequestSlot(deadline: number, signal?: AbortSignal): Promi
 
     if (lease) {
       if (signal?.aborted) {
-        await releaseRequestSlot(false, leaseToken);
+        await releaseRequestSlot(provider, false, leaseToken);
         signal.throwIfAborted();
       }
       return leaseToken;
     }
 
-    const budgetQuery = ProviderBudgetModel.findById(PROVIDER_KEY);
+    const budgetQuery = ProviderBudgetModel.findById(provider);
     if (signal) budgetQuery.setOptions({ signal, timeoutMS: Math.max(1, deadline - Date.now()), maxTimeMS: 500 });
     const budget = await budgetQuery.lean().exec();
     signal?.throwIfAborted();
@@ -121,10 +121,10 @@ async function acquireRequestSlot(deadline: number, signal?: AbortSignal): Promi
   throw new ProviderDeferredError(new Date(Date.now() + 1_000));
 }
 
-async function releaseRequestSlot(success: boolean, leaseToken: string): Promise<void> {
+async function releaseRequestSlot(provider: ProviderKey, success: boolean, leaseToken: string): Promise<void> {
   const now = new Date();
   await ProviderBudgetModel.updateOne(
-    { _id: PROVIDER_KEY, leaseToken },
+    { _id: provider, leaseToken },
     {
       $set: {
         leaseUntil: EPOCH,
@@ -137,10 +137,10 @@ async function releaseRequestSlot(success: boolean, leaseToken: string): Promise
   ).exec();
 }
 
-async function recordRateLimit(retryAfter: string | null, leaseToken: string): Promise<Date> {
+async function recordRateLimit(provider: ProviderKey, retryAfter: string | null, leaseToken: string): Promise<Date> {
   const now = Date.now();
   const state = await ProviderBudgetModel.findOneAndUpdate(
-    { _id: PROVIDER_KEY },
+    { _id: provider },
     { $inc: { rateLimitCount: 1 } },
     { returnDocument: 'after', timeoutMS: 250, maxTimeMS: 250 },
   )
@@ -161,7 +161,7 @@ async function recordRateLimit(retryAfter: string | null, leaseToken: string): P
   );
 
   await ProviderBudgetModel.updateOne(
-    { _id: PROVIDER_KEY },
+    { _id: provider },
     {
       $max: { cooldownUntil: retryAt, nextRequestAt: retryAt },
     },
@@ -170,7 +170,7 @@ async function recordRateLimit(retryAfter: string | null, leaseToken: string): P
 
   // A late 429 still extends the shared cooldown, but must not clear a newer
   // worker's lease. Release only the slot owned by this request.
-  await releaseRequestSlot(false, leaseToken);
+  await releaseRequestSlot(provider, false, leaseToken);
 
   return retryAt;
 }
@@ -181,20 +181,29 @@ export async function withCheapSharkRequestBudget<T>(
   request: () => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const leaseToken = await acquireRequestSlot(deadline, signal);
+  return withProviderRequestBudget('cheapshark', deadline, request, signal);
+}
+
+export async function withProviderRequestBudget<T>(
+  provider: ProviderKey,
+  deadline: number,
+  request: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const leaseToken = await acquireRequestSlot(provider, deadline, signal);
 
   try {
     signal?.throwIfAborted();
     const result = await request();
-    await releaseRequestSlot(true, leaseToken);
+    await releaseRequestSlot(provider, true, leaseToken);
     return result;
   } catch (error) {
     if (error instanceof ProviderRateLimitError) {
-      const retryAt = await recordRateLimit(error.retryAfterHeader, leaseToken);
+      const retryAt = await recordRateLimit(provider, error.retryAfterHeader, leaseToken);
       throw new ProviderRateLimitError(retryAt, error.retryAfterHeader, { cause: error });
     }
 
-    await releaseRequestSlot(false, leaseToken);
+    await releaseRequestSlot(provider, false, leaseToken);
     throw error;
   }
 }
