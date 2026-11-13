@@ -1,12 +1,12 @@
 {
-  "openapi": "3.1.0",
+  "openapi": "3.1.1",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "Price Tracker shared API — proposed",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Proposed source of truth pending team review (#4). Business routes are implemented in the current repository, but this contract or implementation does not prove deployment or support for any untested game. Preview discovers submitted Steam app IDs on demand and requires a positive Steam appdetails type=game result, exact app-ID matching and a current US/USD Steam offer from CheapShark. Steam's undocumented type check cannot distinguish every special edition or guarantee availability for every Steam app. See README.md for normative session, ownership, retry, freshness and delivery rules. All objects reject unknown properties. Examples are offline illustrative fixtures, not live quotes."
   },
-  "servers": [{"url": "/", "description": "Same-origin API preferred; paths include /api"}],
+  "servers": [{"url": "https://largeproject.cop4331cfall26jo.com", "description": "Same-origin API preferred; paths include /api"}],
   "security": [{"webSession": []}, {"mobileBearer": []}],
   "tags": [{"name": "Web auth"}, {"name": "Mobile auth"}, {"name": "Trackers"}, {"name": "Devices"}, {"name": "Admin"}],
   "paths": {
