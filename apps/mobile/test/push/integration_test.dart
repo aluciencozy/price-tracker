@@ -16,7 +16,8 @@ import 'package:price_tracker/push/storage.dart';
 import 'package:price_tracker/push/atomic_store.dart';
 
 import '../client_fixtures.dart';
-import '../live_app_test.dart' show freshSession, response, tap, field;
+import '../live_app_test.dart'
+    show freshSession, response, tap, field, verticalScroll;
 import '../session_controller_test.dart' show MemorySessionStore;
 import 'events_test.dart' show payload;
 
@@ -183,6 +184,51 @@ void main() {
       tap(tester, find.byTooltip('Account and settings'));
   Future<void> retryDevice(WidgetTester tester) =>
       tap(tester, find.text('Check permission / retry device'));
+
+  for (final configured in [false, true]) {
+    testWidgets(
+      'edit push guidance defers to account readiness when ${configured ? 'registered' : 'unconfigured'}',
+      (tester) async {
+        await start(
+          tester,
+          gateway: configured ? FakeGateway() : const UnconfiguredPushGateway(),
+        );
+        expect(
+          integration!.registration.status,
+          configured ? PushStatus.registered : PushStatus.unconfigured,
+        );
+        await account(tester);
+        expect(
+          find.textContaining(
+            configured
+                ? 'Device registered with the API'
+                : 'Unconfigured — Android push is disabled',
+          ),
+          findsOneWidget,
+        );
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tap(tester, find.text('Portal 2'));
+        await tap(tester, find.text('Edit target and preferences'));
+        await tester.scrollUntilVisible(
+          find.textContaining('Check Android notification permission'),
+          250,
+          scrollable: verticalScroll,
+        );
+        expect(
+          find.textContaining('Check Android notification permission'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Device unavailable.'), findsNothing);
+        expect(
+          find.textContaining(
+            'Saving this preference does not enable delivery',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+  }
 
   testWidgets('cold-start local tap waits for the restored session navigator', (
     tester,

@@ -593,8 +593,10 @@ class _TrackerEditorState extends State<TrackerEditor>
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Android push preference'),
-                subtitle: const Text(
-                  'Device unavailable. Saving this preference does not enable delivery.',
+                subtitle: Text(
+                  TrackerAppScope.isSample(context)
+                      ? 'Device unavailable in this sample. No notifications are sent.'
+                      : 'Check Android notification permission and connection in Account. Saving this preference does not enable delivery.',
                 ),
                 value: _push,
                 onChanged: _busy
