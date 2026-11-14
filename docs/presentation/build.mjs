@@ -107,7 +107,8 @@ for (const [index, meta] of slides.entries()) {
       label(s, 'PRICE TRACKER', .8, .65, 11.7, { fontSize: 17, color: C.accentInk });
       text(s, 'Your game.\nYour price.', .8, 1.65, 10.4, 2.2, { fontSize: 64, bold: true, color: C.ink });
       text(s, 'A private Steam watchlist with target-price alerts.', .85, 4.35, 11.6, .8, { fontSize: 28, color: C.ink });
-      label(s, 'WEB + ANDROID     /     US · USD     /     BASE GAMES', .85, 5.65, 11.6, { fontSize: 16, color: C.accentInk });
+      label(s, 'INDIVIDUAL STEAM APP  /  TYPE: GAME  /  EXACT US · USD OFFER', .85, 5.65, 11.6, { fontSize: 16, color: C.accentInk });
+      text(s, 'Steam’s game-type check cannot distinguish every special edition.', .85, 6.12, 11.6, .35, { fontSize: 15, color: C.muted });
       break;
     case 'team':
       [['Alex', 'Lead, integration & Flutter'], ['Martin', 'React web app & interface'], ['Ibrahim', 'MongoDB, infrastructure & tests'], ['James', 'Authentication & shared API'], ['Nick', 'Game matching & notification adapters']].forEach(([name, role], i) => {
@@ -231,10 +232,10 @@ for (const [index, meta] of slides.entries()) {
       callout(s, 'Use the hosted API-mode app and a privately signed-in verified account.');
       break;
     case 'android-demo':
-      card(s, .65, 2.1, 3.75, 3.65, '01 / REFRESH', 'Open the same\naccount on Android.');
+      card(s, .65, 2.1, 3.75, 3.65, '01 / RELOAD LIST', 'Open the same\naccount on Android.');
       card(s, 4.8, 2.1, 3.75, 3.65, '02 / COMPARE', 'Show the tracker\njust edited on web.');
       card(s, 8.95, 2.1, 3.73, 3.65, '03 / EXPLAIN', 'Review details and\nalert preferences.');
-      callout(s, 'A target edit demonstrates qualification; it does not create a new sale.');
+      callout(s, 'Target edit changes the threshold; a successful check is needed. No sale is implied.');
       break;
     case 'lessons':
       card(s, .65, 2.05, 5.87, 3.7, 'WENT WELL', 'One API for both clients\nRepeatable fixture tests\nCross-client privacy checks', 26);

@@ -134,7 +134,7 @@ PRESENTER: Martin
 TIMING: 0:30 including transition. Session 1:30–2:00.
 
 SAY:
-These are our early web wireframes for the watchlist and add-game flow. The watchlist makes the current price and target easy to compare. Adding a game starts with a Steam link and an offer preview before saving a target. These are planning artifacts with illustrative values. The implemented interface appears in the live demo; we are not claiming a separate mobile prototype.
+These early web wireframes show a watchlist and add-game flow with illustrative values; they are not current screens. The API checks that Steam classifies the exact app as a game, but that coarse check cannot distinguish every special edition. The implemented interface appears later; we are not claiming a separate mobile prototype.
 
 TRANSITION:
 Ibrahim will explain the project schedule.
@@ -374,13 +374,13 @@ PRESENTER: Alex
 TIMING: 1:10 including transition. Session 8:50–10:00.
 
 DEMO / STAGE CUES:
-1. Before projection: configure the live API, privately sign into the same account, and prepare Android screen mirroring. Keep personal notification previews offscreen.
-2. 0:00–0:25: refresh, locate the tracker changed on web, and verify its target before narrating shared-state success.
-3. 0:25–0:50: show details, last successful check, and preferences. Describe push state accurately; a toggle does not prove delivery.
-4. 0:50–1:10: summarize and hand off. Show a real alert only if the full qualifying episode/channel flow was approved and verified in rehearsal and fits the allocation. Do not create unplanned sends.
+1. Before projection: configure the live API, privately sign into the same account, and prepare Android screen mirroring. Keep personal notification previews offscreen. If the team has approved demonstrating qualification, an authorized admin may queue the existing shared batch check with POST /api/admin/price-checks and inspect GET /api/admin/price-checks/{id}; verify a fresh successful observation in the owned tracker history. This is not a per-game refresh control. If the check is not approved or no fresh success is observed, show only the saved target and do not claim qualification.
+2. 0:00–0:25: reload the watchlist, locate the tracker changed on web, and verify its saved target before narrating shared-state success.
+3. 0:25–0:50: show details, last successful check, and preferences. A preference toggle does not prove delivery.
+4. 0:50–1:10: show a real alert only after the qualifying episode and channel delivery have been approved and verified. Explain that one qualifying episode does not send repeated email/push on subsequent checks while the price remains at or below target. A target change is not a sale; do not create unplanned sends.
 
 SAY:
-Android uses the same account and API as the web app. After refreshing, we can see the tracker Martin changed, including its target and notification preferences. The app also provides game details and the latest successful check. Push is associated with an authenticated device and account session. We will only describe a notification as delivered if we actually observe its arrival. Web and mobile share data and business rules through one backend.
+Android uses the same account and API as the web app. Reloading the watchlist shows the tracker Martin changed, including its target and notification preferences; it does not refresh that game’s price. The app also shows game details and the latest successful check. Push is tied to an authenticated device and account session. We will only describe a notification as delivered if we observe its arrival. Web and mobile share data and business rules through one backend.
 
 TRANSITION:
 Nick will close with what went well and what we learned.
