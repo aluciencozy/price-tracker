@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Pencil, Trash2 } from 'lucide-react';
-import type { TrackedItem, TrackerRepository } from '../data/types';
+import { ArrowLeft, ArrowUpRight, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import type { PriceRefresh, RefreshTrackerRepository, TrackedItem, TrackerRepository } from '../data/types';
 import { useAsync } from '../data/useAsync';
 import { formatMoney, trackerStatus } from '../data/validation';
 import { steamPurchaseUrl } from '../steamPurchaseUrl';
@@ -24,7 +24,24 @@ import { LoadError, LoadingRows, Status } from './Ui';
 import { useApiMode } from '../data/mode';
 import { isAborted } from '../client/sessionContext';
 import { RequestError } from './RequestError';
-import { useRetryWait } from '../data/useRetryWait';
+import { useRetryUntil, useRetryWait } from '../data/useRetryWait';
+
+function isRefreshRepository(repository: TrackerRepository): repository is TrackerRepository & RefreshTrackerRepository {
+  return 'refreshPrice' in repository && typeof repository.refreshPrice === 'function';
+}
+function refreshTime(value: string | null | undefined): string {
+  return value ? value.replace('T', ' ').replace('Z', ' UTC') : 'time unavailable';
+}
+function refreshStatusText(refresh: PriceRefresh): string {
+  switch (refresh.status) {
+    case 'queued': return 'This price check is still queued. No new price is confirmed yet.';
+    case 'running': return 'The server is checking this game’s Steam offer.';
+    case 'cached': return `Used the recorded price from ${refreshTime(refresh.lastObservation?.observedAt)}. No new provider fetch or history observation was created.`;
+    case 'refreshed': return `Recorded a successful price observation at ${refreshTime(refresh.lastObservation?.observedAt)}. This does not mean the price dropped or confirm email/push delivery.`;
+    case 'deferred': return `The provider deferred this check. ${refresh.error?.message ?? 'Wait before trying again.'}`;
+    case 'failed': return `Price check failed. ${refresh.error?.message ?? 'The last successful price and history are unchanged.'}`;
+  }
+}
 
 export function GameDetailsPage({
   repository,
@@ -40,6 +57,13 @@ export function GameDetailsPage({
   const result = useAsync(load);
   const history = useAsync(loadHistory);
   const notice: unknown = useLocation().state?.notice;
+  const [refreshNotice, setRefreshNotice] = useState<string>();
+  const onRefreshComplete = useCallback((refresh: PriceRefresh) => {
+    setRefreshNotice(refreshStatusText(refresh));
+    result.retry();
+    history.retry();
+  }, [history, result]);
+  const clearRefreshNotice = useCallback(() => setRefreshNotice(undefined), []);
   return result.loading ? (
     <LoadingRows />
   ) : result.error ? (
@@ -51,7 +75,8 @@ export function GameDetailsPage({
           <Status>{notice}</Status>
         </div>
       ) : null}
-      <GameDetails item={result.data} repository={repository} history={<PriceHistory
+      <GameDetails item={result.data} repository={repository} refreshNotice={refreshNotice}
+        onRefreshComplete={onRefreshComplete} onRefreshStart={clearRefreshNotice} history={<PriceHistory
         history={history.data}
         target={result.data.targetPrice}
         loading={history.loading}
@@ -65,19 +90,28 @@ export default function GameDetails({
   item,
   repository,
   history,
+  refreshNotice,
+  onRefreshComplete,
+  onRefreshStart,
 }: {
   item: TrackedItem;
   repository: TrackerRepository;
   history?: React.ReactNode;
+  refreshNotice?: string;
+  onRefreshComplete?: (refresh: PriceRefresh) => void;
+  onRefreshStart?: () => void;
 }) {
   const { product } = item;
   const api = useApiMode();
   const navigate = useNavigate();
   const mounted = useRef(true);
+  const refreshLock = useRef(false);
+  const refreshController = useRef<AbortController | undefined>(undefined);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      refreshController.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -86,12 +120,72 @@ export default function GameDetails({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>();
   const [confirm, setConfirm] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<PriceRefresh>();
+  const [refreshError, setRefreshError] = useState<unknown>();
+  const [refreshPollingStopped, setRefreshPollingStopped] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const purchaseUrl = api
     ? product.currentPrice === null
       ? null
       : product.purchaseUrl
     : steamPurchaseUrl(product);
   const wait = useRetryWait(deleteError);
+  const refreshWait = Math.max(
+    useRetryWait(refreshError),
+    useRetryUntil(refreshResult?.retryAt),
+  );
+  const refreshRepository = isRefreshRepository(repository) ? repository : null;
+  const canResumeRefresh =
+    refreshResult?.status === 'queued' ||
+    refreshResult?.status === 'running' ||
+    refreshResult?.status === 'deferred';
+  async function refreshPrice(resume = false) {
+    if (!api || !refreshRepository || refreshing || refreshLock.current || refreshWait > 0) return;
+    const retained = resume ? refreshResult : undefined;
+    if (resume && !retained) return;
+    refreshLock.current = true;
+    const controller = new AbortController();
+    refreshController.current = controller;
+    onRefreshStart?.();
+    setRefreshing(true);
+    setRefreshingStatus(resume);
+    if (!resume) setRefreshResult(undefined);
+    setRefreshError(undefined);
+    if (!resume) setRefreshPollingStopped(false);
+    const publishStatus = (status: PriceRefresh) => {
+      if (!mounted.current) return;
+      setRefreshResult(status);
+    };
+    try {
+      const result = resume
+        ? await refreshRepository.resumeRefresh(
+            retained!.id,
+            item.id,
+            publishStatus,
+            { signal: controller.signal },
+          )
+        : await refreshRepository.refreshPrice(
+            item.id,
+            publishStatus,
+            { signal: controller.signal },
+          );
+      if (!mounted.current) return;
+      setRefreshResult(result);
+      setRefreshPollingStopped(result.status === 'queued' || result.status === 'running');
+      if (result.status === 'cached' || result.status === 'refreshed') {
+        onRefreshComplete?.(result);
+      }
+    } catch (error) {
+      if (mounted.current && !isAborted(error)) setRefreshError(error);
+    } finally {
+      refreshLock.current = false;
+      if (mounted.current) {
+        setRefreshing(false);
+        setRefreshingStatus(false);
+      }
+    }
+  }
   async function remove() {
     if (deleting || wait) return;
     setDeleting(true);
@@ -152,6 +246,21 @@ export default function GameDetails({
           </div>
         </dl>
         <div className="detail-actions">
+          {api && refreshRepository ? (
+            <Button
+              variant="outline"
+              disabled={refreshing || refreshWait > 0}
+              aria-busy={refreshing}
+              onClick={() => void refreshPrice(canResumeRefresh)}
+            >
+              <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              {refreshing
+                ? refreshingStatus ? 'Checking status…' : 'Checking price…'
+                : refreshWait > 0
+                  ? `${canResumeRefresh ? 'Check status' : 'Check price'} in ${refreshWait}s`
+                  : canResumeRefresh ? 'Check status' : 'Check price now'}
+            </Button>
+          ) : null}
           <Button asChild>
             <Link to={`/watchlist/${item.id}/edit`}>
               <Pencil data-icon="inline-start" aria-hidden="true" />
@@ -179,6 +288,26 @@ export default function GameDetails({
             ? `${product.freshness} Steam offer via CheapShark. Not a live checkout quote; purchase links may expire.`
             : 'Recorded Oct 26, 2026 · CheapShark · Not a live quote. Purchase link is dated and unconfirmed.'}
       </p>
+      {refreshNotice ? <Status>{refreshNotice}</Status> : null}
+      {refreshResult && !['refreshed', 'cached'].includes(refreshResult.status) ? (
+        <Status error={refreshResult.status === 'failed'} title={refreshResult.status === 'queued' ? 'Check queued' : refreshResult.status === 'running' ? 'Check in progress' : refreshResult.status === 'deferred' ? 'Check deferred' : 'Check status'}>
+          <p>{refreshStatusText(refreshResult)}</p>
+          {refreshWait > 0 ? <p>Try again in {refreshWait} seconds.</p> : null}
+        </Status>
+      ) : null}
+      {refreshError ? (
+        <Status error title="Could not check price">
+          <RequestError error={refreshError} />
+          {refreshWait > 0 ? <p>Try again in {refreshWait} seconds.</p> : null}
+        </Status>
+      ) : null}
+      {refreshing ? <p role="status" aria-live="polite">{refreshResult ? refreshStatusText(refreshResult) : 'Submitting price check…'}</p> : null}
+      {refreshPollingStopped && refreshResult && !refreshing ? (
+        <p role="status">
+          Automatic status checks stopped. The last received status was {refreshResult.status}; it may have completed since. Check status to update it.
+        </p>
+      ) : null}
+      {refreshWait > 0 ? <p role="status">Price check available in {refreshWait} seconds.</p> : null}
       {history}
       <div className="detail-meta">
         <details>

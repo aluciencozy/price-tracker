@@ -4,10 +4,13 @@ import {
   type Product,
   type Preferences,
   type ProductPreview,
+  type PriceRefresh,
+  type RefreshTrackerRepository,
 } from '../data/types';
 import { parseSteamUrl } from '../data/validation';
 import { ClientError } from './http';
 import { WebClient } from './webClient';
+import type { RefreshPoll } from './dto';
 
 function localProduct(product: Product): Product {
   return {
@@ -54,17 +57,21 @@ export function repositoryError(error: unknown): unknown {
 // One instance per private route. No record cache or sample fallback.
 export function createApiRepository(
   client: WebClient,
-): TrackerRepository & { cancelPending(): void } {
+): TrackerRepository & RefreshTrackerRepository & { cancelPending(): void } {
   let controller = new AbortController();
   let generation = 0;
   let retryAt = 0;
+  const refreshRetryAt = new Map<string, number>();
   let listController: AbortController | undefined;
   let pendingPreview: { url: string; value: ProductPreview } | undefined;
   let pendingCreate: { signature: string; key: string } | undefined;
   async function run<T>(
     operation: (signal: AbortSignal) => Promise<T>,
+    externalSignal?: AbortSignal,
   ): Promise<T> {
     const current = generation;
+    if (externalSignal?.aborted)
+      throw new ClientError('aborted', 'Request cancelled.');
     if (Date.now() < retryAt)
       throw new RepositoryError(
         'save-error',
@@ -73,7 +80,10 @@ export function createApiRepository(
         { retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000) },
       );
     try {
-      const result = await operation(controller.signal);
+      const signal = externalSignal
+        ? AbortSignal.any([controller.signal, externalSignal])
+        : controller.signal;
+      const result = await operation(signal);
       if (generation !== current)
         throw new ClientError('aborted', 'View changed.');
       return result;
@@ -84,6 +94,51 @@ export function createApiRepository(
         retryAt = Date.now() + error.details.retryAfterSeconds * 1000;
       throw repositoryError(error);
     }
+  }
+  function wait(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted)
+      return Promise.reject(new ClientError('aborted', 'Request cancelled.'));
+    return new Promise((resolve, reject) => {
+      const abort = () => {
+        clearTimeout(timer);
+        reject(new ClientError('aborted', 'Request cancelled.'));
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', abort);
+        resolve();
+      }, ms);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+  }
+  function publicRefresh(refresh: RefreshPoll): PriceRefresh {
+    const value: Partial<RefreshPoll> = { ...refresh };
+    delete value.pollAfterSeconds;
+    return value as PriceRefresh;
+  }
+  async function pollRefresh(
+    trackerId: string,
+    initial: RefreshPoll,
+    signal: AbortSignal,
+    onStatus?: (refresh: PriceRefresh) => void,
+  ): Promise<PriceRefresh> {
+    let current = initial;
+    onStatus?.(publicRefresh(current));
+    const deadline = Date.now() + 60_000;
+    while (current.status === 'queued' || current.status === 'running') {
+      const delayMs = Math.max(5, current.pollAfterSeconds) * 1000;
+      if (Date.now() + delayMs > deadline) break;
+      await wait(delayMs, signal);
+      current = await client.getTrackedItemRefresh(current.id, trackerId, { signal });
+      onStatus?.(publicRefresh(current));
+    }
+    const result = publicRefresh(current);
+    if (result.retryAt) {
+      refreshRetryAt.set(
+        trackerId,
+        Math.max(refreshRetryAt.get(trackerId) ?? 0, Date.parse(result.retryAt)),
+      );
+    }
+    return result;
   }
   const itemView = <T extends { product: Product }>(item: T): T => ({
     ...item,
@@ -123,6 +178,7 @@ export function createApiRepository(
       controller = new AbortController();
       pendingCreate = undefined;
       pendingPreview = undefined;
+      refreshRetryAt.clear();
     },
     list(query) {
       listController?.abort();
@@ -195,6 +251,27 @@ export function createApiRepository(
         itemView(await client.updateTrackedItem(id, input, { signal })),
       ),
     remove: (id) => run((signal) => client.deleteTrackedItem(id, { signal })),
+    refreshPrice(id: string, onStatus?: (refresh: PriceRefresh) => void, options = {}) {
+      return run(async (signal) => {
+        const retryAt = refreshRetryAt.get(id) ?? 0;
+        if (Date.now() < retryAt) {
+          throw new RepositoryError(
+            'save-error',
+            'Please wait before checking this game again.',
+            undefined,
+            { retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000) },
+          );
+        }
+        const accepted = await client.startTrackedItemRefresh(id, { signal });
+        return pollRefresh(id, accepted, signal, onStatus);
+      }, options.signal);
+    },
+    resumeRefresh(requestId: string, id: string, onStatus?: (refresh: PriceRefresh) => void, options = {}) {
+      return run(async (signal) => {
+        const current = await client.getTrackedItemRefresh(requestId, id, { signal });
+        return pollRefresh(id, current, signal, onStatus);
+      }, options.signal);
+    },
     history(id) {
       return run(async (signal) => {
         const items = [];

@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 
-export type PriceCheckMode = 'scheduled' | 'admin' | 'cli';
+export type PriceCheckMode = 'scheduled' | 'admin' | 'cli' | 'user';
 export type PriceCheckRunStatus = 'pending' | 'running' | 'complete' | 'partial';
 export type PriceCheckItemStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
 
@@ -25,13 +25,17 @@ export type PriceCheckRecord = {
   completedAt: Date | null;
   truncated: boolean;
   selectionComplete: boolean;
+  ownerUserId: mongoose.Types.ObjectId | null;
+  trackedItemId: mongoose.Types.ObjectId | null;
 };
 
 const recordSchema = new Schema<PriceCheckRecord>(
   {
     entryType: { type: String, enum: ['run', 'product'], required: true },
     runId: { type: String, required: true, maxlength: 64 },
-    mode: { type: String, enum: ['scheduled', 'admin', 'cli'], required: true },
+    mode: { type: String, enum: ['scheduled', 'admin', 'cli', 'user'], required: true },
+    ownerUserId: { type: Schema.Types.ObjectId, default: null },
+    trackedItemId: { type: Schema.Types.ObjectId, default: null },
     status: {
       type: String,
       enum: ['pending', 'running', 'complete', 'partial', 'succeeded', 'failed', 'skipped'],

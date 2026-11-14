@@ -7,6 +7,14 @@ import 'package:http/http.dart' as http;
 
 import 'models.dart';
 
+int? _retryAfterSeconds(String? value) {
+  if (value == null) return null;
+  if (!RegExp(r'^[0-9]+$').hasMatch(value)) invalidJson();
+  final seconds = int.tryParse(value);
+  if (seconds == null || seconds < 5) invalidJson();
+  return seconds;
+}
+
 class FieldError {
   FieldError.fromJson(Json json)
     : path = jsonString(json['path'], 300),
@@ -109,6 +117,7 @@ class MobileApi {
     Map<String, String>? headers,
     int status = 200,
     bool endingSession = false,
+    void Function(http.Response response)? onResponse,
   }) async {
     if (authenticated && _token == null) {
       throw const ApiFailure('AUTH_REQUIRED', 'Please sign in.');
@@ -168,6 +177,7 @@ class MobileApi {
       }
       if (authenticated && response.statusCode == 401) await _invalidate();
       if (response.statusCode != status) throw _error(response);
+      onResponse?.call(response);
       if (status == 204) {
         if (response.bodyBytes.isNotEmpty) invalidJson();
         return parse({});
@@ -415,6 +425,69 @@ class MobileApi {
         'to': ?to?.toUtc().toIso8601String(),
       }),
     );
+  }
+
+  Future<RefreshPoll> startTrackedItemRefresh(String trackerId) async {
+    var pollAfterSeconds = 5;
+    String? locationRequestId;
+    final refresh = await _request(
+      'POST',
+      '/api/tracked-items/${_id(trackerId)}/refresh',
+      (json) {
+        final value = TrackedItemRefresh.fromJson(json);
+        if (value.trackedItemId != trackerId || value.id != locationRequestId) {
+          invalidJson();
+        }
+        return value;
+      },
+      body: {},
+      status: 202,
+      onResponse: (response) {
+        final value = response.headers['location'];
+        final wait = _retryAfterSeconds(response.headers['retry-after']);
+        final match = value == null
+            ? null
+            : RegExp(r'^/api/tracked-item-refreshes/([A-Za-z0-9_-]+)$')
+                  .firstMatch(value);
+        if (match == null || wait == null) invalidJson();
+        locationRequestId = _id(match.group(1)!);
+        pollAfterSeconds = wait;
+      },
+    );
+    return RefreshPoll(refresh, pollAfterSeconds);
+  }
+
+  Future<RefreshPoll> getTrackedItemRefresh(
+    String requestId,
+    String trackerId,
+  ) async {
+    var pollAfterSeconds = 5;
+    String? retryAfterHeader;
+    final refresh = await _request(
+      'GET',
+      '/api/tracked-item-refreshes/${_id(requestId)}',
+      (json) {
+        final value = TrackedItemRefresh.fromJson(json);
+        if (value.id != requestId || value.trackedItemId != trackerId) {
+          invalidJson();
+        }
+        return value;
+      },
+      onResponse: (response) {
+        retryAfterHeader = response.headers['retry-after'];
+      },
+    );
+    final wait = _retryAfterSeconds(retryAfterHeader);
+    final requiresWait = [
+      'queued',
+      'running',
+      'deferred',
+    ].contains(refresh.status);
+    if (requiresWait && wait == null) {
+      invalidJson();
+    }
+    if (wait != null && wait > pollAfterSeconds) pollAfterSeconds = wait;
+    return RefreshPoll(refresh, pollAfterSeconds);
   }
 
   static TrackedItem _ownedItem(Json json, String id) {

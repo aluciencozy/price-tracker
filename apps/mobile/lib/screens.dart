@@ -649,7 +649,14 @@ class _DetailScreenState extends State<DetailScreen>
     with RequestCooldown<DetailScreen> {
   late Future<(Tracker, List<Observation>)> _detail;
   bool _busy = false;
+  bool _refreshBusy = false;
+  bool _refreshingStatus = false;
+  bool _refreshPollingStopped = false;
   String? _error;
+  PriceRefresh? _refreshStatus;
+  String? _refreshError;
+  Timer? _refreshTimer;
+  int _refreshSeconds = 0;
   @override
   void initState() {
     super.initState();
@@ -720,6 +727,118 @@ class _DetailScreenState extends State<DetailScreen>
     }
   }
 
+  void _setRefreshCooldown(DateTime? until) {
+    _refreshTimer?.cancel();
+    final seconds = until == null
+        ? 0
+        : ((until.difference(DateTime.now()).inMilliseconds / 1000)
+              .ceil()
+              .clamp(0, 900));
+    _refreshSeconds = seconds;
+    if (seconds == 0) return;
+    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _refreshSeconds = (seconds - timer.tick).clamp(0, seconds);
+        if (_refreshSeconds == 0) timer.cancel();
+      });
+    });
+  }
+
+  Future<void> _refresh(
+    RefreshableTrackerRepository repository, {
+    bool resume = false,
+  }) async {
+    if (_refreshBusy || _refreshSeconds > 0) return;
+    final retained = resume ? _refreshStatus : null;
+    if (resume && retained == null) return;
+    setState(() {
+      _refreshBusy = true;
+      _refreshingStatus = resume;
+      _refreshError = null;
+      if (!resume) {
+        _refreshPollingStopped = false;
+        _refreshStatus = null;
+      }
+    });
+    try {
+      void publishStatus(PriceRefresh value) {
+        if (!mounted) return;
+        setState(() => _refreshStatus = value);
+      }
+
+      final result = resume
+          ? await repository.resumeRefresh(
+              retained!.id,
+              widget.trackerId,
+              shouldContinue: () => mounted,
+              onStatus: publishStatus,
+            )
+          : await repository.refreshPrice(
+              widget.trackerId,
+              shouldContinue: () => mounted,
+              onStatus: publishStatus,
+            );
+      if (!mounted) return;
+      setState(() {
+        _refreshStatus = result;
+        _refreshPollingStopped =
+            result.status == 'queued' || result.status == 'running';
+        _setRefreshCooldown(result.retryAt ?? result.error?.retryAt);
+        if (result.status == 'refreshed' || result.status == 'cached') {
+          _reload();
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _refreshError = requestMessage(error);
+        final seconds = error is RepositoryException
+            ? error.retryAfterSeconds
+            : null;
+        _setRefreshCooldown(
+          seconds == null || seconds < 1
+              ? null
+              : DateTime.now().add(Duration(seconds: seconds)),
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _refreshBusy = false;
+          _refreshingStatus = false;
+        });
+      }
+    }
+  }
+
+  String _refreshMessage(PriceRefresh refresh) {
+    final observationTime = dateLabel(refresh.lastObservation?.observedAt);
+    return switch (refresh.status) {
+      'queued' =>
+        'This price check is still queued. No new price is confirmed yet.',
+      'running' => 'The server is checking this game’s Steam offer.',
+      'cached' =>
+        'Used the recorded price from $observationTime. No new provider fetch or history observation was created.',
+      'refreshed' =>
+        'Recorded a successful price observation at $observationTime. This does not mean the price dropped or confirm email/push delivery.',
+      'deferred' =>
+        'The provider deferred this check. ${refresh.error?.message ?? 'Wait before trying again.'}',
+      'failed' =>
+        'Price check failed. ${refresh.error?.message ?? 'The last successful price and history are unchanged.'}',
+      _ => 'Price check status is unavailable.',
+    };
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _purchase(Product product) async {
     final url = product.purchaseUrl;
     if (url == null || !isSafePurchaseUrl(url)) {
@@ -768,148 +887,213 @@ class _DetailScreenState extends State<DetailScreen>
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_busy,
-    child: SamplePage(
-      title: 'Game details',
-      child: FutureBuilder(
-        future: _detail,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return PageList(
-              children: [
-                ErrorMessage(snapshot.error.toString()),
-                TextButton(
-                  onPressed: retrySeconds > 0 ? null : () => setState(_reload),
-                  child: Text(
-                    retrySeconds > 0
-                        ? 'Try again in $retrySeconds seconds'
-                        : 'Try again',
-                  ),
-                ),
-              ],
-            );
-          }
-          final (item, history) = snapshot.data!;
-          final product = item.product;
-          return PageList(
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) {
+    // Only the live HTTP adapter implements this optional capability; the
+    // in-memory sample repository has no operation to expose here.
+    final refreshRepository = widget.repository is RefreshableTrackerRepository
+        ? widget.repository as RefreshableTrackerRepository
+        : null;
+    final canResumeRefresh =
+        _refreshStatus?.status == 'queued' ||
+        _refreshStatus?.status == 'running' ||
+        _refreshStatus?.status == 'deferred';
+    return PopScope(
+      canPop: !_busy,
+      child: SamplePage(
+        title: 'Game details',
+        child: FutureBuilder(
+          future: _detail,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return PageList(
                 children: [
-                  GameCover(product),
-                  const SizedBox(width: 16),
-                  Expanded(
+                  ErrorMessage(snapshot.error.toString()),
+                  TextButton(
+                    onPressed: retrySeconds > 0
+                        ? null
+                        : () => setState(_reload),
                     child: Text(
-                      product.title,
-                      style: Theme.of(context).textTheme.headlineSmall,
+                      retrySeconds > 0
+                          ? 'Try again in $retrySeconds seconds'
+                          : 'Try again',
                     ),
                   ),
                 ],
-              ),
-              Text(
-                priceLabel(product),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                'Target ${item.targetPrice.formatted} USD • ${item.enabled ? 'Tracking' : 'Paused'}',
-              ),
-              Text(
-                TrackerAppScope.isSample(context)
-                    ? 'Dated sample, not a live quote. Daily checks are planned, not running here.'
-                    : 'Last successful Steam offer. Daily checks are server-side; the app does not trigger provider checks.',
-              ),
-              if (product.lastError != null) ErrorMessage(product.lastError!),
-              Text(
-                'Steam • US / USD\nSource: ${product.source}\nLast successful observation: ${dateLabel(product.observedAt)}\nProvider change: ${dateLabel(product.providerChangedAt)}\n${TrackerAppScope.isSample(context) ? 'Last failed attempt' : 'Last attempt'}: ${dateLabel(product.lastAttemptAt)}\nFreshness: ${product.freshness}',
-              ),
-              const Text(
-                'Not affiliated with Steam. No cheapest-across-stores substitution.',
-              ),
-              if (!TrackerAppScope.isSample(context))
+              );
+            }
+            final (item, history) = snapshot.data!;
+            final product = item.product;
+            return PageList(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GameCover(product),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        product.title,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                    ),
+                  ],
+                ),
                 Text(
-                  '${product.attribution}\nStale after: ${dateLabel(product.staleAt)}\nNext server check estimate: ${dateLabel(product.nextCheckAt)}',
+                  priceLabel(product),
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-              if (product.purchaseUrl != null &&
-                  product.price != null &&
-                  isSafePurchaseUrl(product.purchaseUrl!))
-                OutlinedButton.icon(
-                  onPressed: () => _purchase(product),
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('View purchase link'),
+                Text(
+                  'Target ${item.targetPrice.formatted} USD • ${item.enabled ? 'Tracking' : 'Paused'}',
                 ),
-              const Divider(),
-              Text(
-                TrackerAppScope.isSample(context)
-                    ? 'Illustrative sample history'
-                    : 'Recorded price observations',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                TrackerAppScope.isSample(context)
-                    ? 'Invented multi-day values for layout only. Not recorded Steam history or a claim of a sale.'
-                    : 'Successful local observations of this exact Steam offer, not a provider historical-low series.',
-              ),
-              if (widget.repository
-                  case final HistoryMetadataRepository repository)
-                if (repository.historyMetadataFor(widget.trackerId)
-                    case final HistoryMetadata metadata)
+                Text(
+                  TrackerAppScope.isSample(context)
+                      ? 'Dated sample, not a live quote. Daily checks are planned, not running here.'
+                      : 'Last successful Steam offer. Daily checks are server-side; the app does not trigger provider checks.',
+                ),
+                if (product.lastError != null) ErrorMessage(product.lastError!),
+                Text(
+                  'Steam • US / USD\nSource: ${product.source}\nLast successful observation: ${dateLabel(product.observedAt)}\nProvider change: ${dateLabel(product.providerChangedAt)}\n${TrackerAppScope.isSample(context) ? 'Last failed attempt' : 'Last attempt'}: ${dateLabel(product.lastAttemptAt)}\nFreshness: ${product.freshness}',
+                ),
+                const Text(
+                  'Not affiliated with Steam. No cheapest-across-stores substitution.',
+                ),
+                if (!TrackerAppScope.isSample(context))
                   Text(
-                    'Window: ${dateLabel(metadata.from)} to ${dateLabel(metadata.to)} (end exclusive)\nRetained from: ${dateLabel(metadata.retainedFrom)}',
+                    '${product.attribution}\nStale after: ${dateLabel(product.staleAt)}\nNext server check estimate: ${dateLabel(product.nextCheckAt)}',
                   ),
-              IllustrativeHistoryChart(
-                observations: history,
-                illustrative: TrackerAppScope.isSample(context),
-              ),
-              for (final entry in history)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Text(
-                    '${dateLabel(entry.observedAt).substring(0, 10)}   ${entry.price.formatted} USD',
+                if (product.purchaseUrl != null &&
+                    product.price != null &&
+                    isSafePurchaseUrl(product.purchaseUrl!))
+                  OutlinedButton.icon(
+                    onPressed: () => _purchase(product),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('View purchase link'),
                   ),
-                ),
-              const Divider(),
-              Text(
-                'Alert preferences',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\n${TrackerAppScope.isSample(context) ? 'Device unavailable. No emails or notifications are sent.' : 'Manage Android notification permission and connection in Account. A saved preference does not enable delivery.'}',
-              ),
-              FilledButton(
-                onPressed: _busy
-                    ? null
-                    : () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => TrackerEditor(
-                              repository: widget.repository,
-                              tracker: item,
-                            ),
+                if (refreshRepository != null) ...[
+                  FilledButton.icon(
+                    onPressed: _refreshBusy || _refreshSeconds > 0
+                        ? null
+                        : () => _refresh(
+                            refreshRepository,
+                            resume: canResumeRefresh,
                           ),
-                        );
-                        if (mounted) {
-                          setState(_reload);
-                        }
-                      },
-                child: const Text('Edit target and preferences'),
-              ),
-              OutlinedButton(
-                onPressed: _busy || retrySeconds > 0 ? null : _remove,
-                child: const Text('Remove tracker'),
-              ),
-              if (_busy) const LinearProgressIndicator(),
-              if (_error != null) ErrorMessage(_error!),
-              if (retrySeconds > 0) Text('Try again in $retrySeconds seconds.'),
-            ],
-          );
-        },
+                    icon: _refreshBusy
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(
+                      _refreshBusy
+                          ? _refreshingStatus
+                                ? 'Checking status…'
+                                : 'Checking price…'
+                          : _refreshSeconds > 0
+                          ? '${canResumeRefresh ? 'Check status' : 'Check price'} in $_refreshSeconds seconds'
+                          : canResumeRefresh
+                          ? 'Check status'
+                          : 'Check price now',
+                    ),
+                  ),
+                  if (_refreshBusy)
+                    Semantics(
+                      liveRegion: true,
+                      child: LinearProgressIndicator(
+                        semanticsLabel: _refreshStatus == null
+                            ? 'Submitting price check'
+                            : _refreshMessage(_refreshStatus!),
+                      ),
+                    ),
+                  if (_refreshStatus != null)
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(_refreshMessage(_refreshStatus!)),
+                    ),
+                  if (_refreshPollingStopped && !_refreshBusy)
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        'Automatic status checks stopped. The last received status was ${_refreshStatus?.status}; it may have completed since. Check status to update it.',
+                      ),
+                    ),
+                  if (_refreshError != null) ErrorMessage(_refreshError!),
+                  if (_refreshSeconds > 0)
+                    Text('Price check available in $_refreshSeconds seconds.'),
+                ],
+                const Divider(),
+                Text(
+                  TrackerAppScope.isSample(context)
+                      ? 'Illustrative sample history'
+                      : 'Recorded price observations',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(
+                  TrackerAppScope.isSample(context)
+                      ? 'Invented multi-day values for layout only. Not recorded Steam history or a claim of a sale.'
+                      : 'Successful local observations of this exact Steam offer, not a provider historical-low series.',
+                ),
+                if (widget.repository
+                    case final HistoryMetadataRepository repository)
+                  if (repository.historyMetadataFor(widget.trackerId)
+                      case final HistoryMetadata metadata)
+                    Text(
+                      'Window: ${dateLabel(metadata.from)} to ${dateLabel(metadata.to)} (end exclusive)\nRetained from: ${dateLabel(metadata.retainedFrom)}',
+                    ),
+                IllustrativeHistoryChart(
+                  observations: history,
+                  illustrative: TrackerAppScope.isSample(context),
+                ),
+                for (final entry in history)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      '${dateLabel(entry.observedAt).substring(0, 10)}   ${entry.price.formatted} USD',
+                    ),
+                  ),
+                const Divider(),
+                Text(
+                  'Alert preferences',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(
+                  'Email: ${item.alerts.email ? 'selected' : 'off'}\nAndroid push: ${item.alerts.push ? 'selected' : 'off'}\n${TrackerAppScope.isSample(context) ? 'Device unavailable. No emails or notifications are sent.' : 'Manage Android notification permission and connection in Account. A saved preference does not enable delivery.'}',
+                ),
+                FilledButton(
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => TrackerEditor(
+                                repository: widget.repository,
+                                tracker: item,
+                              ),
+                            ),
+                          );
+                          if (mounted) {
+                            setState(_reload);
+                          }
+                        },
+                  child: const Text('Edit target and preferences'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy || retrySeconds > 0 ? null : _remove,
+                  child: const Text('Remove tracker'),
+                ),
+                if (_busy) const LinearProgressIndicator(),
+                if (_error != null) ErrorMessage(_error!),
+                if (retrySeconds > 0)
+                  Text('Try again in $retrySeconds seconds.'),
+              ],
+            );
+          },
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class AccountScreen extends StatefulWidget {

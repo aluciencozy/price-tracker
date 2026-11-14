@@ -67,6 +67,29 @@ export type PriceHistory = {
   window?: { from: string; to: string };
   retainedFrom?: string;
 };
+export type RefreshStatus = 'queued' | 'running' | 'refreshed' | 'cached' | 'deferred' | 'failed';
+export type RefreshObservation = { id: string; observedAt: string; price: Money };
+export type RefreshError = {
+  code: string; message: string; occurredAt: string; retryAt: string | null;
+};
+export type PriceRefresh = {
+  id: string; trackedItemId: string; status: RefreshStatus; requestedAt: string;
+  startedAt: string | null; finishedAt: string | null; lastObservation: RefreshObservation | null;
+  retryAt: string | null; error: RefreshError | null;
+};
+export interface RefreshTrackerRepository {
+  refreshPrice(
+    trackerId: string,
+    onStatus?: (refresh: PriceRefresh) => void,
+    options?: { signal?: AbortSignal },
+  ): Promise<PriceRefresh>;
+  resumeRefresh(
+    requestId: string,
+    trackerId: string,
+    onStatus?: (refresh: PriceRefresh) => void,
+    options?: { signal?: AbortSignal },
+  ): Promise<PriceRefresh>;
+}
 export interface TrackerRepository {
   list(query?: string): Promise<TrackedItem[]>;
   get(id: string): Promise<TrackedItem>;

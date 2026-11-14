@@ -21,6 +21,7 @@ import {
   login,
   page,
   product,
+  refreshFixture,
   token,
   unavailableProduct,
   user,
@@ -643,6 +644,273 @@ describe('live tracker screens', () => {
       expect(unexpected).toEqual([]);
     },
   );
+  it('posts once, polls an owned refresh, and reloads cached price/history without claiming a new observation', async () => {
+    let historyReads = 0;
+    let posts = 0;
+    let polls = 0;
+    const queued = refreshFixture('queued');
+    const cached = refreshFixture('cached');
+    const { fetch, unexpected } = open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(queued, 202, {
+          Location: `/api/tracked-item-refreshes/${queued.id}`,
+          'Retry-After': '5',
+        });
+      }
+      if (path === `/api/tracked-item-refreshes/${queued.id}`) {
+        polls++;
+        return json(cached);
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    expect(historyReads).toBe(1);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+    const button = screen.getByRole('button', { name: 'Check price now' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(posts).toBe(1);
+    expect(screen.getByRole('button', { name: 'Checking price…' })).toBeDisabled();
+    const postCall = fetch.mock.calls.find(([url]) => String(url) === `/api/tracked-items/${item.id}/refresh`)!;
+    expect(postCall[1]?.body).toBe('{}');
+    expect(postCall[1]?.headers).toMatchObject({ 'X-CSRF-Token': token });
+    expect(polls).toBe(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(polls).toBe(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(polls).toBe(1);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Used the recorded price from/)).toBeVisible();
+    expect(screen.getByText(/No new provider fetch or history observation was created/)).toBeVisible();
+    expect(screen.queryByText(/email\/push delivery/)).not.toBeInTheDocument();
+    expect(screen.getByText('$9.99', { selector: 'dd' })).toBeVisible();
+    expect(historyReads).toBe(2);
+    expect(posts).toBe(1);
+    expect(unexpected).toEqual([]);
+  });
+  it('reloads after an immediate cached 202 without a status GET or a second POST', async () => {
+    let itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+    const cached = refreshFixture('cached');
+    open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) {
+        itemReads++;
+        return json(item);
+      }
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(cached, 202, {
+          Location: `/api/tracked-item-refreshes/${cached.id}`,
+          'Retry-After': '5',
+        });
+      }
+      if (path === `/api/tracked-item-refreshes/${cached.id}`) {
+        statusReads++;
+        return json(cached);
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText(/Used the recorded price from/)).toBeVisible();
+    expect(posts).toBe(1);
+    expect(statusReads).toBe(0);
+    expect(itemReads).toBe(2);
+    expect(historyReads).toBe(2);
+  });
+  it('shows an immediate failed 202 honestly and preserves the last known data', async () => {
+    let historyReads = 0, posts = 0, statusReads = 0;
+    const failed = refreshFixture('failed');
+    open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(failed, 202, {
+          Location: `/api/tracked-item-refreshes/${failed.id}`,
+          'Retry-After': '5',
+        });
+      }
+      if (path === `/api/tracked-item-refreshes/${failed.id}`) {
+        statusReads++;
+        return json(failed);
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    expect(await screen.findByText(/Price check failed\. Illustrative provider failure\./)).toBeVisible();
+    expect(screen.getByText('$9.99', { selector: 'dd' })).toBeVisible();
+    expect(historyReads).toBe(1);
+    expect(statusReads).toBe(0);
+    expect(posts).toBe(1);
+  });
+  it('resumes a stopped refresh with GET only and reloads owned price and history', async () => {
+    let itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+    let completed = false;
+    const queued = refreshFixture('queued');
+    const cached = refreshFixture('cached');
+    open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) {
+        itemReads++;
+        return json(item);
+      }
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(queued, 202, {
+          Location: `/api/tracked-item-refreshes/${queued.id}`,
+          'Retry-After': '5',
+        });
+      }
+      if (path === `/api/tracked-item-refreshes/${queued.id}`) {
+        statusReads++;
+        return completed
+          ? json(cached)
+          : json({ ...queued, status: 'running', startedAt: '2026-10-28T12:00:05.000Z' }, 200, { 'Retry-After': '5' });
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:00.000Z'));
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(posts).toBe(1);
+    expect(statusReads).toBe(12);
+    expect(screen.getByText(/last received status was running/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Check status' })).toBeEnabled();
+
+    completed = true;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Used the recorded price from/)).toBeVisible();
+    expect(statusReads).toBe(13);
+    expect(posts).toBe(1);
+    expect(itemReads).toBe(2);
+    expect(historyReads).toBe(2);
+  });
+  it('describes a refreshed observation without claiming a price drop or alert delivery', async () => {
+    const queued = refreshFixture('queued');
+    const refreshed = refreshFixture('refreshed');
+    let historyReads = 0;
+    const { fetch } = open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST')
+        return json(queued, 202, {
+          Location: `/api/tracked-item-refreshes/${queued.id}`,
+          'Retry-After': '5',
+        });
+      if (path === `/api/tracked-item-refreshes/${queued.id}`)
+        return json(refreshed);
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText(/Recorded a successful price observation at/)).toBeVisible();
+    expect(screen.getByText(/does not mean the price dropped/)).toBeVisible();
+    expect(screen.getByText(/confirm email\/push delivery/)).toBeVisible();
+    expect(historyReads).toBe(2);
+    const post = fetch.mock.calls.find(([url, init]) =>
+      String(url) === `/api/tracked-items/${item.id}/refresh` && init?.method === 'POST');
+    expect(post?.[1]?.body).toBe('{}');
+  });
+  it('shows a rate limit cooldown without changing retained price/history or replaying POST', async () => {
+    let historyReads = 0;
+    let posts = 0;
+    open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+        historyReads++;
+        return json(history);
+      }
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(error('RATE_LIMITED', 3), 429, { 'Retry-After': '3' });
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(posts).toBe(1);
+    expect(screen.getByText('Illustrative error.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Check price in 3s' })).toBeDisabled();
+    expect(screen.getByText('$9.99', { selector: 'dd' })).toBeVisible();
+    expect(historyReads).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(screen.getByRole('button', { name: 'Check price now' })).toBeEnabled();
+    expect(posts).toBe(1);
+    expect(historyReads).toBe(1);
+  });
+  it('clears private detail state when a refresh discovers an expired session', async () => {
+    let posts = 0;
+    const { client } = open(`/watchlist/${item.id}`, (path, init) => {
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) return json(history);
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+        posts++;
+        return json(error('SESSION_EXPIRED'), 401);
+      }
+    });
+    await screen.findByRole('heading', { name: 'Portal 2' });
+    await screen.findByText(/Successful Steam observations\./);
+    fireEvent.click(screen.getByRole('button', { name: 'Check price now' }));
+    expect(await screen.findByText('Sign in to continue')).toBeVisible();
+    expect(client.getSession().status).toBe('anonymous');
+    expect(screen.queryByText('Portal 2')).not.toBeInTheDocument();
+    expect(posts).toBe(1);
+  });
   it('does not offer save controls when the API reports no current Steam offer', async () => {
     const { fetch, unexpected } = open('/add', (path) =>
       path === '/api/product-previews'

@@ -26,6 +26,8 @@ const trackedItemSchema = new Schema({
   episodeOpen: { type: Boolean, required: true, default: false },
   lastEvaluatedAt: { type: Date, default: null },
   lastObservationId: { type: Schema.Types.ObjectId, ref: 'PriceHistory', default: null },
+  refreshRunId: { type: String, default: null, maxlength: 64 },
+  refreshCooldownUntil: { type: Date, default: null },
 }, options);
 trackedItemSchema.index({ userId: 1, productId: 1 }, { unique: true });
 trackedItemSchema.index({ productId: 1, enabled: 1 });

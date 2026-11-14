@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as dto from './dto';
-import { history, item, product, unavailableProduct, user } from './testFixtures';
+import { history, item, product, refreshFixture, unavailableProduct, user } from './testFixtures';
 
 function apiProductForDealId(dealId: string) {
   const rawDealId = decodeURIComponent(dealId);
@@ -34,6 +34,28 @@ describe('wire boundary validation', () => {
     expect(dto.trackedItem(item)).toEqual(item);
     expect(dto.history(history)).toEqual(history);
     expect(dto.user(user)).toEqual(user);
+  });
+  it.each(['queued', 'running', 'refreshed', 'cached', 'deferred', 'failed'] as const)(
+    'parses the strict %s refresh result',
+    (status) => {
+      expect(dto.refreshRequest(refreshFixture(status))).toMatchObject({
+        id: 'refresh_example', trackedItemId: item.id, status,
+      });
+    },
+  );
+  it('rejects inconsistent refresh states, required fields and unknown additions', () => {
+    expect(() => dto.refreshRequest({ ...refreshFixture(), extra: true })).toThrow();
+    expect(() => dto.refreshRequest(({ ...refreshFixture(), requestedAt: null }))).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('running'), startedAt: null })).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('cached'), retryAt: '2026-10-28T12:01:31.000Z' })).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('deferred'), retryAt: null })).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('failed'), error: null })).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('refreshed'), lastObservation: null })).toThrow();
+    expect(() => dto.refreshRequest({ ...refreshFixture('queued'), error: product.lastError })).toThrow();
+  });
+  it('allows nullable start times where the shared schema leaves them optional', () => {
+    expect(dto.refreshRequest({ ...refreshFixture('deferred'), startedAt: null }).status).toBe('deferred');
+    expect(dto.refreshRequest({ ...refreshFixture('failed'), startedAt: null }).status).toBe('failed');
   });
   it('accepts only the current exact-app or known legacy attribution wording', () => {
     expect(dto.product({

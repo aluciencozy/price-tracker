@@ -13,22 +13,31 @@ import 'client_fixtures.dart';
 
 void main() {
   HttpTrackerRepository repository(
-    Future<http.Response> Function(http.Request) handle,
-  ) {
+    Future<http.Response> Function(http.Request) handle, {
+    DateTime Function()? nowProvider,
+    Future<void> Function(Duration duration)? delay,
+  }) {
     final client = MockClient(handle);
     addTearDown(client.close);
     final api = MobileApi(
       client: client,
       baseUrl: 'https://api.example.test',
-      now: () => now,
+      now: nowProvider ?? () => now,
     )..setSession(wire.Session.fromJson(sessionJson()));
-    final repository = HttpTrackerRepository(api);
+    final repository = HttpTrackerRepository(
+      api,
+      now: nowProvider ?? () => now,
+      delay: delay,
+    );
     addTearDown(repository.dispose);
     return repository;
   }
 
-  http.Response response(Object value, [int status = 200]) =>
-      http.Response(jsonEncode(value), status);
+  http.Response response(
+    Object value, [
+    int status = 200,
+    Map<String, String>? headers,
+  ]) => http.Response(jsonEncode(value), status, headers: headers ?? const {});
 
   http.Response strictList(http.Request request, {String? nextCursor}) {
     final query = request.url.queryParameters;
@@ -238,6 +247,156 @@ void main() {
         ),
       );
       expect(calls, 1);
+    },
+  );
+
+  test(
+    'cached refresh observes the per-game cooldown without changing history',
+    () async {
+      var posts = 0;
+      var clock = now;
+      final repo = repository(
+        (request) async {
+          if (request.method == 'POST') {
+            posts++;
+            final trackerId = request.url.path.split('/')[3];
+            expect(request.url.path, '/api/tracked-items/$trackerId/refresh');
+            expect(jsonDecode(request.body), {});
+            final requestId = 'refresh_$trackerId';
+            return response(
+              refreshJson('queued', id: requestId, trackerId: trackerId),
+              202,
+              {
+                'location': '/api/tracked-item-refreshes/$requestId',
+                'retry-after': '5',
+              },
+            );
+          }
+          final requestId = request.url.path.split('/').last;
+          final trackerId = requestId.substring('refresh_'.length);
+          return response(
+            refreshJson('cached', id: requestId, trackerId: trackerId),
+          );
+        },
+        nowProvider: () => clock,
+        delay: (duration) async => clock = clock.add(duration),
+      );
+      final result = await repo.refreshPrice('tracker_example');
+      expect(result.status, 'cached');
+      expect(result.lastObservation!.price.amountMinor, 999);
+      expect((await repo.refreshPrice('tracker_other')).status, 'cached');
+      await expectLater(
+        repo.refreshPrice('tracker_example'),
+        throwsA(
+          isA<RepositoryException>().having(
+            (error) => error.retryAfterSeconds,
+            'server cooldown',
+            greaterThan(0),
+          ),
+        ),
+      );
+      expect(posts, 2);
+    },
+  );
+
+  test('queued refresh honors five-second floor and server wait before bounded stop', () async {
+    var clock = now;
+    var posts = 0, polls = 0;
+    var completed = false;
+    final delays = <Duration>[];
+    final repo = repository(
+      (request) async {
+        if (request.method == 'POST') {
+          posts++;
+          return response(refreshJson('queued'), 202, {
+            'location': '/api/tracked-item-refreshes/refresh_example',
+            'retry-after': '5',
+          });
+        }
+        polls++;
+        if (completed) return response(refreshJson('cached'));
+        return response(
+          refreshJson('running')..['startedAt'] = time,
+          200,
+          {'retry-after': '12'},
+          // Repeating queue/running state never creates a fabricated completion.
+        );
+      },
+      nowProvider: () => clock,
+      delay: (duration) async {
+        delays.add(duration);
+        clock = clock.add(duration);
+      },
+    );
+    final result = await repo.refreshPrice('tracker_example');
+    expect(result.status, 'running');
+    expect(posts, 1);
+    expect(polls, 5);
+    expect(delays.first, const Duration(seconds: 5));
+    expect(delays.skip(1), everyElement(const Duration(seconds: 12)));
+    expect(clock.difference(now), const Duration(seconds: 53));
+    completed = true;
+    final resumed = await repo.resumeRefresh(
+      'refresh_example',
+      'tracker_example',
+    );
+    expect(resumed.status, 'cached');
+    expect(posts, 1);
+    expect(polls, 6);
+  });
+
+  test('terminal 202 returns immediately without a status GET', () async {
+    var posts = 0, polls = 0;
+    final repo = repository((request) async {
+      if (request.method == 'POST') {
+        posts++;
+        return response(refreshJson('cached'), 202, {
+          'location': '/api/tracked-item-refreshes/refresh_example',
+          'retry-after': '5',
+        });
+      }
+      polls++;
+      return response(refreshJson('cached'));
+    });
+    expect((await repo.refreshPrice('tracker_example')).status, 'cached');
+    expect(posts, 1);
+    expect(polls, 0);
+  });
+
+  test(
+    'deferred refresh stops polling and honors the provider retry deadline',
+    () async {
+      var clock = now;
+      var posts = 0, polls = 0;
+      final repo = repository(
+        (request) async {
+          if (request.method == 'POST') {
+            posts++;
+            return response(refreshJson('queued'), 202, {
+              'location': '/api/tracked-item-refreshes/refresh_example',
+              'retry-after': '5',
+            });
+          }
+          polls++;
+          return response(refreshJson('deferred'), 200, {'retry-after': '5'});
+        },
+        nowProvider: () => clock,
+        delay: (duration) async => clock = clock.add(duration),
+      );
+      final result = await repo.refreshPrice('tracker_example');
+      expect(result.status, 'deferred');
+      expect(polls, 1);
+      await expectLater(
+        repo.refreshPrice('tracker_example'),
+        throwsA(
+          isA<RepositoryException>().having(
+            (error) => error.retryAfterSeconds,
+            'provider retry deadline',
+            greaterThan(0),
+          ),
+        ),
+      );
+      expect(posts, 1);
     },
   );
 

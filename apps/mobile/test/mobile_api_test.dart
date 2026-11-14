@@ -280,6 +280,123 @@ void main() {
     );
   });
 
+  test(
+    'refresh uses only the fixed owned API routes and native bearer session',
+    () async {
+      final paths = <String>[];
+      final api = apiFor((request) async {
+        paths.add('${request.method} ${request.url.path}');
+        expect(request.url.host, 'api.example.test');
+        expect(
+          request.headers['Authorization'],
+          'Bearer illustrative-not-a-signed-jwt',
+        );
+        expect(request.headers['Cookie'], isNull);
+        expect(request.headers['X-CSRF-Token'], isNull);
+        expect(request.followRedirects, isFalse);
+        if (request.method == 'POST') {
+          expect(request.body, '{}');
+          expect(
+            request.url.path,
+            '/api/tracked-items/tracker_example/refresh',
+          );
+          return jsonResponse(refreshJson('queued'), 202, {
+            'location': '/api/tracked-item-refreshes/refresh_example',
+            'retry-after': '5',
+          });
+        }
+        expect(request.method, 'GET');
+        expect(request.body, isEmpty);
+        return jsonResponse(refreshJson('cached'), 200, {'retry-after': '12'});
+      });
+      final queued = await api.startTrackedItemRefresh('tracker_example');
+      final poll = await api.getTrackedItemRefresh(
+        queued.request.id,
+        'tracker_example',
+      );
+      expect(queued.request.status, 'queued');
+      expect(poll.request.status, 'cached');
+      expect(poll.pollAfterSeconds, 12);
+      expect(paths, [
+        'POST /api/tracked-items/tracker_example/refresh',
+        'GET /api/tracked-item-refreshes/refresh_example',
+      ]);
+    },
+  );
+
+  test('refresh polling rejects another tracker or request identity', () async {
+    final api = apiFor((request) async {
+      return jsonResponse(refreshJson('queued', id: 'some_other_request'));
+    });
+    await expectLater(
+      api.getTrackedItemRefresh('refresh_example', 'tracker_example'),
+      throwsA(failure('INVALID_RESPONSE')),
+    );
+  });
+
+  test('accepts any schema-valid status in the 202 response', () async {
+    for (final status in [
+      'queued',
+      'running',
+      'cached',
+      'refreshed',
+      'deferred',
+      'failed',
+    ]) {
+      final api = apiFor((request) async {
+        final result = refreshJson(status);
+        return jsonResponse(result, 202, {
+          'location': '/api/tracked-item-refreshes/${result['id']}',
+          'retry-after': '5',
+        });
+      });
+      await expectLater(
+        api.startTrackedItemRefresh('tracker_example'),
+        completion(
+          isA<RefreshPoll>().having(
+            (poll) => poll.request.status,
+            'status',
+            status,
+          ),
+        ),
+      );
+    }
+  });
+
+  test(
+    'refresh acceptance requires its matching private Location and wait',
+    () async {
+      final api = apiFor((request) async {
+        return jsonResponse(refreshJson('queued'), 202, {
+          'location': '/api/tracked-item-refreshes/another_request',
+          'retry-after': '5',
+        });
+      });
+      await expectLater(
+        api.startTrackedItemRefresh('tracker_example'),
+        throwsA(failure('INVALID_RESPONSE')),
+      );
+    },
+  );
+
+  test(
+    'refresh polling headers accept only numeric waits of five seconds or more',
+    () async {
+      for (final retryAfter in <String?>[null, '4', '+5', '5 seconds']) {
+        final api = apiFor((request) async {
+          return jsonResponse(refreshJson('queued'), 202, {
+            'location': '/api/tracked-item-refreshes/refresh_example',
+            'retry-after': ?retryAfter,
+          });
+        });
+        await expectLater(
+          api.startTrackedItemRefresh('tracker_example'),
+          throwsA(failure('INVALID_RESPONSE')),
+        );
+      }
+    },
+  );
+
   test('bodyless DELETE, me and logout; empty 204 needs no JSON', () async {
     final paths = <String>[];
     final api = apiFor((request) async {

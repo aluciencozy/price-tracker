@@ -65,10 +65,12 @@ export function createApp(config: Config, databaseStatus: () => DatabaseStatus, 
   if (options?.tracking) {
     const tracking = createTrackingRouter(requireVerifiedUser(config), options.tracking.cursorSigningSecret, {
       createPreview: createProductPreviewService({ resolveProduct: options.tracking.resolveProduct }),
+      runPriceChecks: options.runPriceChecks,
+      ownedRefreshAvailable: config.PRICE_RETRY_WORKER_ENABLED,
     });
     // Avoid the router's authentication middleware intercepting unrelated API paths.
     app.use('/api', (req, res, next) => {
-      if (!/^\/(?:product-previews|tracked-items)(?:\/|$)/i.test(req.path)) return next();
+      if (!/^\/(?:product-previews|tracked-items|tracked-item-refreshes)(?:\/|$)/i.test(req.path)) return next();
       if (databaseStatus() !== 'connected') return accountError(res, 503, 'SERVICE_UNAVAILABLE', 'Tracking is unavailable.');
       return tracking(req, res, next);
     });

@@ -41,9 +41,31 @@ const operations = Object.entries(contract.paths).flatMap(([path, entry]) => Obj
 test('OpenAPI 3.1 document resolves and passes structural validation', async () => {
   const parsed = await SwaggerParser.validate(fileURLToPath(file), { resolve: { external: false, http: false } });
   assert.equal(parsed.openapi, '3.1.0');
+  assert.equal(parsed.info.version, '0.1.2');
   assert.equal(new Set(operations.map(({ operation }) => operation.operationId)).size, operations.length);
-  assert.equal(operations.length, 30);
+  assert.equal(new Set(operations.map(({ path, method }) => `${method} ${path}`)).size, operations.length);
   assert.ok(validators.size > 40, 'every model compiles with the 2020-12 validator');
+});
+
+test('owned refresh routes are strict, private, bounded, and separate from admin batches', () => {
+  const postPath = '/api/tracked-items/{id}/refresh';
+  const getPath = '/api/tracked-item-refreshes/{requestId}';
+  const post = contract.paths[postPath].post;
+  const get = contract.paths[getPath].get;
+  assert.deepEqual(post.security, [{ webSession: [], webCsrf: [] }, { mobileBearer: [] }]);
+  assert.deepEqual(get.security, [{ webSession: [] }, { mobileBearer: [] }]);
+  assert.equal(resolve(post.requestBody).content['application/json'].schema.$ref, '#/components/schemas/EmptyRequest');
+  assert.equal(get.requestBody, undefined);
+  assert.ok(![...contract.paths[postPath].parameters ?? [], ...post.parameters ?? []].some((parameter) => resolve(parameter).in === 'query'));
+  assert.ok(![...contract.paths[getPath].parameters ?? [], ...get.parameters ?? []].some((parameter) => resolve(parameter).in === 'query'));
+  assert.equal(post.responses['202'].headers.Location.required, true);
+  assert.equal(post.responses['202'].headers['Retry-After'].required, true);
+  assert.equal(post.responses['202'].headers['Retry-After'].schema.minimum, 5);
+  assert.equal(get.responses['200'].headers['Retry-After'].schema.minimum, 5);
+  assert.ok(post.responses['404'] && get.responses['404'], 'missing and foreign resources use 404');
+  assert.equal(contract.paths['/api/admin/price-checks'].post.responses['403'] !== undefined, true);
+  assert.deepEqual(contract.components.schemas.PriceCheck.properties.trigger.enum, ['manual', 'scheduled']);
+  reject('EmptyRequest', { productId: products[0].id });
 });
 
 test('installation cleanup is bodyless, UUID-addressed and mobile-only without an existence response', () => {
@@ -162,6 +184,63 @@ test('successful running polls accept Retry-After without an error body', () => 
   validate(schema, poll.responseHeaders['Retry-After']);
   assert.equal(validatorFor(schema)(4), false);
   assert.equal(validatorFor(schema)('5'), false);
+});
+
+test('owned refresh DTO has exact keys and honest state-specific observations/retries', () => {
+  const expectedKeys = ['id', 'trackedItemId', 'status', 'requestedAt', 'startedAt', 'finishedAt', 'lastObservation', 'retryAt', 'error'];
+  const schema = contract.components.schemas.RefreshRequest;
+  assert.deepEqual(schema.required, expectedKeys);
+  assert.deepEqual(schema.properties.status.enum, ['queued', 'running', 'refreshed', 'cached', 'deferred', 'failed']);
+  assert.deepEqual(contract.components.schemas.RefreshObservation.required, ['id', 'price', 'observedAt']);
+  const refreshes = exchanges.filter(({ path, method, status }) => path === '/api/tracked-item-refreshes/{requestId}' && method === 'get' && status === 200);
+  assert.deepEqual(new Set(refreshes.map(({ response }) => response.status)), new Set(['queued', 'running', 'refreshed', 'cached', 'deferred', 'failed']));
+  for (const example of refreshes) validate({ $ref: '#/components/schemas/RefreshRequest' }, example.response);
+  const byStatus = Object.fromEntries(refreshes.map(({ response }) => [response.status, response]));
+  assert.equal(byStatus.queued.startedAt, null);
+  assert.equal(byStatus.queued.finishedAt, null);
+  assert.equal(byStatus.queued.error, null);
+  assert.equal(byStatus.running.finishedAt, null);
+  for (const status of ['refreshed', 'cached']) {
+    assert.ok(byStatus[status].finishedAt);
+    assert.ok(byStatus[status].lastObservation, `${status} must have a persisted observation`);
+    assert.ok(byStatus[status].retryAt, `${status} includes its cooldown deadline`);
+    assert.equal(Date.parse(byStatus[status].retryAt) - Date.parse(byStatus[status].finishedAt), 60_000);
+    assert.equal(byStatus[status].error, null);
+  }
+  assert.equal(byStatus.deferred.finishedAt, null);
+  assert.ok(byStatus.deferred.error);
+  assert.equal(byStatus.deferred.retryAt, byStatus.deferred.error.retryAt);
+  assert.ok(byStatus.failed.finishedAt);
+  assert.ok(byStatus.failed.error);
+  assert.ok(byStatus.failed.retryAt);
+  reject('RefreshRequest', { ...byStatus.queued, debug: 'must not leak' });
+  reject('RefreshRequest', { ...byStatus.queued, finishedAt: byStatus.running.startedAt });
+  reject('RefreshRequest', { ...byStatus.running, startedAt: null });
+  reject('RefreshRequest', { ...byStatus.refreshed, lastObservation: null });
+  reject('RefreshRequest', { ...byStatus.cached, error: byStatus.failed.error });
+  reject('RefreshRequest', { ...byStatus.deferred, finishedAt: byStatus.running.startedAt });
+  reject('RefreshRequest', { ...byStatus.deferred, error: null });
+  reject('RefreshRequest', { ...byStatus.failed, finishedAt: null });
+  reject('RefreshRequest', { ...byStatus.failed, retryAt: null });
+  reject('RefreshObservation', { ...byStatus.cached.lastObservation, providerChangedAt: null });
+  reject('ProductError', { ...byStatus.deferred.error, code: 'PROVIDER_DEFERRED' });
+});
+
+test('owned refresh active polls and cooldown errors honor their exact retry headers', () => {
+  const pollExamples = exchanges.filter(({ path, status, response }) => path === '/api/tracked-item-refreshes/{requestId}' && status === 200 && ['queued', 'running', 'deferred'].includes(response.status));
+  assert.ok(pollExamples.length >= 3);
+  for (const example of pollExamples) {
+    assert.equal(example.responseHeaders['Retry-After'], 5);
+    if (example.response.status === 'deferred') assert.ok(example.response.error);
+    else assert.equal(example.response.error, null);
+    validate(contract.paths[example.path].get.responses['200'].headers['Retry-After'].schema, example.responseHeaders['Retry-After']);
+  }
+  const enqueue = exchanges.find(({ path, status }) => path === '/api/tracked-items/{id}/refresh' && status === 202);
+  assert.equal(enqueue.responseHeaders.Location, `/api/tracked-item-refreshes/${enqueue.response.id}`);
+  assert.equal(enqueue.responseHeaders['Retry-After'], 5);
+  const cooldown = exchanges.find(({ path, status }) => path === '/api/tracked-items/{id}/refresh' && status === 429);
+  assert.equal(cooldown.response.error.code, 'RATE_LIMITED');
+  assert.equal(cooldown.response.error.retryAfterSeconds, cooldown.responseHeaders['Retry-After']);
 });
 
 test('price-check states require consistent timestamps and successful/partial counts', () => {

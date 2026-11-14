@@ -191,6 +191,7 @@ describe('sample navigation, watchlist and CRUD', () => {
     expect(
       await screen.findByRole('heading', { name: 'Portal 2', level: 1 }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check price now' })).not.toBeInTheDocument();
     expect(location.pathname).toBe('/watchlist/tracker-portal-2');
     await act(async () => {
       window.history.back();

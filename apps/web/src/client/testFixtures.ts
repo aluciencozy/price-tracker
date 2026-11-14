@@ -34,6 +34,26 @@ export const login = { user, sessionId: 'session_example', expiresAt: later };
 export const key = '624031ba-726a-454d-8308-909b1b0a0031';
 export const create = { previewId: 'preview_example', targetPrice: item.targetPrice, enabled: item.enabled, alerts: item.alerts };
 export const csrf = (csrfToken = token) => ({ csrfToken, expiresAt: later });
+export function refreshFixture(status: import('./dto').RefreshStatus = 'queued', id = 'refresh_example', trackedItemId = item.id) {
+  const finishedAt = '2026-10-28T12:00:30.000Z';
+  const hasFinished = ['refreshed', 'cached', 'failed'].includes(status);
+  const hasError = ['deferred', 'failed'].includes(status);
+  return {
+    id, trackedItemId, status, requestedAt: '2026-10-28T12:00:00.000Z',
+    startedAt: status === 'queued' ? null : '2026-10-28T12:00:05.000Z',
+    finishedAt: hasFinished ? finishedAt : null,
+    lastObservation: ['refreshed', 'cached', 'failed'].includes(status)
+      ? { id: 'observation_example', price: { amountMinor: 999, currency: 'USD' as const }, observedAt }
+      : null,
+    retryAt: status === 'refreshed' || status === 'cached' || status === 'failed'
+      ? '2026-10-28T12:01:30.000Z'
+      : status === 'deferred' ? '2026-10-28T12:05:00.000Z' : null,
+    error: hasError ? {
+      code: 'PROVIDER_UNAVAILABLE', message: 'Illustrative provider failure.',
+      occurredAt: '2026-10-28T12:00:30.000Z', retryAt: null,
+    } : null,
+  };
+}
 export const error = (code: string, retryAfterSeconds: number | null = null) => ({
   error: { code, message: 'Illustrative error.', fields: [], requestId: 'request_example', retryAfterSeconds, resourceId: null },
 });

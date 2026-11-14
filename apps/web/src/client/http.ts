@@ -88,7 +88,7 @@ export function createHttp(options: HttpOptions) {
   }
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   let notBefore = 0;
-  async function attempt<T>(method: string, path: string, expectedStatus: number, parse: (value: unknown) => T, options: HttpRequestOptions): Promise<T> {
+  async function attempt<T>(method: string, path: string, expectedStatus: number, parse: (value: unknown, response: Response) => T, options: HttpRequestOptions): Promise<T> {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
@@ -104,7 +104,7 @@ export function createHttp(options: HttpOptions) {
       });
       if (controller.signal.aborted) throw cancelled();
       if (response.status === 401) options.onUnauthorized?.();
-      if (response.status === 204 && expectedStatus === 204) return parse(undefined);
+      if (response.status === 204 && expectedStatus === 204) return parse(undefined, response);
       try {
         const value = await readJson(response, controller.signal);
         if (controller.signal.aborted) throw cancelled();
@@ -115,7 +115,7 @@ export function createHttp(options: HttpOptions) {
           throw new ClientError('http', detail.message, { ...detail, retryAfterSeconds, status: response.status });
         }
         if (response.status !== expectedStatus) throw new Error('Unexpected status.');
-        return parse(value);
+        return parse(value, response);
       } catch (error) {
         if (error instanceof ClientError) throw error;
         throw new ClientError('invalid-response', 'Unexpected API response.', { status: response.status });
@@ -132,7 +132,7 @@ export function createHttp(options: HttpOptions) {
   }
   return async function request<T>(
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, expectedStatus: number,
-    parse: (value: unknown) => T, options: HttpRequestOptions = {},
+    parse: (value: unknown, response: Response) => T, options: HttpRequestOptions = {},
   ): Promise<T> {
     if (options.signal?.aborted) throw cancelled();
     for (let retry = 0; ; retry++) {

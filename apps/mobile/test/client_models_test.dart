@@ -229,4 +229,58 @@ void main() {
       expect(() => History.fromJson(json), throwsFormatException);
     }
   });
+  test(
+    'strictly parses every owned refresh state and persisted observation',
+    () {
+      for (final status in [
+        'queued',
+        'running',
+        'refreshed',
+        'cached',
+        'deferred',
+        'failed',
+      ]) {
+        final refresh = TrackedItemRefresh.fromJson(refreshJson(status));
+        expect(refresh.status, status);
+        expect(refresh.trackedItemId, 'tracker_example');
+        if (status == 'cached' || status == 'refreshed') {
+          expect(refresh.lastObservation!.price.amountMinor, 999);
+          expect(
+            refresh.retryAt,
+            refresh.finishedAt!.add(const Duration(seconds: 60)),
+          );
+        }
+      }
+    },
+  );
+  test('rejects unknown fields, absent nullable keys and contradictory refresh states', () {
+    for (final value in [
+      refreshJson('queued')..['unexpected'] = true,
+      refreshJson('queued')..remove('lastObservation'),
+      refreshJson('running')..['startedAt'] = null,
+      refreshJson('cached')..['retryAt'] = '2026-10-28T12:01:31.000Z',
+      refreshJson('deferred')..['retryAt'] = null,
+      refreshJson('failed')..['error'] = null,
+      refreshJson('refreshed')..['lastObservation'] = null,
+      refreshJson('queued')..['error'] = refreshJson('failed')['error'],
+    ]) {
+      expect(() => TrackedItemRefresh.fromJson(value), throwsFormatException);
+    }
+  });
+  test(
+    'leaves start time nullable for deferred and failed contract states',
+    () {
+      expect(
+        TrackedItemRefresh.fromJson(
+          refreshJson('deferred')..['startedAt'] = null,
+        ).status,
+        'deferred',
+      );
+      expect(
+        TrackedItemRefresh.fromJson(refreshJson('failed')..['startedAt'] = null)
+            .status,
+        'failed',
+      );
+    },
+  );
 }

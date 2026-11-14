@@ -10,12 +10,170 @@ import {
   json,
   page,
   product,
+  refreshFixture,
   token,
 } from './testFixtures';
 
 describe('API presentation repository', () => {
   const url = 'https://store.steampowered.com/app/620/';
   const preview = { id: 'preview_example', expiresAt: csrf().expiresAt, product };
+  it('polls queued work no faster than Retry-After and enforces the terminal cooldown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:00.000Z'));
+    const queued = refreshFixture('queued');
+    const refreshed = refreshFixture('refreshed');
+    let polls = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
+      if (path === '/api/auth/web/csrf') return json(csrf());
+      if (path === `/api/tracked-items/${item.id}/refresh`)
+        return json(queued, 202, { Location: `/api/tracked-item-refreshes/${queued.id}`, 'Retry-After': '10' });
+      if (path === `/api/tracked-item-refreshes/${queued.id}`) {
+        polls++;
+        return polls === 1
+          ? json({ ...queued, status: 'running', startedAt: '2026-10-28T12:00:05.000Z' }, 200, { 'Retry-After': '15' })
+          : json(refreshed);
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
+    });
+    const repository = createApiRepository(new WebClient({ fetch }));
+    const pending = repository.refreshPrice(item.id);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(fetch.mock.calls.filter(([path]) => String(path).includes('/tracked-item-refreshes/'))).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toMatchObject({ status: 'refreshed' });
+    await expect(repository.refreshPrice(item.id)).rejects.toMatchObject({ details: { retryAfterSeconds: expect.any(Number) } });
+    expect(fetch.mock.calls.filter(([path]) => String(path).endsWith('/refresh'))).toHaveLength(1);
+    vi.useRealTimers();
+  });
+  it('stops queued polling at the bounded minute without replaying the POST', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:00.000Z'));
+    const queued = refreshFixture('queued');
+    const cached = refreshFixture('cached');
+    let completed = false;
+    let posts = 0;
+    let polls = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
+      if (path === '/api/auth/web/csrf') return json(csrf());
+      if (path === `/api/tracked-items/${item.id}/refresh`) {
+        posts++;
+        return json(queued, 202, { Location: `/api/tracked-item-refreshes/${queued.id}`, 'Retry-After': '5' });
+      }
+      if (path === `/api/tracked-item-refreshes/${queued.id}`) {
+        polls++;
+        if (completed) return json(cached);
+        return json({ ...queued, status: 'running', startedAt: '2026-10-28T12:00:01.000Z' }, 200, { 'Retry-After': '5' });
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
+    });
+    const repository = createApiRepository(new WebClient({ fetch }));
+    const pending = repository.refreshPrice(item.id);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(pending).resolves.toMatchObject({ status: 'running' });
+    expect(posts).toBe(1);
+    expect(polls).toBe(12);
+    completed = true;
+    await expect(repository.resumeRefresh(queued.id, item.id)).resolves.toMatchObject({
+      id: queued.id,
+      status: 'cached',
+    });
+    expect(posts).toBe(1);
+    expect(polls).toBe(13);
+    vi.useRealTimers();
+  });
+  it('returns a terminal 202 immediately without a status GET or a second POST', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+    const cached = refreshFixture('cached');
+    let posts = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
+      if (path === '/api/auth/web/csrf') return json(csrf());
+      if (path === `/api/tracked-items/${item.id}/refresh`) {
+        posts++;
+        return json(cached, 202, {
+          Location: `/api/tracked-item-refreshes/${cached.id}`,
+          'Retry-After': '5',
+        });
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
+    });
+    const repository = createApiRepository(new WebClient({ fetch }));
+    await expect(repository.refreshPrice(item.id)).resolves.toMatchObject({
+      status: 'cached',
+    });
+    expect(posts).toBe(1);
+    expect(fetch.mock.calls.filter(([path]) => String(path).includes('/tracked-item-refreshes/'))).toHaveLength(0);
+    vi.useRealTimers();
+  });
+  it('keeps server refresh cooldowns scoped to each tracked item', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+    const posts: string[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path, init) => {
+      const url = String(path);
+      if (url === '/api/auth/web/csrf') return json(csrf());
+      const trackerId = url.match(/tracked-items\/([^/]+)\/refresh/)?.[1];
+      if (init?.method === 'POST' && trackerId) {
+        posts.push(trackerId);
+        const requestId = `refresh_${trackerId}`;
+        return json(refreshFixture('queued', requestId, trackerId), 202, {
+          Location: `/api/tracked-item-refreshes/${requestId}`,
+          'Retry-After': '5',
+        });
+      }
+      const requestId = url.split('/').at(-1)!;
+      const owner = requestId.slice('refresh_'.length);
+      return json(refreshFixture('cached', requestId, owner));
+    });
+    const repository = createApiRepository(new WebClient({ fetch }));
+    const first = repository.refreshPrice(item.id);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(first).resolves.toMatchObject({ status: 'cached' });
+    const second = repository.refreshPrice('tracker_other');
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(second).resolves.toMatchObject({ status: 'cached' });
+    await expect(repository.refreshPrice(item.id)).rejects.toMatchObject({
+      details: { retryAfterSeconds: expect.any(Number) },
+    });
+    expect(posts).toEqual([item.id, 'tracker_other']);
+    vi.useRealTimers();
+  });
+  it('stops at a deferred state and honors its provider retry time without another POST', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T12:00:00.000Z'));
+    let posts = 0, polls = 0;
+    const queued = refreshFixture('queued');
+    const deferred = refreshFixture('deferred');
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (path) => {
+      if (path === '/api/auth/web/csrf') return json(csrf());
+      if (path === `/api/tracked-items/${item.id}/refresh`) {
+        posts++;
+        return json(queued, 202, {
+          Location: `/api/tracked-item-refreshes/${queued.id}`,
+          'Retry-After': '5',
+        });
+      }
+      if (path === `/api/tracked-item-refreshes/${queued.id}`) {
+        polls++;
+        return json(deferred, 200, { 'Retry-After': '5' });
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
+    });
+    const repository = createApiRepository(new WebClient({ fetch }));
+    const pending = repository.refreshPrice(item.id);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(pending).resolves.toMatchObject({ status: 'deferred' });
+    expect(polls).toBe(1);
+    await expect(repository.refreshPrice(item.id)).rejects.toMatchObject({
+      details: { retryAfterSeconds: expect.any(Number) },
+    });
+    expect(posts).toBe(1);
+    vi.useRealTimers();
+  });
   function previewRepository(
     list: (path: string) => Response | Promise<Response>,
     previewValue = preview,

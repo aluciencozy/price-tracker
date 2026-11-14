@@ -123,6 +123,48 @@ class Observation {
   final Money price;
 }
 
+class RefreshObservation {
+  const RefreshObservation({
+    required this.id,
+    required this.price,
+    required this.observedAt,
+  });
+  final String id;
+  final Money price;
+  final DateTime observedAt;
+}
+
+class RefreshError {
+  const RefreshError({
+    required this.code,
+    required this.message,
+    required this.occurredAt,
+    required this.retryAt,
+  });
+  final String code, message;
+  final DateTime occurredAt;
+  final DateTime? retryAt;
+}
+
+class PriceRefresh {
+  const PriceRefresh({
+    required this.id,
+    required this.trackerId,
+    required this.status,
+    required this.requestedAt,
+    required this.startedAt,
+    required this.finishedAt,
+    required this.lastObservation,
+    required this.retryAt,
+    required this.error,
+  });
+  final String id, trackerId, status;
+  final DateTime requestedAt;
+  final DateTime? startedAt, finishedAt, retryAt;
+  final RefreshObservation? lastObservation;
+  final RefreshError? error;
+}
+
 class RepositoryException implements Exception {
   const RepositoryException(
     this.message, {
@@ -151,6 +193,20 @@ class HistoryMetadata {
 
 abstract interface class HistoryMetadataRepository {
   HistoryMetadata? historyMetadataFor(String id);
+}
+
+abstract interface class RefreshableTrackerRepository {
+  Future<PriceRefresh> refreshPrice(
+    String trackerId, {
+    void Function(PriceRefresh refresh)? onStatus,
+    bool Function()? shouldContinue,
+  });
+  Future<PriceRefresh> resumeRefresh(
+    String requestId,
+    String trackerId, {
+    void Function(PriceRefresh refresh)? onStatus,
+    bool Function()? shouldContinue,
+  });
 }
 
 abstract interface class TrackerRepository {

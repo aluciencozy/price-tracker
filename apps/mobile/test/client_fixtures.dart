@@ -99,6 +99,44 @@ Json historyJson() => {
   ],
   'page': {'limit': 20, 'nextCursor': null},
 };
+Json refreshJson(
+  String status, {
+  String id = 'refresh_example',
+  String trackerId = 'tracker_example',
+}) {
+  const finished = '2026-10-28T12:00:30.000Z';
+  final terminal = ['refreshed', 'cached', 'failed'].contains(status);
+  final withError = ['deferred', 'failed'].contains(status);
+  return {
+    'id': id,
+    'trackedItemId': trackerId,
+    'status': status,
+    'requestedAt': time,
+    'startedAt': status == 'queued' ? null : time,
+    'finishedAt': terminal ? finished : null,
+    'lastObservation': terminal
+        ? {
+            'id': 'observation_example',
+            'price': moneyJson(),
+            'observedAt': observed,
+          }
+        : null,
+    'retryAt': status == 'refreshed' || status == 'cached' || status == 'failed'
+        ? '2026-10-28T12:01:30.000Z'
+        : status == 'deferred'
+        ? '2026-10-28T12:05:00.000Z'
+        : null,
+    'error': withError
+        ? {
+            'code': 'PROVIDER_UNAVAILABLE',
+            'message': 'Fixture provider failure.',
+            'occurredAt': finished,
+            'retryAt': null,
+          }
+        : null,
+  };
+}
+
 Json errorJson(String code, {int? retry, String? resource}) => {
   'error': {
     'code': code,

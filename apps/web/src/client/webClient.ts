@@ -21,6 +21,20 @@ function ownedTracker(id: string) {
     return item;
   };
 }
+function ownedRefresh(value: unknown, trackerId: string, requestId?: string): dto.RefreshRequest {
+  const refresh = dto.refreshRequest(value);
+  if (refresh.trackedItemId !== trackerId || (requestId !== undefined && refresh.id !== requestId))
+    throw new Error('Mismatched refresh request.');
+  return refresh;
+}
+function refreshPollDelay(response: Response, required: boolean): number {
+  const value = response.headers.get('Retry-After');
+  if (value === null && !required) return 5;
+  if (value === null || !/^\d+$/.test(value.trim())) throw new Error('Invalid refresh Retry-After.');
+  const seconds = Number(value.trim());
+  if (!Number.isSafeInteger(seconds) || seconds < 5) throw new Error('Invalid refresh Retry-After.');
+  return seconds;
+}
 function queryString(value: WatchlistQuery | HistoryQuery, history = false): string {
   return input(() => {
     const query = dto.object(value, history ? ['limit', 'cursor', 'from', 'to'] : ['limit', 'cursor', 'q']);
@@ -83,7 +97,7 @@ export class WebClient {
   private assertContext(context: number) { if (context !== this.context) throw cancelled(); }
   private async send<T>(
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, status: number,
-    parse: (value: unknown) => T, options: RequestOptions & { body?: unknown; headers?: Record<string, string> } = {},
+    parse: (value: unknown, response: Response) => T, options: RequestOptions & { body?: unknown; headers?: Record<string, string> } = {},
   ): Promise<T> {
     const context = this.context;
     let failureContext = context;
@@ -116,7 +130,7 @@ export class WebClient {
     this.csrfFlight = pending;
     return pending;
   }
-  private async read<T>(path: string, parse: (value: unknown) => T, options: RequestOptions): Promise<T> {
+  private async read<T>(path: string, parse: (value: unknown, response: Response) => T, options: RequestOptions): Promise<T> {
     const context = this.context;
     const result = await this.send('GET', path, 200, parse, options);
     this.assertContext(context);
@@ -124,7 +138,7 @@ export class WebClient {
   }
   private async mutate<T>(
     method: 'POST' | 'PATCH' | 'DELETE', path: string, status: number, body: unknown,
-    parse: (value: unknown) => T, options: RequestOptions, headers: Record<string, string> = {},
+    parse: (value: unknown, response: Response) => T, options: RequestOptions, headers: Record<string, string> = {},
   ): Promise<T> {
     const context = this.context;
     if (options.signal?.aborted) throw cancelled();
@@ -233,6 +247,24 @@ export class WebClient {
       const history = dto.history(value);
       if (history.trackedItemId !== id) throw new Error('Mismatched tracker.');
       return history;
+    }, options);
+  }
+  startTrackedItemRefresh(id: string, options: RequestOptions = {}): Promise<dto.RefreshPoll> {
+    const trackerPath = idPath(id);
+    return this.mutate('POST', `/tracked-items/${trackerPath}/refresh`, 202, {}, (value, response) => {
+      const refresh = ownedRefresh(value, id);
+      const expectedLocation = `/api/tracked-item-refreshes/${encodeURIComponent(refresh.id)}`;
+      if (response.headers.get('Location') !== expectedLocation)
+        throw new Error('Invalid refresh acceptance response.');
+      return { ...refresh, pollAfterSeconds: refreshPollDelay(response, true) };
+    }, options);
+  }
+  getTrackedItemRefresh(requestId: string, trackerId: string, options: RequestOptions = {}): Promise<dto.RefreshPoll> {
+    const requestPath = idPath(requestId), ownerPath = dto.id(trackerId);
+    return this.read(`/tracked-item-refreshes/${requestPath}`, (value, response) => {
+      const refresh = ownedRefresh(value, ownerPath, requestId);
+      const requiresWait = ['queued', 'running', 'deferred'].includes(refresh.status);
+      return { ...refresh, pollAfterSeconds: refreshPollDelay(response, requiresWait) };
     }, options);
   }
 }

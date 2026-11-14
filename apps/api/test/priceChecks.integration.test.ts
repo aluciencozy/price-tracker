@@ -27,6 +27,8 @@ import request from 'supertest';
 import { resolveApprovedProductPreview } from '../src/productPreviewResolver.js';
 import { createPriceAlertDeliveryWorker } from '../src/alertDeliveryWorker.js';
 import { UserModel } from '../src/models/account.js';
+import { createTrackingRouter } from '../src/trackingRouter.js';
+import { createManagedPriceChecks } from '../src/managedPriceChecks.js';
 
 const uri = process.env.TEST_MONGODB_URI;
 const DAY = 86_400_000;
@@ -35,6 +37,7 @@ const definitions = JSON.parse(JSON.stringify(contract.components.schemas).repla
 const ajv = new Ajv2020({ strict: true, strictTypes: false });
 addFormats.default(ajv);
 const validatePublicCheck = ajv.compile({ $defs: definitions, $ref: '#/$defs/PriceCheck' });
+const validateRefresh = ajv.compile({ $defs: definitions, $ref: '#/$defs/RefreshRequest' });
 
 describe.skipIf(!uri)('bounded price-check pipeline', () => {
   const dbName = `price_tracker_test_${randomUUID().replaceAll('-', '')}`;
@@ -93,6 +96,199 @@ describe.skipIf(!uri)('bounded price-check pipeline', () => {
   afterAll(async () => {
     if (mongoose.connection.name === dbName) await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
+  });
+
+  it('requires a preselected user run and never returns the active admin run on contention', async () => {
+    await expect(runPriceChecks({ runId: 'user_missing_0001', mode: 'user' })).rejects.toThrow('seeded');
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    await PriceCheckModel.create({ entryType: 'run', runId: 'user_queued_0001', mode: 'user', status: 'pending', selectionComplete: true, ownerUserId: ownerA, trackedItemId: tracker._id });
+    await PriceCheckModel.create({ entryType: 'product', runId: 'user_queued_0001', mode: 'user', status: 'pending', productId: product620, checkId: 'pc_user_queued_0001' });
+    await PriceCheckModel.create({ entryType: 'run', runId: 'admin_busy_0001', mode: 'admin', status: 'running' });
+    await CheckControlModel.create({ _id: 'active', runId: 'admin_busy_0001', leaseUntil: new Date(Date.now() + 60_000) });
+    const result = await runPriceChecks({ runId: 'user_queued_0001', mode: 'user' });
+    expect(result.runId).toBe('user_queued_0001');
+    expect(result.total).toBe(1);
+    expect(provider.lookup).not.toHaveBeenCalled();
+  });
+
+  it('records a user-selected product even when all trackers are paused', async () => {
+    await TrackedItemModel.updateMany({ productId: product620 }, { $set: { enabled: false } });
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    await TrackedItemModel.updateOne({ _id: tracker._id }, { $set: { refreshRunId: 'user_paused_0001' } });
+    await PriceCheckModel.create({ entryType: 'run', runId: 'user_paused_0001', mode: 'user', status: 'pending', selectionComplete: true, ownerUserId: ownerA, trackedItemId: tracker._id });
+    await PriceCheckModel.create({ entryType: 'product', runId: 'user_paused_0001', mode: 'user', status: 'pending', productId: product620, checkId: 'pc_user_paused_0001' });
+    const result = await runPriceChecks({ runId: 'user_paused_0001', mode: 'user' });
+    expect(result.counts.succeeded).toBe(1);
+    expect(await PriceHistoryModel.countDocuments({ productId: product620 })).toBe(1);
+    expect(await NotificationDeliveryModel.countDocuments({})).toBe(0);
+    const updated = await TrackedItemModel.findById(tracker._id).orFail();
+    expect(updated.refreshRunId).toBeNull();
+    expect(updated.refreshCooldownUntil!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('owns and coalesces HTTP refreshes, persists one child, and enforces cooldown', async () => {
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    await runPriceChecks({ runId: 'seed_cache_0001', mode: 'admin' });
+    const queued: string[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createTrackingRouter((req, res, next) => {
+      res.locals.principal = { userId: req.get('x-owner') === 'other' ? String(ownerB) : String(ownerA), sessionId: 'fixture-session', role: 'user', transport: 'mobile' };
+      next();
+    }, 'fixture-signing-secret-at-least-32-chars', {
+      createPreview: vi.fn(),
+      runPriceChecks: async options => { queued.push(options.runId); return (await getPriceCheckRun(options.runId))!; },
+    }));
+    const post = () => request(app).post(`/api/tracked-items/${tracker.id}/refresh`).send({});
+    const [first, second] = await Promise.all([post(), post()]);
+    expect(first.status).toBe(202);
+    expect(validateRefresh(first.body), JSON.stringify(validateRefresh.errors)).toBe(true);
+    expect(second.status).toBe(202);
+    expect(first.body.id).toBe(second.body.id);
+    expect(first.headers.location).toBe(`/api/tracked-item-refreshes/${first.body.id}`);
+    expect(await PriceCheckModel.countDocuments({ entryType: 'product', runId: first.body.id })).toBe(1);
+    expect(queued).toHaveLength(1);
+    expect((await request(app).get(first.headers.location!).set('x-owner', 'other')).status).toBe(404);
+    expect((await request(app).post(`/api/tracked-items/${tracker.id}/refresh`).set('x-owner', 'other').send({})).status).toBe(404);
+    expect((await request(app).post(`/api/tracked-items/${tracker.id}/refresh`).send({ force: true })).status).toBe(422);
+    await runPriceChecks({ runId: first.body.id, mode: 'user' });
+    const finished = await request(app).get(first.headers.location!);
+    expect(finished.status).toBe(200);
+    expect(finished.body.status).toBe('cached');
+    expect(validateRefresh(finished.body), JSON.stringify(validateRefresh.errors)).toBe(true);
+    expect(finished.body.lastObservation.price).toEqual({ amountMinor: 999, currency: 'USD' });
+    expect(Object.keys(finished.body).sort()).toEqual(['id', 'trackedItemId', 'status', 'requestedAt', 'startedAt', 'finishedAt', 'lastObservation', 'retryAt', 'error'].sort());
+    const limited = await post();
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('dispatches committed work even when the post-commit status read fails', async () => {
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    const dispatched: string[] = [];
+    const managed = createManagedPriceChecks(async options => {
+      dispatched.push(options.runId);
+      return (await getPriceCheckRun(options.runId))!;
+    });
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createTrackingRouter((_req, res, next) => {
+      res.locals.principal = { userId: String(ownerA), sessionId: 'read-failure-session', role: 'user', transport: 'mobile' };
+      next();
+    }, 'fixture-signing-secret-at-least-32-chars', { createPreview: vi.fn(), runPriceChecks: managed.run }));
+    const brokenRead = vi.spyOn(ProductModel, 'findById').mockImplementationOnce(() => { throw new Error('fixture status read failure'); });
+    await request(app).post(`/api/tracked-items/${tracker.id}/refresh`).send({}).expect(503);
+    await managed.stop();
+    brokenRead.mockRestore();
+    expect(dispatched).toHaveLength(1);
+    const persisted = await TrackedItemModel.findById(tracker._id).orFail();
+    expect(persisted.refreshRunId).toBe(dispatched[0]);
+    const item = await PriceCheckModel.findOne({ entryType: 'product', runId: dispatched[0] }).orFail();
+    const recovered = await resumeDuePriceChecks();
+    expect(recovered[0]?.runId).toBe(dispatched[0]);
+    expect(recovered[0]?.checks[0]?.checkId).toBe(item.checkId);
+    expect(recovered[0]?.counts.succeeded).toBe(1);
+  });
+
+  it('reevaluates a real cached observation after a target edit without duplicate deliveries', async () => {
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    await TrackedItemModel.updateOne({ _id: tracker._id }, { $set: { targetPriceMinor: 500, alerts: { email: true, push: true } } });
+    await TrackedItemModel.updateOne({ userId: ownerB }, { $set: { enabled: false } });
+    await runPriceChecks({ runId: 'target_seed_0001', mode: 'admin' });
+    const observation = await PriceHistoryModel.findOne({ productId: product620 }).orFail();
+    expect(observation.priceMinor).toBe(999);
+    expect(await NotificationDeliveryModel.countDocuments({ trackedItemId: tracker._id })).toBe(0);
+    expect(provider.lookup).toHaveBeenCalledTimes(1);
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createTrackingRouter((_req, res, next) => {
+      res.locals.principal = { userId: String(ownerA), sessionId: 'target-edit-session', role: 'user', transport: 'mobile' };
+      next();
+    }, 'fixture-signing-secret-at-least-32-chars', {
+      createPreview: vi.fn(), runPriceChecks: async options => (await getPriceCheckRun(options.runId))!,
+    }));
+    const post = () => request(app).post(`/api/tracked-items/${tracker.id}/refresh`).send({});
+    const patchTarget = () => request(app).patch(`/api/tracked-items/${tracker.id}`).send({ targetPrice: { amountMinor: 1200, currency: 'USD' } });
+    const first = await post().expect(202);
+    expect((await post().expect(202)).body.id).toBe(first.body.id);
+    await runPriceChecks({ runId: first.body.id, mode: 'user' });
+    const firstResult = await request(app).get(first.headers.location!).expect(200);
+    expect(firstResult.body.status).toBe('cached');
+    expect(firstResult.body.lastObservation.id).toBe(String(observation._id));
+    await post().expect(429);
+    await patchTarget().expect(200);
+    expect(await NotificationDeliveryModel.countDocuments({ trackedItemId: tracker._id })).toBe(0);
+    // Advance only this disposable fixture's cooldown; no production clock or provider is changed.
+    await TrackedItemModel.updateOne({ _id: tracker._id }, { $set: { refreshCooldownUntil: new Date(0) } });
+    const second = await post().expect(202);
+    await runPriceChecks({ runId: second.body.id, mode: 'user' });
+    const secondResult = await request(app).get(second.headers.location!).expect(200);
+    expect(secondResult.body.status).toBe('cached');
+    expect(secondResult.body.lastObservation.id).toBe(String(observation._id));
+    const deliveries = await NotificationDeliveryModel.find({ trackedItemId: tracker._id }).sort({ channel: 1 }).lean();
+    expect(deliveries.map(delivery => delivery.channel)).toEqual(['email', 'push']);
+    expect(deliveries.every(delivery => delivery.status === 'pending' && delivery.attempts === 0)).toBe(true);
+    expect(new Set(deliveries.map(delivery => delivery.episodeId)).size).toBe(1);
+    const revision = (await TrackedItemModel.findById(tracker._id).orFail()).targetRevision;
+    await post().expect(429);
+    await patchTarget().expect(200);
+    expect((await TrackedItemModel.findById(tracker._id).orFail()).targetRevision).toBe(revision);
+    await TrackedItemModel.updateOne({ _id: tracker._id }, { $set: { refreshCooldownUntil: new Date(0) } });
+    const third = await post().expect(202);
+    expect((await post().expect(202)).body.id).toBe(third.body.id);
+    await runPriceChecks({ runId: third.body.id, mode: 'user' });
+    const thirdResult = await request(app).get(third.headers.location!).expect(200);
+    expect(thirdResult.body.status).toBe('cached');
+    expect(thirdResult.body.lastObservation.id).toBe(String(observation._id));
+    const replay = await NotificationDeliveryModel.find({ trackedItemId: tracker._id }).sort({ channel: 1 }).lean();
+    expect(replay.map(delivery => String(delivery._id))).toEqual(deliveries.map(delivery => String(delivery._id)));
+    expect(replay.every(delivery => delivery.attempts === 0)).toBe(true);
+    expect(await PriceHistoryModel.countDocuments({ productId: product620 })).toBe(1);
+    expect(provider.lookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed user selection before provider work', async () => {
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    await PriceCheckModel.create({ entryType: 'run', runId: 'user_invalid_0001', mode: 'user', status: 'pending', selectionComplete: true, ownerUserId: ownerA, trackedItemId: tracker._id });
+    await expect(runPriceChecks({ runId: 'user_invalid_0001', mode: 'user' })).rejects.toThrow('exactly one');
+    expect(provider.lookup).not.toHaveBeenCalled();
+  });
+
+  it('resumes the same deferred user run and child through the existing recovery worker', async () => {
+    const tracker = await TrackedItemModel.findOne({ userId: ownerA }).orFail();
+    const runId = 'user_recovery_0001';
+    await TrackedItemModel.updateOne({ _id: tracker._id }, { $set: { refreshRunId: runId } });
+    await PriceCheckModel.create({ entryType: 'run', runId, mode: 'user', status: 'pending', selectionComplete: true, ownerUserId: ownerA, trackedItemId: tracker._id });
+    await PriceCheckModel.create({ entryType: 'product', runId, mode: 'user', status: 'pending', productId: product620, checkId: 'pc_user_recovery_0001' });
+    provider.lookup.mockRejectedValueOnce(new ProviderRateLimitError(new Date(Date.now() + 60_000), '60'));
+    const first = await runPriceChecks({ runId, mode: 'user' });
+    expect(first.status).toBe('partial');
+    expect(first.checks[0]?.errorCode).toBe('PROVIDER_RATE_LIMITED');
+    expect((await TrackedItemModel.findById(tracker._id).orFail()).refreshRunId).toBe(runId);
+    await PriceCheckModel.updateMany({ runId }, { $set: { nextRetryAt: new Date(0), availableAt: new Date(0) } });
+    await ProductModel.updateOne({ _id: product620 }, { $set: { nextCheckAt: new Date(0) } });
+    const recovered = await resumeDuePriceChecks();
+    expect(recovered[0]?.runId).toBe(runId);
+    expect(recovered[0]?.checks[0]?.checkId).toBe('pc_user_recovery_0001');
+    expect(recovered[0]?.counts.succeeded).toBe(1);
+    expect(await PriceHistoryModel.countDocuments({ productId: product620 })).toBe(1);
+  });
+
+  it('does not expose a private user run through admin polling or overlap', async () => {
+    const runId = 'user_private_0001';
+    await PriceCheckModel.create({ entryType: 'run', runId, mode: 'user', status: 'running' });
+    await CheckControlModel.create({ _id: 'active', runId, leaseUntil: new Date(Date.now() + 60_000) });
+    const admin = express();
+    admin.use(express.json());
+    admin.use('/api', createAdminPriceCheckRouter((_req, res, next) => {
+      res.locals.principal = { userId: String(ownerA), sessionId: 'admin-fixture', role: 'admin', transport: 'mobile' };
+      next();
+    }));
+    await request(admin).get(`/api/admin/price-checks/${runId}`).expect(404);
+    const posted = await request(admin).post('/api/admin/price-checks').send({}).expect(202);
+    expect(posted.body.id).not.toBe(runId);
+    expect(posted.body.id).toMatch(/^admin_/);
   });
 
   it('delivers one pending episode after two qualifying checks without replacing its delivery key', async () => {

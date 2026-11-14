@@ -78,6 +78,7 @@ void main() {
     expect(find.text('Half-Life 2'), findsNothing);
     await tapText(tester, 'Portal 2');
     expect(find.text('Game details'), findsOneWidget);
+    expect(find.text('Check price now'), findsNothing);
     await tester.scrollUntilVisible(
       find.text('Illustrative sample history'),
       250,

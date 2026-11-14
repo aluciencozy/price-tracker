@@ -8,6 +8,7 @@ import { PriceHistoryModel, TrackedItemModel } from './models/tracking.js';
 import { ProductModel } from './models/product.js';
 import { PriceCheckModel, type PriceCheckMode, type PriceCheckRecord } from './models/priceCheck.js';
 import { CheckControlModel } from './models/checkControl.js';
+import { SteamGameUnsupportedError } from './cheapshark.js';
 
 const MAX_PRODUCTS_PER_RUN = 100;
 const RUN_LEASE_MS = 120_000;
@@ -48,7 +49,7 @@ export type RunPriceChecksOptions = {
   onQueued?: (summary: PriceCheckRunSummary) => void | Promise<void>;
 };
 
-function checkIdFor(runId: string, productId: string): string {
+export function checkIdFor(runId: string, productId: string): string {
   return `pc_${createHash('sha256').update(`${runId}:${productId}`).digest('hex')}`;
 }
 
@@ -72,6 +73,7 @@ function safeRetryAt(error: unknown, attempt: number, productRetryAt?: Date | nu
 function errorCode(error: unknown, persistedObservation: boolean): string {
   if (error instanceof ProviderRateLimitError) return 'PROVIDER_RATE_LIMITED';
   if (error instanceof ProviderDeferredError) return 'PROVIDER_DEFERRED';
+  if (error instanceof SteamGameUnsupportedError) return 'UNSUPPORTED_PRODUCT';
   if (persistedObservation) return 'OBSERVATION_EVALUATION_FAILED';
   return 'PROVIDER_UNAVAILABLE';
 }
@@ -124,7 +126,17 @@ export async function getPriceCheckRun(runId: string): Promise<PriceCheckRunSumm
 export async function runPriceChecks(options: RunPriceChecksOptions): Promise<PriceCheckRunSummary> {
   const { runId, mode } = options;
   if (!idPattern.test(runId)) throw new Error('Invalid price-check run ID.');
-  if (!['scheduled', 'admin', 'cli'].includes(mode)) throw new Error('Invalid price-check mode.');
+  if (!['scheduled', 'admin', 'cli', 'user'].includes(mode)) throw new Error('Invalid price-check mode.');
+  if (mode === 'user') {
+    const run = await PriceCheckModel.findOne({ entryType: 'run', runId, mode, selectionComplete: true }).lean();
+    const items = await PriceCheckModel.find({ entryType: 'product', runId }).limit(2).lean();
+    const tracker = run?.ownerUserId && run.trackedItemId && await TrackedItemModel.findOne({ _id: run.trackedItemId, userId: run.ownerUserId }).lean();
+    const item = items[0];
+    if (!run || !tracker || items.length !== 1 || !item || item.mode !== 'user' ||
+        String(item.productId) !== String(tracker.productId) || !item.checkId) {
+      throw new Error('User price-check run must be seeded with exactly one owned product before execution.');
+    }
+  }
   const requestedLimit = options.maxProducts ?? MAX_PRODUCTS_PER_RUN;
   if (!Number.isFinite(requestedLimit) || requestedLimit < 1) throw new Error('Invalid product limit.');
   const maxProducts = Math.max(1, Math.min(MAX_PRODUCTS_PER_RUN, Math.floor(requestedLimit)));
@@ -144,9 +156,20 @@ export async function runPriceChecks(options: RunPriceChecksOptions): Promise<Pr
     return claim;
   });
   if (!globalClaim) {
+    if (mode === 'user') {
+      const own = await getPriceCheckRun(runId);
+      if (own) return own;
+      throw new Error('User price-check run is missing.');
+    }
     const current = await CheckControlModel.findById('active').lean().exec();
     const summary = current?.runId ? await getPriceCheckRun(current.runId) : null;
-    if (summary) return summary;
+    if (summary && summary.mode !== 'user') return summary;
+    if (summary?.mode === 'user') {
+      await PriceCheckModel.updateOne({ entryType: 'run', runId }, { $setOnInsert: {
+        entryType: 'run', runId, mode, status: 'pending', availableAt: now,
+      } }, { upsert: true });
+      return (await getPriceCheckRun(runId))!;
+    }
     throw new ProviderDeferredError(new Date(Date.now() + 1_000));
   }
   try {
@@ -236,22 +259,29 @@ async function executePriceCheckRun(options: RunPriceChecksOptions, maxProducts:
     }
 
     const finalItems = await PriceCheckModel.find({ entryType: 'product', runId }).sort({ productId: 1 }).lean().exec();
-    const unresolved = finalItems.filter(item => item.status === 'pending' || item.status === 'running' || item.status === 'failed');
+    const unresolved = finalItems.filter(item => item.status === 'pending' || item.status === 'running' ||
+      (item.status === 'failed' && (mode !== 'user' || ['PROVIDER_DEFERRED', 'PROVIDER_RATE_LIMITED'].includes(item.errorCode ?? ''))));
     const nextRetryAt = unresolved.length
       ? unresolved.map(item => item.status === 'running' ? item.leaseUntil : item.availableAt)
         .filter((date): date is Date => Boolean(date))
         .sort((left, right) => left.getTime() - right.getTime())[0] ?? new Date(Date.now() + 1_000)
       : null;
-    await PriceCheckModel.updateOne(
-      { _id: claimedRun._id, leaseToken: runLeaseToken, leaseUntil: { $gt: new Date() } },
-      { $set: {
-        status: unresolved.length ? 'partial' : 'complete',
-        nextRetryAt,
-        completedAt: new Date(),
-        leaseToken: null,
-        leaseUntil: null,
-      } },
-    ).exec();
+    await mongoose.connection.transaction(async session => {
+      const completedAt = new Date();
+      const updated = await PriceCheckModel.updateOne(
+        { _id: claimedRun._id, leaseToken: runLeaseToken, leaseUntil: { $gt: completedAt } },
+        { $set: {
+          status: unresolved.length ? 'partial' : 'complete', nextRetryAt,
+          completedAt, leaseToken: null, leaseUntil: null,
+        } }, { session },
+      ).exec();
+      if (updated.matchedCount && mode === 'user' && !unresolved.length && claimedRun.trackedItemId) {
+        const retry = finalItems[0]?.status === 'failed' ? finalItems[0].availableAt.getTime() : 0;
+        await TrackedItemModel.updateOne({ _id: claimedRun.trackedItemId, userId: claimedRun.ownerUserId, refreshRunId: runId }, {
+          $set: { refreshRunId: null, refreshCooldownUntil: new Date(Math.max(completedAt.getTime() + 60_000, retry)) },
+        }, { session }).exec();
+      }
+    });
     return (await getPriceCheckRun(runId))!;
   } catch (error) {
     await PriceCheckModel.updateOne(
@@ -290,7 +320,7 @@ async function processCheckItem(item: PriceCheckRecord): Promise<void> {
   try {
     const watchers = await TrackedItemModel.find({ productId: claimed.productId, enabled: true })
       .select({ _id: 1 }).sort({ _id: 1 }).lean().exec();
-    if (!watchers.length) {
+    if (!watchers.length && claimed.mode !== 'user') {
       await finishItem(claimed._id, itemLeaseToken, { status: 'skipped', completedAt: new Date(), leaseToken: null, leaseUntil: null, errorCode: null, nextRetryAt: null });
       return;
     }
@@ -365,7 +395,16 @@ export async function resumeDuePriceChecks(limit = 10): Promise<PriceCheckRunSum
     ],
   }).sort({ createdAt: 1 }).limit(Math.max(1, Math.min(10, Math.floor(limit)))).lean().exec();
   const summaries: PriceCheckRunSummary[] = [];
-  for (const run of runs) summaries.push(await runPriceChecks({ runId: run.runId, mode: run.mode }));
+  for (const run of runs) {
+    if (run.mode === 'user' && (!run.trackedItemId || !run.ownerUserId || !await TrackedItemModel.exists({ _id: run.trackedItemId, userId: run.ownerUserId }))) {
+      // A deleted tracker must not leave a permanently un-runnable row at the head of recovery.
+      await PriceCheckModel.updateOne({ _id: run._id, status: run.status, $or: [{ leaseUntil: null }, { leaseUntil: { $lte: now } }] }, {
+        $set: { status: 'complete', completedAt: now, nextRetryAt: null, leaseToken: null, leaseUntil: null },
+      });
+      continue;
+    }
+    summaries.push(await runPriceChecks({ runId: run.runId, mode: run.mode }));
+  }
   return summaries;
 }
 

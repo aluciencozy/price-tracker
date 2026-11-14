@@ -36,7 +36,7 @@ Unsupported URLs, Steam results that do not positively classify as `game`, ambig
 
 ## Price checking
 
-Start with one check every **24 hours**, configurable on the server. The worker runs without either client being open. An authenticated **admin-only Check Prices Now** action calls the same service for testing and demos. Ordinary users cannot trigger unrestricted retailer requests.
+Start with one check every **24 hours**, configurable on the server. The worker runs without either client being open. An authenticated **admin-only Check Prices Now** batch action calls the same service for testing and demos. A verified user may separately request a check for exactly one game already in their own watchlist; this is not an arbitrary Product lookup or batch operation. It uses the same service, provider budget/cache/backoff, observation, alert-episode and delivery pipeline, with a durable 60-second per-user/per-tracker cooldown after completion. A fresh cache is reusable only when backed by a real persisted observation; re-evaluating that observation after a target edit creates no new history row. Target edits alone never trigger checks or alerts.
 
 The shared check service should:
 
@@ -85,18 +85,19 @@ Game/store offers are shared across users, but watchlists and notification setti
 
 ## API boundaries
 
-Use `/api` as the common prefix. Health/readiness and account/session/CSRF routes are mounted; verified mobile device routes are also mounted. Tracking, owned history, previews, and admin checks are composed when `PRICE_TRACKING_ENABLED=true`, with database/index readiness and a stable cursor secret required. The web app still defaults to local sample data, and background checks/delivery remain opt-in and unaccepted for live use. See [account setup](registration.md), [release readiness](release-readiness.md), and [backend runtime flags](backend-runtime.md). The [shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors; SwaggerHub publication and live deployment acceptance remain pending.
+Use `/api` as the common prefix. Health/readiness and account/session/CSRF routes are mounted; verified mobile device routes are also mounted. Tracking, owned history, previews, owned per-game refresh, and admin batch checks are composed when `PRICE_TRACKING_ENABLED=true`, with database/index readiness and a stable cursor secret required. Restart-safe refresh recovery uses the existing due-run worker; do not add a separate scheduler. The web app still defaults to local sample data, and background checks/delivery remain opt-in and unaccepted for live use. See [account setup](registration.md), [release readiness](release-readiness.md), and [backend runtime flags](backend-runtime.md). The [shared OpenAPI 3.1 contract](api/README.md) defines strict bodies, examples, cookie/bearer sessions, CSRF, pagination and errors. The SwaggerHub listing is public; the #69 refresh operations require an owner-verified republish, and live deployment acceptance remains separate.
 
 Contract route groups:
 
 - `/api/auth/web` and `/api/auth/mobile`: register, verify/resend email, login, logout, forgot/reset password, current user; web adds CSRF bootstrap.
 - `/api/product-previews`: owned, authenticated, bounded Steam URL preview.
 - `/api/tracked-items`: authenticated list/create/update/delete.
+- `POST /api/tracked-items/:id/refresh` and `GET /api/tracked-item-refreshes/:requestId`: verified owner requests one check and reads only its private status. The strict POST body is `{}`; active requests coalesce, active status polls wait at least five seconds, and another completed request inside the 60-second cooldown returns 429 with `Retry-After`.
 - `/api/tracked-items/:id/history`: history available only through an owned tracked item; no public product-history route.
 - `/api/devices`: register/remove the signed-in user's push device.
-- `/api/admin/price-checks`: admin-only manual check and status.
+- `/api/admin/price-checks`: admin-only bounded batch check and aggregate status. It is not the user refresh route.
 
-Decide exact request/response schemas and token handling in the API-contract issue before both clients build against them. Return consistent validation and error responses. Never expose API keys, database credentials, password hashes, or verification/reset tokens in normal API responses.
+The exact request/response schemas are normative in the [shared API contract](api/openapi.json); both clients must use those DTOs. Return consistent validation and error responses. Never expose API keys, database credentials, password hashes, verification/reset tokens, global run state, leases, or other users' details in normal API responses.
 
 Hash passwords with a maintained password-hashing library, rate-limit authentication endpoints, and give the same public response for password-reset requests whether an email exists or not. Expire and invalidate used verification/reset tokens. If the web app uses cookies, include CSRF protection and secure cookie settings; mobile tokens belong in platform-backed secure storage, not plain preferences. Document how logout and password resets revoke sessions.
 

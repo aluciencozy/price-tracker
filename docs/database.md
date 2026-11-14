@@ -19,11 +19,13 @@ No client-supplied user ID, role, session, episode, or price history is authorit
 | Session / sessions | User, transport (`web`/`mobile`), nullable web-secret/CSRF hashes, fixed expiry, revocation date. Mobile JWT `sid` resolves to this row; informational session ID is never a credential. |
 | AuthToken / authtokens | User, purpose, SHA-256 token hash, expiry and consumed date. One slot per user/purpose; reissue replaces it. Generate at least 256 random bits in the auth service. |
 | Product / products | Existing shared adapter record: CheapShark game ID, distinct Steam app ID, store/market/currency, title/canonical URL, price/deal fields, success/attempt/change dates, retry metadata and refresh lease. No user target/preferences. |
-| TrackedItem / trackeditems | User + Product, integer target cents, USD, enabled, channel flags, target revision, episode sequence/ID/open state, last evaluated observation/time. This is the private watchlist. |
+| TrackedItem / trackeditems | User + Product, integer target cents, USD, enabled, channel flags, target revision, episode sequence/ID/open state, last evaluated observation/time. The owned refresh flow also stores its active private request ID and 60-second cooldown deadline here; this is the per-user/per-Product durable gate. This is the private watchlist. |
 | PriceHistory / pricehistories | Immutable Product + check ID, successful price in cents, USD, local observation date, nullable provider change date, CheapShark attribution and observed deal ID. No user settings or raw provider payload. |
 | NotificationDelivery / notificationdeliveries | Tracker/user/product/observation, stable episode ID and channel, status, attempts, availability, claim token/lease, sanitized error code and optional provider message ID. Independent email and push rows. |
 | Device / devices | User + active Session, installation UUID, Android platform, private push token, active flag and timestamps. One binding per token and installation. |
-| ProviderBudget / providerbudgets | Existing singleton CheapShark pacing/cooldown/lease state; shared by preview and scheduled/manual checks. |
+| ProviderBudget / providerbudgets | Existing singleton CheapShark pacing/cooldown/lease state; shared by preview, scheduled, admin, and owned user checks. |
+| PriceCheck / pricechecks | Durable run and Product-check rows, stable run/Product check IDs, status, retry time and leases. Internal `user` mode stores the request owner and tracker; each such run has one Product-check row seeded from that owned tracker. User status is mapped to `RefreshRequest`, never serialized as an admin `PriceCheck`. |
+| CheckControl / checkcontrols | Existing active global run/cursor and durable operational counters. User refreshes share the run lock and provider budget; they must not receive another run's status when the lock is held. |
 
 Device installation IDs use the shared `installationIdSchema` UUID validator,
 including modern UUID versions such as v7. Store and compare lowercase UUIDs so
@@ -69,6 +71,7 @@ stores remain disabled until separately proven. See [the source review](retailer
 | pricehistories | Unique `(productId,checkId)`; product/observation/id ascending history; 90-day TTL. |
 | notificationdeliveries | Unique `(trackedItemId,episodeId,channel)`; status/availability/lease lookup. |
 | devices | Unique installation and push token; user/session/active lookup. |
+| pricechecks | Unique run ID; unique `(runId,productId)` for Product rows; status/retry/lease lookup. Owner status reads also require the linked tracker to remain owned. |
 
 `createDatabaseIndexes()` builds indexes additively and can be repeated. It never
 drops/replaces an existing index. Run before accepting traffic; duplicate legacy
@@ -105,24 +108,32 @@ must not silently fall back to an in-memory database.
    check with conflicting data is an integrity error; never overwrite history.
    Stable IDs survive worker retry/restart. A new successful check may record the
    same price. Product success metadata and history must commit together.
-3. **Alerts:** evaluate only a fresh successful observation for an enabled, existing
+3. **Owned refresh:** in one transaction, verify `(trackedItemId,userId)`, claim or
+   coalesce the tracker's active request, persist the user run plus exactly one
+   Product child row, and preserve its cooldown/status across restarts. Never accept
+   client Product IDs or expose the internal run to the owner. The cooldown begins
+   60 seconds after the request completes; active duplicate requests return the
+   same private request, and a later request before the deadline gets 429 with the
+   matching `Retry-After`. A cached success must point to a real existing
+   PriceHistory row. Preview cache alone cannot be converted into an observation.
+4. **Alerts:** evaluate only a fresh successful observation for an enabled, existing
    tracker. Serialize against target/preferences edits via transaction or revision
    compare-and-swap; stale observations cannot overwrite newer evaluation state.
    First at/below-target success opens a stable episode; a successful above-target
    observation rearms. Errors do neither. Increment target revision only when cents
    actually change; same-value replay and channel edits do not reset episodes.
-4. Persist episode state and enabled-channel delivery rows in one transaction. If
+5. Persist episode state and enabled-channel delivery rows in one transaction. If
    both channels are off, do not consume an unsent qualification: enablement may
    evaluate the next fresh observation. Once an episode creates any delivery,
    enabling a second channel does not replay it. Disabling a tracker cancels pending
    sends but preserves its episode; re-enabling alone never replays it. A genuine
    target change starts a new evaluation. Deal changes never reset an episode.
-5. **Delivery:** claim atomically with a unique lease token, fence every completion
+6. **Delivery:** claim atomically with a unique lease token, fence every completion
    by that token, and recheck current tracker/channel and recipient session eligibility.
    One channel succeeding never completes the other. A send accepted with a lost
    acknowledgment is `unknown`; do not blindly retry without provider idempotency
    or reconciliation. An expired `sending` lease may represent a real send.
-6. **Devices:** authenticated bearer identity supplies user/session. Atomically
+7. **Devices:** authenticated bearer identity supplies user/session. Atomically
    rebind installation/token and revoke old-session eligibility without revealing
    the old account. Rotation keeps device ID; conflicts require a transaction and
    must not delete another binding based only on an untrusted request. Logout,

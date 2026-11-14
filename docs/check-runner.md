@@ -3,7 +3,8 @@
 ## Current API integration
 
 - `runPriceChecks({runId, mode, maxProducts?})` in `src/priceChecks.ts` runs/resumes
-  one durable batch. Modes are `scheduled`, `admin`, and explicit `cli`.
+  one durable run. Modes are `scheduled`, `admin`, explicit `cli`, and internal-only
+  `user`; the user mode is never exposed as an admin `PriceCheck` trigger.
 - `getPriceCheckRun(runId)` returns internal operational details. Do not serialize
   this object to clients. `publicPriceCheck` maps it to the existing strict OpenAPI
   aggregate DTO, without individual checks, users, leases or provider payloads.
@@ -36,10 +37,45 @@ scheduled/manual overlap. Its claim and initial queued run row publish in one
 transaction, so an overlapping enqueue can return the same durable queue identity.
 An unavailable database returns 503/Retry-After, never fabricated queue acceptance.
 
+## Owned per-game refresh (#69)
+
+The tracking router accepts `POST /api/tracked-items/:id/refresh` (`{}` only) and
+`GET /api/tracked-item-refreshes/:requestId`. The first operation authorizes the
+verified owner before creating work; status reads require both the persisted
+request owner and continued ownership of its tracker. Foreign, missing, and
+deleted trackers/requests all return the same 404. These routes map internal run
+rows to the strict `RefreshRequest` DTO; never serialize `getPriceCheckRun()` or
+`publicPriceCheck()` as a user response. The DTO has no global run state, other
+Product selections, leases, or watcher data.
+
+An owner request is durably seeded with exactly one Product-check child row from
+the owned tracker, rather than accepting a general `productIds` selector or using
+the global catalog cursor. It still runs through the shared Product refresh lease,
+provider-wide cache/budget/backoff, `recordObservation`, and
+`evaluateTrackerObservation` for enabled watchers. A cache result is `cached` only
+when backed by a real history row; preview-only cache causes a genuine bounded
+lookup before success and never becomes history by relabeling. A target edit does
+not fetch, observe, or alert by itself; the next successful check may evaluate the
+existing real observation for the changed target without appending history.
+
+`TrackedItem` stores the active private refresh ID and 60-second cooldown deadline.
+Concurrent POSTs while active coalesce to that owner's request; after completion,
+a second POST during cooldown gets 429/`Retry-After`. The cooldown begins at
+completion, so time waiting behind the batch lock cannot consume it. A rate-limited
+provider/shared budget result is `deferred`, retains its actual retry time, and
+keeps the request resumable; status has `finishedAt: null` while deferred. The
+existing due-run recovery resumes the same user run/check ID after contention or
+restart. Enable `PRICE_RETRY_WORKER_ENABLED=true` where this restart recovery is
+required. If the existing global active-run lock is held, a user request must
+return its own queued status—not the unrelated admin/scheduled run. Existing admin
+and scheduled coalescing and the hourly timer remain unchanged.
+
 `PriceCheck` rows contain one run and one stable run/Product check identity.
-Run/item leases and Product refresh leases fence completion. A run processes at
-most 100 catalog Product candidates sequentially and checks enabled watchers before
-requesting a price. Selection uses an indexed ObjectId continuation stored in
+Run/item leases and Product refresh leases fence completion. A scheduled/admin run
+processes at most 100 catalog Product candidates sequentially and checks enabled
+watchers before requesting a price. A user run instead checks its one explicitly
+owned Product, even if that tracker is paused, then evaluates only enabled
+watchers. Selection uses an indexed ObjectId continuation stored in
 `CheckControl`, not an unbounded distinct/group scan. Later new runs continue past
 the last selected candidate and wrap at the end, so Products after 100 are not
 starved. Selection rows and cursor commit in one transaction fenced by global/run
@@ -59,6 +95,7 @@ Product-only success write, then replay `evaluateTrackerObservation` per enabled
 watcher by persisted observation ID. No email/push is sent here.
 
 Preview deliberately writes only the shared quote cache, never history or alerts.
+Recorded successes follow the existing 24-hour reuse window.
 If a durable check encounters a fresh preview-only cache with no matching history,
 it makes a new bounded genuine provider lookup under the normal shared budget and
 records that actual success/time. It does not relabel a preview as a new fetch or

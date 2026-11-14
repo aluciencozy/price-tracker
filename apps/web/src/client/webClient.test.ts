@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientError, type HttpOptions } from './http';
 import { WebClient } from './webClient';
-import { accepted, create, csrf, error, history, item, json, key, login, page, product, token, unavailableProduct, user } from './testFixtures';
+import { accepted, create, csrf, error, history, item, json, key, login, page, product, refreshFixture, token, unavailableProduct, user } from './testFixtures';
 
 function setup(responses: Response[] = [], options: HttpOptions = {}) {
   const fetch = vi.fn<typeof globalThis.fetch>();
@@ -75,6 +75,51 @@ describe('narrow owned-resource client', () => {
     const { client, fetch } = setup([json(history)]);
     expect(await client.getHistory(item.id, { limit: 20, cursor: 'x/y', ...history.window })).toEqual(history);
     request(fetch, 0, 'GET', '/tracked-items/tracker_example/history?limit=20&cursor=x%2Fy&from=2026-10-01T00%3A00%3A00Z&to=2026-10-28T12%3A00%3A00Z');
+  });
+  it('starts one owned refresh with CSRF and polls only its fixed private status route', async () => {
+    const queued = refreshFixture('queued');
+    const cached = refreshFixture('cached');
+    const { client, fetch } = setup([
+      json(csrf()),
+      json(queued, 202, { Location: `/api/tracked-item-refreshes/${queued.id}`, 'Retry-After': '5' }),
+      json(cached, 200, { 'Retry-After': '5' }),
+    ]);
+    expect(await client.startTrackedItemRefresh(item.id)).toMatchObject({ ...queued, pollAfterSeconds: 5 });
+    expect(await client.getTrackedItemRefresh(queued.id, item.id)).toMatchObject({
+      ...cached, pollAfterSeconds: 5,
+    });
+    request(fetch, 1, 'POST', `/tracked-items/${item.id}/refresh`, {}, { 'X-CSRF-Token': token });
+    request(fetch, 2, 'GET', `/tracked-item-refreshes/${queued.id}`);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.every(([url]) => String(url).startsWith('https://api.example.test/api/'))).toBe(true);
+  });
+  it.each(['queued', 'running', 'cached', 'refreshed', 'deferred', 'failed'] as const)(
+    'accepts a schema-valid %s result in the 202 response',
+    async (status) => {
+      const result = refreshFixture(status);
+      const { client, fetch } = setup([
+        json(csrf()),
+        json(result, 202, {
+          Location: `/api/tracked-item-refreshes/${result.id}`,
+          'Retry-After': '5',
+        }),
+      ]);
+      await expect(client.startTrackedItemRefresh(item.id)).resolves.toMatchObject({
+        ...result,
+        pollAfterSeconds: 5,
+      });
+      expect(fetch.mock.calls.filter(([url]) => String(url).includes('/tracked-item-refreshes/'))).toHaveLength(0);
+    },
+  );
+  it('rejects a refresh Location or status body that escapes its owned request', async () => {
+    const queued = refreshFixture('queued');
+    const { client } = setup([
+      json(csrf()),
+      json(queued, 202, { Location: 'https://evil.example/refresh', 'Retry-After': '5' }),
+      json({ ...queued, trackedItemId: 'other_tracker' }),
+    ]);
+    await expect(client.startTrackedItemRefresh(item.id)).rejects.toMatchObject({ kind: 'invalid-response' });
+    await expect(client.getTrackedItemRefresh(queued.id, item.id)).rejects.toMatchObject({ kind: 'invalid-response' });
   });
   it('rejects wrong tracker/history responses at the boundary', async () => {
     const { client } = setup([json({ ...item, id: 'different' }), json({ ...history, trackedItemId: 'different' })]);

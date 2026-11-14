@@ -35,6 +35,32 @@ const expiresAt = '2026-11-04T12:00:00Z';
 const deviceRequest = { installationId: 'b36d3290-4086-4a55-98d5-783cb9f24031', platform: 'android', pushToken: 'illustrative-fcm-token-not-real' };
 const device = { id: 'device_example', installationId: deviceRequest.installationId, platform: 'android', sessionId, createdAt: now, updatedAt: now };
 const run = { id: 'check_example', status: 'queued', trigger: 'manual', createdAt: now, startedAt: null, finishedAt: null, counts: { total: 0, succeeded: 0, failed: 0, skipped: 0 }, lastError: null };
+// Synthetic request/observation fixtures only. The example cents and timestamps are not current quotes or provider evidence.
+const refreshStartedAt = '2026-10-28T12:00:01Z';
+const refreshFinishedAt = '2026-10-28T12:00:02Z';
+const refreshCooldownAt = '2026-10-28T12:01:02Z';
+const refreshObservation = { id: 'refresh_observation_example', price: money(999), observedAt: '2026-10-28T12:00:01Z' };
+const refreshQueued = {
+  id: 'refresh_example', trackedItemId: tracker.id, status: 'queued', requestedAt: now,
+  startedAt: null, finishedAt: null, lastObservation: null, retryAt: null, error: null,
+};
+const refreshRunning = { ...refreshQueued, status: 'running', startedAt: refreshStartedAt };
+const refreshRefreshed = {
+  ...refreshQueued, status: 'refreshed', startedAt: refreshStartedAt, finishedAt: refreshFinishedAt,
+  lastObservation: refreshObservation, retryAt: refreshCooldownAt,
+};
+const refreshCached = { ...refreshRefreshed, status: 'cached' };
+const refreshDeferredAt = '2026-10-28T12:01:00Z';
+const refreshDeferred = {
+  ...refreshQueued, status: 'deferred', startedAt: refreshStartedAt, lastObservation: refreshObservation,
+  retryAt: refreshDeferredAt,
+  error: { code: 'PROVIDER_RATE_LIMITED', message: 'Price source is busy; this request will resume later.', occurredAt: refreshStartedAt, retryAt: refreshDeferredAt },
+};
+const refreshFailed = {
+  ...refreshQueued, status: 'failed', startedAt: refreshStartedAt, finishedAt: refreshFinishedAt,
+  lastObservation: refreshObservation, retryAt: refreshCooldownAt,
+  error: { code: 'PROVIDER_UNAVAILABLE', message: 'Price check failed; the previous observation is retained.', occurredAt: refreshFinishedAt, retryAt: null },
+};
 const origin = 'https://tracker.example.com';
 const webHeaders = { Origin: origin, 'X-CSRF-Token': sessionCsrfToken, Cookie: '__Host-price_tracker_session=illustrative-session-secret' };
 const preloginHeaders = { Origin: origin, 'X-CSRF-Token': token, Cookie: '__Host-price_tracker_prelogin=illustrative-prelogin-secret' };
@@ -83,6 +109,22 @@ exchange('get', '/api/tracked-items/{id}/history', 200, undefined, {
   window: { from: '2026-10-01T00:00:00Z', to: '2026-10-28T12:00:00Z' }, retainedFrom: '2026-10-01T00:00:00Z',
   items: [{ id: 'observation_example', price: money(999), observedAt, providerChangedAt: null }], page: { limit: 20, nextCursor: null },
 }, mobileHeaders, { params: { id: tracker.id }, query: { from: '2026-10-01T00:00:00Z', to: now, limit: 20 } });
+exchange('post', '/api/tracked-items/{id}/refresh', 202, {}, refreshQueued, webHeaders, {
+  params: { id: tracker.id },
+  responseHeaders: { Location: '/api/tracked-item-refreshes/refresh_example', 'Retry-After': 5 },
+});
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshQueued, mobileHeaders, {
+  params: { requestId: refreshQueued.id }, responseHeaders: { 'Retry-After': 5 },
+});
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshRunning, mobileHeaders, {
+  params: { requestId: refreshRunning.id }, responseHeaders: { 'Retry-After': 5 },
+});
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshRefreshed, mobileHeaders, { params: { requestId: refreshRefreshed.id } });
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshCached, mobileHeaders, { params: { requestId: refreshCached.id } });
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshDeferred, mobileHeaders, {
+  params: { requestId: refreshDeferred.id }, responseHeaders: { 'Retry-After': 5 },
+});
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 200, undefined, refreshFailed, mobileHeaders, { params: { requestId: refreshFailed.id } });
 exchange('post', '/api/devices', 201, deviceRequest, device);
 exchange('put', '/api/devices/{id}', 200, { ...deviceRequest, pushToken: 'illustrative-rotated-fcm-token' }, device, mobileHeaders, { params: { id: device.id } });
 exchange('delete', '/api/devices/{id}', 204, undefined, undefined, mobileHeaders, { params: { id: device.id } });
@@ -97,6 +139,10 @@ exchange('post', '/api/auth/web/verify-email', 400, { token }, error('TOKEN_INVA
 exchange('get', '/api/tracked-items', 401, undefined, error('SESSION_EXPIRED', 'Please sign in again.'));
 exchange('post', '/api/admin/price-checks', 403, {}, error('ADMIN_REQUIRED', 'Administrator access is required.'));
 exchange('get', '/api/tracked-items/{id}', 404, undefined, error('NOT_FOUND', 'Item not found.'), mobileHeaders, { params: { id: 'foreign_or_missing' } });
+exchange('get', '/api/tracked-item-refreshes/{requestId}', 404, undefined, error('NOT_FOUND', 'Refresh request not found.'), mobileHeaders, { params: { requestId: 'foreign_or_missing' } });
+exchange('post', '/api/tracked-items/{id}/refresh', 429, {}, error('RATE_LIMITED', 'Wait before requesting another price check for this game.', [], 30), webHeaders, {
+  params: { id: tracker.id }, responseHeaders: { 'Retry-After': 30 },
+});
 exchange('post', '/api/tracked-items', 409, { previewId: 'preview_example', targetPrice: tracker.targetPrice, enabled: true, alerts: tracker.alerts }, error('DUPLICATE_TRACKED_ITEM', 'You already track this Steam offer.', [], null, tracker.id), { ...mobileHeaders, 'Idempotency-Key': '4a0a2ac2-5030-43f0-8507-8c4bddc2e7ca' });
 exchange('post', '/api/tracked-items', 410, { previewId: 'preview_example', targetPrice: tracker.targetPrice, enabled: true, alerts: tracker.alerts }, error('PREVIEW_EXPIRED', 'Preview the game again before saving.'), { ...mobileHeaders, 'Idempotency-Key': '4a0a2ac2-5030-43f0-8507-8c4bddc2e7ca' });
 exchange('patch', '/api/tracked-items/{id}', 422, { targetPrice: money(-1) }, error('VALIDATION_ERROR', 'Check the highlighted fields.', [{ path: '/targetPrice/amountMinor', code: 'out_of_range', message: 'Use nonnegative integer USD cents.' }]), mobileHeaders, { params: { id: tracker.id }, invalidRequest: true });

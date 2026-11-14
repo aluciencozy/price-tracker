@@ -9,6 +9,10 @@ import { ProductModel } from '../src/models/product.js';
 import { SessionModel, UserModel } from '../src/models/account.js';
 import { hashPassword, hashSecret } from '../src/registration.js';
 import { cheapSharkPurchaseUrl } from '../src/cheapshark.js';
+import { TrackedItemModel } from '../src/models/tracking.js';
+import { PriceCheckModel } from '../src/models/priceCheck.js';
+import { getPriceCheckRun } from '../src/priceChecks.js';
+import { csrfForSecret } from '../src/sessionSecurity.js';
 
 const uri = process.env.TEST_MONGODB_URI;
 const config = loadConfig({ NODE_ENV: 'test', AUTH_JWT_SECRET: 'fixture-only-jwt-secret-at-least-32-characters' });
@@ -77,6 +81,32 @@ describe.skipIf(!uri)('real sessions with offline preview and isolated MongoDB',
       expect(blocked.body.error.retryAfterSeconds).toBe(Number(blocked.headers['retry-after']));
     } finally { clock.mockRestore(); }
   });
+  it('fails refresh closed without recovery while leaving tracking available', async () => {
+    const user = await UserModel.create({ email: 'refresh-guard@example.invalid', passwordHash: await hashPassword(password), emailVerifiedAt: new Date() });
+    const product = await ProductModel.findOne({ steamAppId: '620' }).orFail();
+    const tracker = await TrackedItemModel.create({ userId: user._id, productId: product._id, targetPriceMinor: 500 });
+    const credential = 'r'.repeat(43);
+    const csrf = csrfForSecret(credential);
+    await SessionModel.create({ userId: user._id, transport: 'web', secretHash: hashSecret(credential), csrfHash: hashSecret(csrf), expiresAt: new Date(Date.now() + 60_000) });
+    const cookie = `price_tracker_session_dev=${credential}`;
+    await request(app).get('/api/tracked-items').set('Cookie', cookie).expect(200);
+    const rejected = await request(app).post(`/api/tracked-items/${tracker.id}/refresh`).set('Cookie', cookie).set('Origin', origin).set('X-CSRF-Token', csrf).send({}).expect(503);
+    expect(rejected.body.error.code).toBe('SERVICE_UNAVAILABLE');
+    expect(rejected.headers['retry-after']).toBe('5');
+    expect(await PriceCheckModel.countDocuments({ entryType: 'run', ownerUserId: user._id })).toBe(0);
+    expect((await TrackedItemModel.findById(tracker._id).orFail()).refreshRunId).toBeNull();
+
+    const enabled = createApp({ ...config, PRICE_RETRY_WORKER_ENABLED: true }, () => 'connected', {
+      tracking: { cursorSigningSecret: secret, resolveProduct: async id => ProductModel.findById(id).orFail().lean().exec() },
+      runPriceChecks: async options => (await getPriceCheckRun(options.runId))!,
+    });
+    const accepted = await request(enabled).post(`/api/tracked-items/${tracker.id}/refresh`).set('Cookie', cookie).set('Origin', origin).set('X-CSRF-Token', csrf).send({}).expect(202);
+    expect(accepted.body.status).toBe('queued');
+    expect(await PriceCheckModel.countDocuments({ entryType: 'run', ownerUserId: user._id })).toBe(1);
+    await request(app).get(accepted.headers.location!).set('Cookie', cookie).expect(200);
+    await PriceCheckModel.deleteMany({ runId: accepted.body.id });
+    await tracker.deleteOne();
+  });
   it('enforces web CSRF, ownership and revoked sessions through mounted routes', async () => {
     const one = request.agent(app);
     const bootstrap = await one.get('/api/auth/web/csrf').expect(200);
@@ -88,6 +118,7 @@ describe.skipIf(!uri)('real sessions with offline preview and isolated MongoDB',
       .send({ url: 'https://store.steampowered.com/app/620/' }).expect(201);
     const item = await one.post('/api/tracked-items').set('Origin', origin).set('X-CSRF-Token', csrf)
       .set('Idempotency-Key', randomUUID()).send({ previewId: preview.body.id, targetPrice: { amountMinor: 0, currency: 'USD' }, enabled: true, alerts: { email: true, push: false } }).expect(201);
+    await one.post(`/api/tracked-items/${item.body.id}/refresh`).set('Origin', origin).send({}).expect(403);
     const list = await one.get('/api/tracked-items').query({ q: 'Portal' }).expect(200);
     expect(list.body.items.map((entry: { id: string }) => entry.id)).toContain(item.body.id);
     await one.patch(`/api/tracked-items/${item.body.id}`).set('Origin', origin).set('X-CSRF-Token', csrf)

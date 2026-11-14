@@ -445,3 +445,95 @@ class History {
   final DateTime from, to, retainedFrom;
   final Page<Observation> page;
 }
+
+class RefreshObservation {
+  RefreshObservation.fromJson(Json json)
+    : id = jsonId(json['id']),
+      price = Money.fromJson(jsonObject(json['price'])),
+      observedAt = jsonTime(json['observedAt']) {
+    requireKeys(json, ['id', 'price', 'observedAt']);
+  }
+  final String id;
+  final Money price;
+  final DateTime observedAt;
+}
+
+class TrackedItemRefresh {
+  TrackedItemRefresh.fromJson(Json json)
+    : id = jsonId(json['id']),
+      trackedItemId = jsonId(json['trackedItemId']),
+      status = jsonString(json['status']),
+      requestedAt = jsonTime(json['requestedAt']),
+      startedAt = nullableTime(json['startedAt']),
+      finishedAt = nullableTime(json['finishedAt']),
+      lastObservation = json['lastObservation'] == null
+          ? null
+          : RefreshObservation.fromJson(jsonObject(json['lastObservation'])),
+      retryAt = nullableTime(json['retryAt']),
+      error = json['error'] == null
+          ? null
+          : ProductError.fromJson(jsonObject(json['error'])) {
+    requireKeys(json, [
+      'id',
+      'trackedItemId',
+      'status',
+      'requestedAt',
+      'startedAt',
+      'finishedAt',
+      'lastObservation',
+      'retryAt',
+      'error',
+    ]);
+    if (![
+      'queued',
+      'running',
+      'refreshed',
+      'cached',
+      'deferred',
+      'failed',
+    ].contains(status)) {
+      invalidJson();
+    }
+    if (status == 'queued') {
+      if (startedAt != null ||
+          finishedAt != null ||
+          retryAt != null ||
+          error != null) {
+        invalidJson();
+      }
+    } else if (status == 'running') {
+      if (startedAt == null ||
+          finishedAt != null ||
+          retryAt != null ||
+          error != null) {
+        invalidJson();
+      }
+    } else if (status == 'refreshed' || status == 'cached') {
+      if (startedAt == null ||
+          finishedAt == null ||
+          lastObservation == null ||
+          error != null ||
+          retryAt == null ||
+          !retryAt!.isAtSameMomentAs(
+            finishedAt!.add(const Duration(seconds: 60)),
+          )) {
+        invalidJson();
+      }
+    } else if (status == 'deferred') {
+      if (finishedAt != null || error == null || retryAt == null) invalidJson();
+    } else if (finishedAt == null || error == null || retryAt == null) {
+      invalidJson();
+    }
+  }
+  final String id, trackedItemId, status;
+  final DateTime requestedAt;
+  final DateTime? startedAt, finishedAt, retryAt;
+  final RefreshObservation? lastObservation;
+  final ProductError? error;
+}
+
+class RefreshPoll {
+  const RefreshPoll(this.request, this.pollAfterSeconds);
+  final TrackedItemRefresh request;
+  final int pollAfterSeconds;
+}

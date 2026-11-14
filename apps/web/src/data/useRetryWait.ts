@@ -32,3 +32,16 @@ export function useRetryWait(error: unknown): number {
       : seconds
     : 0;
 }
+
+export function useRetryUntil(until: string | null | undefined): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!until) return;
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [until]);
+  const deadline = until ? Date.parse(until) : NaN;
+  return Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
+}

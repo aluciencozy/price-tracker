@@ -7,9 +7,19 @@ import 'mobile_api.dart';
 import 'models.dart' as wire;
 
 class HttpTrackerRepository
-    implements ui.PagedTrackerRepository, ui.HistoryMetadataRepository {
-  HttpTrackerRepository(this.api);
+    implements
+        ui.PagedTrackerRepository,
+        ui.HistoryMetadataRepository,
+        ui.RefreshableTrackerRepository {
+  HttpTrackerRepository(
+    this.api, {
+    DateTime Function()? now,
+    Future<void> Function(Duration duration)? delay,
+  }) : _now = now ?? DateTime.now,
+       _delay = delay ?? ((duration) => Future<void>.delayed(duration));
   final MobileApi api;
+  final DateTime Function() _now;
+  final Future<void> Function(Duration duration) _delay;
   bool _active = true;
   int _searchVersion = 0;
   String? _search;
@@ -18,6 +28,7 @@ class HttpTrackerRepository
   final Map<String, String> _saveKeys = {};
   final Map<String, wire.History> historyMetadata = {};
   DateTime? _retryAt;
+  final Map<String, DateTime> _refreshRetryAt = {};
   @override
   ui.HistoryMetadata? historyMetadataFor(String id) {
     final value = historyMetadata[id];
@@ -35,6 +46,7 @@ class HttpTrackerRepository
     _cursor = null;
     _saveKeys.clear();
     historyMetadata.clear();
+    _refreshRetryAt.clear();
   }
 
   void _check() {
@@ -126,6 +138,74 @@ class HttpTrackerRepository
   @override
   Future<ui.Tracker> get(String id) =>
       _call(() async => _tracker(await api.get(id)));
+
+  @override
+  Future<ui.PriceRefresh> refreshPrice(
+    String trackerId, {
+    void Function(ui.PriceRefresh refresh)? onStatus,
+    bool Function()? shouldContinue,
+  }) => _call(() async {
+    final retryAt = _refreshRetryAt[trackerId];
+    if (retryAt != null && retryAt.isAfter(_now())) {
+      throw ui.RepositoryException(
+        'Please wait before checking this game again.',
+        retryAfterSeconds: (retryAt.difference(_now()).inMilliseconds / 1000)
+            .ceil(),
+      );
+    }
+    final accepted = await api.startTrackedItemRefresh(trackerId);
+    _check();
+    return _pollRefresh(trackerId, accepted, onStatus, shouldContinue);
+  });
+
+  @override
+  Future<ui.PriceRefresh> resumeRefresh(
+    String requestId,
+    String trackerId, {
+    void Function(ui.PriceRefresh refresh)? onStatus,
+    bool Function()? shouldContinue,
+  }) => _call(() async {
+    final current = await api.getTrackedItemRefresh(requestId, trackerId);
+    _check();
+    return _pollRefresh(trackerId, current, onStatus, shouldContinue);
+  });
+
+  Future<ui.PriceRefresh> _pollRefresh(
+    String trackerId,
+    wire.RefreshPoll initial,
+    void Function(ui.PriceRefresh refresh)? onStatus,
+    bool Function()? shouldContinue,
+  ) async {
+    var current = initial.request;
+    var mapped = _refresh(current);
+    onStatus?.call(mapped);
+    final deadline = _now().add(const Duration(seconds: 60));
+    var pollAfterSeconds = initial.pollAfterSeconds;
+    while (current.status == 'queued' || current.status == 'running') {
+      if (shouldContinue != null && !shouldContinue()) break;
+      final delaySeconds = pollAfterSeconds < 5 ? 5 : pollAfterSeconds;
+      if (_now().add(Duration(seconds: delaySeconds)).isAfter(deadline)) {
+        break;
+      }
+      await _delay(Duration(seconds: delaySeconds));
+      _check();
+      if (shouldContinue != null && !shouldContinue()) break;
+      final poll = await api.getTrackedItemRefresh(current.id, trackerId);
+      current = poll.request;
+      pollAfterSeconds = poll.pollAfterSeconds;
+      _check();
+      mapped = _refresh(current);
+      onStatus?.call(mapped);
+    }
+    if (current.retryAt != null && current.retryAt!.isAfter(_now())) {
+      final existing = _refreshRetryAt[trackerId];
+      if (existing == null || current.retryAt!.isAfter(existing)) {
+        _refreshRetryAt[trackerId] = current.retryAt!;
+      }
+    }
+    return mapped;
+  }
+
   @override
   Future<ui.ProductPreview> preview(String steamUrl) => _call(() async {
     ui.parseSteamAppId(steamUrl);
@@ -264,6 +344,31 @@ class HttpTrackerRepository
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   );
+  static ui.PriceRefresh _refresh(wire.TrackedItemRefresh refresh) =>
+      ui.PriceRefresh(
+        id: refresh.id,
+        trackerId: refresh.trackedItemId,
+        status: refresh.status,
+        requestedAt: refresh.requestedAt,
+        startedAt: refresh.startedAt,
+        finishedAt: refresh.finishedAt,
+        lastObservation: refresh.lastObservation == null
+            ? null
+            : ui.RefreshObservation(
+                id: refresh.lastObservation!.id,
+                price: ui.Money(refresh.lastObservation!.price.amountMinor),
+                observedAt: refresh.lastObservation!.observedAt,
+              ),
+        retryAt: refresh.retryAt,
+        error: refresh.error == null
+            ? null
+            : ui.RefreshError(
+                code: refresh.error!.code,
+                message: refresh.error!.message,
+                occurredAt: refresh.error!.occurredAt,
+                retryAt: refresh.error!.retryAt,
+              ),
+      );
   static String _uuid() {
     final random = Random.secure();
     final bytes = List.generate(16, (_) => random.nextInt(256));

@@ -76,7 +76,7 @@ export function createAdminPriceCheckRouter(authenticateVerifiedSession: Request
     try {
       const active = await CheckControlModel.findById('active').lean().exec();
       const prior = active?.runId ? await get(active.runId) : null;
-      const runId = prior && prior.status !== 'complete' ? prior.runId : `admin_${randomUUID()}`;
+      const runId = prior && prior.mode !== 'user' && prior.status !== 'complete' ? prior.runId : `admin_${randomUUID()}`;
       let queued!: (summary: PriceCheckRunSummary) => void;
       const ready = new Promise<PriceCheckRunSummary>(resolve => { queued = resolve; });
       const work = run({ runId, mode: prior?.runId === runId ? prior.mode : 'admin', onQueued: queued });
@@ -89,7 +89,7 @@ export function createAdminPriceCheckRouter(authenticateVerifiedSession: Request
     try {
       if (Object.keys(req.query).length || req.body !== undefined) { accountError(res, 400, 'MALFORMED_REQUEST', 'No body or query is accepted.'); return; }
       const summary = await get(String(req.params.id));
-      if (!summary) { accountError(res, 404, 'NOT_FOUND', 'Price check not found.'); return; }
+      if (!summary || summary.mode === 'user') { accountError(res, 404, 'NOT_FOUND', 'Price check not found.'); return; }
       if (summary.status === 'running' || summary.status === 'pending') res.set('Retry-After', '5');
       res.json(publicPriceCheck(summary));
     } catch { accountError(res, 503, 'SERVICE_UNAVAILABLE', 'The price-check service is unavailable.'); }

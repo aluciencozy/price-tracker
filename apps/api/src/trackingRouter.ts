@@ -6,6 +6,8 @@ import type { ProductPreviewService } from './productPreviews.js';
 import { createTrackedItemService } from './trackedItems.js';
 import { TrackingError } from './trackingErrors.js';
 import { consumePrivateSessionLimit } from './sessionRateLimit.js';
+import { createOwnedPriceRefresh } from './ownedPriceRefresh.js';
+import type { runPriceChecks } from './priceChecks.js';
 
 export type VerifiedPrincipal = {
   userId: string;
@@ -121,12 +123,13 @@ async function enterPreviewSlot(userId: string, request: Request): Promise<() =>
 export function createTrackingRouter(
   requireVerifiedUser: RequestHandler,
   cursorSigningSecret: string,
-  options: { createPreview: ProductPreviewService; now?: () => Date },
+  options: { createPreview: ProductPreviewService; now?: () => Date; runPriceChecks?: typeof runPriceChecks; ownedRefreshAvailable?: boolean },
 ) {
   const router = Router();
   const previews = options.createPreview;
   const trackers = createTrackedItemService(cursorSigningSecret, { now: options.now });
   const history = createHistoryService(cursorSigningSecret);
+  const refresh = createOwnedPriceRefresh(options.runPriceChecks);
 
   router.use((_request, response, next) => {
     response.set('Cache-Control', 'no-store');
@@ -168,6 +171,31 @@ export function createTrackingRouter(
   router.get('/tracked-items/:id/history', endpoint(async (request, response) => {
     duplicateQuery(request);
     const result = await history(principalFrom(response).userId, String(request.params.id ?? ''), request.query);
+    response.json(result);
+  }));
+
+  router.post('/tracked-items/:id/refresh', endpoint(async (request, response) => {
+    requireJson(request);
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body) || Object.keys(request.body).length || Object.keys(request.query).length) {
+      throw new TrackingError(422, 'VALIDATION_ERROR', 'Submit an empty JSON object.');
+    }
+    if (!(options.ownedRefreshAvailable ?? Boolean(options.runPriceChecks))) {
+      throw new TrackingError(503, 'SERVICE_UNAVAILABLE', 'Price refresh is unavailable.', [], 5);
+    }
+    let result;
+    try { result = await refresh.enqueue(principalFrom(response).userId, String(request.params.id)); }
+    catch (error) {
+      if (error instanceof TrackingError) throw error;
+      throw new TrackingError(503, 'SERVICE_UNAVAILABLE', 'Price refresh is unavailable.');
+    }
+    response.set('Location', `/api/tracked-item-refreshes/${result.id}`).set('Retry-After', '5').status(202).json(result);
+  }));
+
+  router.get('/tracked-item-refreshes/:id', endpoint(async (request, response) => {
+    duplicateQuery(request);
+    if (Object.keys(request.query).length) throw new TrackingError(400, 'MALFORMED_REQUEST', 'No query is accepted.');
+    const result = await refresh.read(principalFrom(response).userId, String(request.params.id));
+    if (result.status === 'queued' || result.status === 'running' || result.status === 'deferred') response.set('Retry-After', '5');
     response.json(result);
   }));
 

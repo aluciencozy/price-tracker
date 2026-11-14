@@ -29,6 +29,14 @@ export type Observation = { id: string; price: Money; observedAt: string; provid
 export type History = {
   trackedItemId: string; product: Product; window: HistoryWindow; retainedFrom: string; items: Observation[]; page: Page;
 };
+export type RefreshStatus = 'queued' | 'running' | 'refreshed' | 'cached' | 'deferred' | 'failed';
+export type RefreshObservation = { id: string; price: Money; observedAt: string };
+export type RefreshRequest = {
+  id: string; trackedItemId: string; status: RefreshStatus; requestedAt: string;
+  startedAt: string | null; finishedAt: string | null; lastObservation: RefreshObservation | null;
+  retryAt: string | null; error: ProductError | null;
+};
+export type RefreshPoll = RefreshRequest & { pollAfterSeconds: number };
 export type WebLogin = { user: User; sessionId: string; expiresAt: string };
 export type Accepted = { message: 'If eligible, you will receive an email with next steps.' };
 export type FieldError = { path: string; code: string; message: string };
@@ -209,6 +217,42 @@ export function history(value: unknown): History {
       return { id: id(item.id), price: money(item.price), observedAt: timestamp(item.observedAt), providerChangedAt: nullable(item.providerChangedAt, timestamp) };
     }),
   };
+}
+function productError(value: unknown): ProductError {
+  const data = object(value, ['code', 'message', 'occurredAt', 'retryAt']);
+  return {
+    code: oneOf(data.code, ['PROVIDER_RATE_LIMITED', 'PROVIDER_UNAVAILABLE', 'STEAM_OFFER_UNAVAILABLE', 'INVALID_PROVIDER_DATA', 'UNSUPPORTED_PRODUCT']),
+    message: text(data.message, 500), occurredAt: timestamp(data.occurredAt), retryAt: nullable(data.retryAt, timestamp),
+  };
+}
+export function refreshRequest(value: unknown): RefreshRequest {
+  const data = object(value, ['id', 'trackedItemId', 'status', 'requestedAt', 'startedAt', 'finishedAt', 'lastObservation', 'retryAt', 'error']);
+  const result: RefreshRequest = {
+    id: id(data.id), trackedItemId: id(data.trackedItemId),
+    status: oneOf(data.status, ['queued', 'running', 'refreshed', 'cached', 'deferred', 'failed']),
+    requestedAt: timestamp(data.requestedAt), startedAt: nullable(data.startedAt, timestamp),
+    finishedAt: nullable(data.finishedAt, timestamp),
+    lastObservation: nullable(data.lastObservation, (value) => {
+      const observation = object(value, ['id', 'price', 'observedAt']);
+      return { id: id(observation.id), price: money(observation.price), observedAt: timestamp(observation.observedAt) };
+    }),
+    retryAt: nullable(data.retryAt, timestamp), error: nullable(data.error, productError),
+  };
+  if (result.status === 'queued' || result.status === 'running') {
+    if (result.finishedAt !== null || result.retryAt !== null || result.error !== null ||
+        (result.status === 'queued' && result.startedAt !== null) ||
+        (result.status === 'running' && result.startedAt === null)) throw new Error('Invalid active refresh state.');
+  } else if (result.status === 'refreshed' || result.status === 'cached') {
+    if (result.startedAt === null || result.finishedAt === null || result.lastObservation === null || result.error !== null ||
+        result.retryAt === null || Date.parse(result.retryAt) !== Date.parse(result.finishedAt) + 60_000) {
+      throw new Error('Invalid successful refresh state.');
+    }
+  } else if (result.status === 'deferred') {
+    if (result.finishedAt !== null || result.error === null || result.retryAt === null) throw new Error('Invalid deferred refresh state.');
+  } else if (result.finishedAt === null || result.error === null || result.retryAt === null) {
+    throw new Error('Invalid failed refresh state.');
+  }
+  return result;
 }
 export function webLogin(value: unknown): WebLogin {
   const data = object(value, ['user', 'sessionId', 'expiresAt']);

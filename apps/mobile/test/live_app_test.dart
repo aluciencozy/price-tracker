@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:price_tracker/app_config.dart';
+import 'package:price_tracker/app_scope.dart';
 import 'package:price_tracker/main.dart';
 import 'package:price_tracker/screens.dart';
+import 'package:price_tracker/tracker_repository.dart';
 
 import 'client_fixtures.dart';
 import 'session_controller_test.dart' show MemorySessionStore;
@@ -17,8 +19,11 @@ Map<String, dynamic> freshSession() => sessionJson()
       .toUtc()
       .add(const Duration(days: 7))
       .toIso8601String();
-http.Response response(Object value, [int status = 200]) =>
-    http.Response(jsonEncode(value), status);
+http.Response response(
+  Object value, [
+  int status = 200,
+  Map<String, String>? headers,
+]) => http.Response(jsonEncode(value), status, headers: headers ?? const {});
 Map<String, dynamic> syntheticBrotatoProductJson() {
   final product = productJson()
     ..['id'] = 'product_brotato_fixture'
@@ -394,6 +399,487 @@ void main() {
       await tap(tester, find.text('Save changes'));
       expect(edited!['targetPrice'], moneyJson(0));
       expect(edited!['alerts'], {'email': true, 'push': false});
+    },
+  );
+
+  testWidgets(
+    'owned detail refresh is guarded, reports cached data honestly, and reloads history',
+    (tester) async {
+      var posts = 0, polls = 0, historyReads = 0;
+      final queued = refreshJson('queued');
+      final cached = refreshJson('cached');
+      final requests = <http.Request>[];
+      await start(tester, (request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          expect(request.method, 'POST');
+          expect(request.body, '{}');
+          expect(
+            request.headers['Authorization'],
+            'Bearer illustrative-not-a-signed-jwt',
+          );
+          return response(queued, 202, {
+            'location': '/api/tracked-item-refreshes/${queued['id']}',
+            'retry-after': '5',
+          });
+        }
+        if (request.url.path == '/api/tracked-item-refreshes/${queued['id']}') {
+          polls++;
+          final finishedAt = DateTime.now().toUtc();
+          cached['finishedAt'] = finishedAt.toIso8601String();
+          cached['retryAt'] = finishedAt
+              .add(const Duration(seconds: 60))
+              .toIso8601String();
+          return response(cached, 200, {'retry-after': '5'});
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example') {
+          return response(trackerJson());
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      expect(historyReads, 1);
+      final detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+      expect(detail.repository.runtimeType.toString(), 'HttpTrackerRepository');
+      expect(detail.repository, isA<RefreshableTrackerRepository>());
+      expect(
+        TrackerAppScope.isSample(tester.element(find.byType(DetailScreen))),
+        isFalse,
+      );
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      final button = find.widgetWithText(FilledButton, 'Check price now');
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.tap(button);
+      await tester.pump();
+      expect(posts, 1);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Checking price…'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.pump(const Duration(seconds: 4));
+      expect(polls, 0);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump();
+      expect(polls, 1);
+      expect(historyReads, 2);
+      await tester.scrollUntilVisible(
+        find.textContaining('Used the recorded price from'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Used the recorded price from'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'No new provider fetch or history observation was created.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('email/push delivery'), findsNothing);
+      final cooldown = find.ancestor(
+        of: find.textContaining('Check price in'),
+        matching: find.byType(FilledButton),
+      );
+      expect(cooldown, findsOneWidget);
+      expect(tester.widget<FilledButton>(cooldown).onPressed, isNull);
+      expect(requests.where((r) => r.url.host != 'api.example.test'), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'immediate cached 202 reloads tracker and history without a status GET',
+    (tester) async {
+      var itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+      final cached = refreshJson('cached');
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example') {
+          itemReads++;
+          return response(trackerJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          return response(cached, 202, {
+            'location': '/api/tracked-item-refreshes/${cached['id']}',
+            'retry-after': '5',
+          });
+        }
+        if (request.url.path == '/api/tracked-item-refreshes/${cached['id']}') {
+          statusReads++;
+          return response(cached);
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Check price now'));
+      await tester.pumpAndSettle();
+      expect(posts, 1);
+      expect(statusReads, 0);
+      expect(itemReads, 2);
+      expect(historyReads, 2);
+      await tester.scrollUntilVisible(
+        find.textContaining('Used the recorded price from'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Used the recorded price from'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'immediate failed 202 shows the failure and keeps existing price history',
+    (tester) async {
+      var historyReads = 0, posts = 0, statusReads = 0;
+      final failed = refreshJson('failed');
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          return response(failed, 202, {
+            'location': '/api/tracked-item-refreshes/${failed['id']}',
+            'retry-after': '5',
+          });
+        }
+        if (request.url.path == '/api/tracked-item-refreshes/${failed['id']}') {
+          statusReads++;
+          return response(failed);
+        }
+        return response(trackerJson());
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Check price now'));
+      await tester.pump();
+      for (var flush = 0; flush < 6; flush++) {
+        await tester.pump();
+      }
+      await tester.scrollUntilVisible(
+        find.textContaining('Price check failed. Fixture provider failure.'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Price check failed. Fixture provider failure.'),
+        findsOneWidget,
+      );
+      expect(posts, 1);
+      expect(statusReads, 0);
+      expect(historyReads, 1);
+    },
+  );
+
+  testWidgets(
+    'resumes a stopped refresh with GET only and reloads owned price and history',
+    (tester) async {
+      var itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+      var completed = false;
+      final queued = refreshJson('queued');
+      final cached = refreshJson('cached');
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example') {
+          itemReads++;
+          return response(trackerJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          return response(queued, 202, {
+            'location': '/api/tracked-item-refreshes/${queued['id']}',
+            'retry-after': '55',
+          });
+        }
+        if (request.url.path == '/api/tracked-item-refreshes/${queued['id']}') {
+          statusReads++;
+          return completed
+              ? response(cached)
+              : response(refreshJson('running'), 200, {'retry-after': '60'});
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Check price now'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 55));
+      for (var flush = 0; flush < 4; flush++) {
+        await tester.pump();
+      }
+      expect(posts, 1);
+      expect(statusReads, 1);
+      final statusReadsBeforeResume = statusReads;
+      await tester.scrollUntilVisible(
+        find.text('Check status'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('last received status was running'),
+        findsOneWidget,
+      );
+      completed = true;
+      await tester.tap(find.widgetWithText(FilledButton, 'Check status'));
+      for (
+        var flush = 0;
+        flush < 8 && statusReads == statusReadsBeforeResume;
+        flush++
+      ) {
+        await tester.pump();
+      }
+      for (var flush = 0; flush < 4; flush++) {
+        await tester.pump();
+      }
+      expect(statusReads, statusReadsBeforeResume + 1);
+      expect(posts, 1);
+      expect(itemReads, 2);
+      expect(historyReads, 2);
+      await tester.scrollUntilVisible(
+        find.textContaining('Used the recorded price from'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Used the recorded price from'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'refreshed result is an observation, not a price-drop or delivery claim',
+    (tester) async {
+      final queued = refreshJson('queued');
+      final refreshed = refreshJson('refreshed');
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          return response(queued, 202, {
+            'location': '/api/tracked-item-refreshes/${queued['id']}',
+            'retry-after': '5',
+          });
+        }
+        if (request.url.path == '/api/tracked-item-refreshes/${queued['id']}') {
+          return response(refreshed);
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example') {
+          return response(trackerJson());
+        }
+        return response(pageJson()..['items'] = []);
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Check price now'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.textContaining('Recorded a successful price observation'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      expect(
+        find.textContaining('Recorded a successful price observation at'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('does not mean the price dropped'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('email/push delivery'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'refresh rate limit preserves the last price and history without replay',
+    (tester) async {
+      var posts = 0, historyReads = 0;
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          historyReads++;
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          return response(errorJson('RATE_LIMITED', retry: 3), 429, {
+            'retry-after': '3',
+          });
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example') {
+          return response(trackerJson());
+        }
+        return response(pageJson());
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      final button = find.widgetWithText(FilledButton, 'Check price now');
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(posts, 1);
+      expect(historyReads, 1);
+      expect(find.textContaining('Fixture error.'), findsOneWidget);
+      await tester.drag(verticalScroll, const Offset(0, 900));
+      await tester.pumpAndSettle();
+      expect(find.text('Last known \$9.99 USD'), findsOneWidget);
+      expect(find.textContaining('9.99 USD'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.textContaining('Check price in'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      final cooldown = find.ancestor(
+        of: find.textContaining('Check price in'),
+        matching: find.byType(FilledButton),
+      );
+      expect(cooldown, findsOneWidget);
+      expect(tester.widget<FilledButton>(cooldown).onPressed, isNull);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(
+        find.widgetWithText(FilledButton, 'Check price now'),
+        findsOneWidget,
+      );
+      expect(posts, 1);
+      expect(historyReads, 1);
+    },
+  );
+
+  testWidgets(
+    '401 from an owned refresh clears private detail and session state',
+    (tester) async {
+      var posts = 0;
+      await start(tester, (request) async {
+        if (request.url.path.endsWith('/me')) return response(userJson());
+        if (request.url.path == '/api/tracked-items' &&
+            request.method == 'GET') {
+          return response(pageJson());
+        }
+        if (request.url.path.endsWith('/history')) {
+          return response(historyJson());
+        }
+        if (request.url.path == '/api/tracked-items/tracker_example/refresh') {
+          posts++;
+          return response(errorJson('SESSION_EXPIRED'), 401);
+        }
+        return response(trackerJson());
+      }, signedIn: true);
+      await tap(tester, find.text('Portal 2'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Check price now'),
+        250,
+        maxScrolls: 30,
+        scrollable: verticalScroll,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Check price now'));
+      await tester.pumpAndSettle();
+      expect(posts, 1);
+      expect(find.text('Game details'), findsNothing);
+      expect(find.text('Portal 2'), findsNothing);
+      expect(submit, findsOneWidget);
     },
   );
 
