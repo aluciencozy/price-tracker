@@ -26,8 +26,20 @@ import { isAborted } from '../client/sessionContext';
 import { RequestError } from './RequestError';
 import { useRetryUntil, useRetryWait } from '../data/useRetryWait';
 
+const repositoryKeys = new WeakMap<TrackerRepository, number>();
+let nextRepositoryKey = 0;
+function repositoryKey(repository: TrackerRepository): number {
+  let key = repositoryKeys.get(repository);
+  if (key === undefined) {
+    key = nextRepositoryKey++;
+    repositoryKeys.set(repository, key);
+  }
+  return key;
+}
+
 function isRefreshRepository(repository: TrackerRepository): repository is TrackerRepository & RefreshTrackerRepository {
-  return 'refreshPrice' in repository && typeof repository.refreshPrice === 'function';
+  return 'refreshPrice' in repository && typeof repository.refreshPrice === 'function' &&
+    'resumeRefresh' in repository && typeof repository.resumeRefresh === 'function';
 }
 function refreshTime(value: string | null | undefined): string {
   return value ? value.replace('T', ' ').replace('Z', ' UTC') : 'time unavailable';
@@ -57,13 +69,30 @@ export function GameDetailsPage({
   const result = useAsync(load);
   const history = useAsync(loadHistory);
   const notice: unknown = useLocation().state?.notice;
-  const [refreshNotice, setRefreshNotice] = useState<string>();
+  const [refreshCheckpoint, setRefreshCheckpoint] = useState<{
+    trackerId: string;
+    repository: TrackerRepository;
+    refresh: PriceRefresh;
+  }>();
+  const currentCheckpoint =
+    refreshCheckpoint?.trackerId === id && refreshCheckpoint.repository === repository
+      ? refreshCheckpoint
+      : undefined;
+  const refreshNotice = currentCheckpoint
+    ? refreshStatusText(currentCheckpoint.refresh)
+    : undefined;
   const onRefreshComplete = useCallback((refresh: PriceRefresh) => {
-    setRefreshNotice(refreshStatusText(refresh));
+    setRefreshCheckpoint({ trackerId: id, repository, refresh });
     result.retry();
     history.retry();
-  }, [history, result]);
-  const clearRefreshNotice = useCallback(() => setRefreshNotice(undefined), []);
+  }, [history, id, repository, result]);
+  const clearRefreshCheckpoint = useCallback(() => {
+    setRefreshCheckpoint((current) =>
+      current?.trackerId === id && current.repository === repository
+        ? undefined
+        : current,
+    );
+  }, [id, repository]);
   return result.loading ? (
     <LoadingRows />
   ) : result.error ? (
@@ -75,8 +104,9 @@ export function GameDetailsPage({
           <Status>{notice}</Status>
         </div>
       ) : null}
-      <GameDetails item={result.data} repository={repository} refreshNotice={refreshNotice}
-        onRefreshComplete={onRefreshComplete} onRefreshStart={clearRefreshNotice} history={<PriceHistory
+      <GameDetails key={`${id}:${repositoryKey(repository)}`} item={result.data} repository={repository}
+        initialRefresh={currentCheckpoint?.refresh} refreshNotice={refreshNotice}
+        onRefreshComplete={onRefreshComplete} onRefreshStart={clearRefreshCheckpoint} history={<PriceHistory
         history={history.data}
         target={result.data.targetPrice}
         loading={history.loading}
@@ -89,6 +119,7 @@ export function GameDetailsPage({
 export default function GameDetails({
   item,
   repository,
+  initialRefresh,
   history,
   refreshNotice,
   onRefreshComplete,
@@ -96,6 +127,7 @@ export default function GameDetails({
 }: {
   item: TrackedItem;
   repository: TrackerRepository;
+  initialRefresh?: PriceRefresh;
   history?: React.ReactNode;
   refreshNotice?: string;
   onRefreshComplete?: (refresh: PriceRefresh) => void;
@@ -121,7 +153,7 @@ export default function GameDetails({
   const [deleteError, setDeleteError] = useState<unknown>();
   const [confirm, setConfirm] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshResult, setRefreshResult] = useState<PriceRefresh>();
+  const [refreshResult, setRefreshResult] = useState<PriceRefresh | undefined>(initialRefresh);
   const [refreshError, setRefreshError] = useState<unknown>();
   const [refreshPollingStopped, setRefreshPollingStopped] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
@@ -147,7 +179,7 @@ export default function GameDetails({
     refreshLock.current = true;
     const controller = new AbortController();
     refreshController.current = controller;
-    onRefreshStart?.();
+    if (!resume) onRefreshStart?.();
     setRefreshing(true);
     setRefreshingStatus(resume);
     if (!resume) setRefreshResult(undefined);

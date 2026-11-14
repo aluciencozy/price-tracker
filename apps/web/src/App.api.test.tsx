@@ -705,29 +705,90 @@ describe('live tracker screens', () => {
     expect(posts).toBe(1);
     expect(unexpected).toEqual([]);
   });
-  it('reloads after an immediate cached 202 without a status GET or a second POST', async () => {
-    let itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+  it.each(['cached', 'refreshed'] as const)(
+    'preserves the %s cooldown across successful detail/history reloads',
+    async (status) => {
+      let itemReads = 0, historyReads = 0, posts = 0, statusReads = 0;
+      const result = refreshFixture(status);
+      open(`/watchlist/${item.id}`, (path, init) => {
+        if (path === `/api/tracked-items/${item.id}`) {
+          itemReads++;
+          return json(item);
+        }
+        if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
+          historyReads++;
+          return json(history);
+        }
+        if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
+          posts++;
+          return json(result, 202, {
+            Location: `/api/tracked-item-refreshes/${result.id}`,
+            'Retry-After': '5',
+          });
+        }
+        if (path === `/api/tracked-item-refreshes/${result.id}`) {
+          statusReads++;
+          return json(result);
+        }
+      });
+      await screen.findByRole('heading', { name: 'Portal 2' });
+      await screen.findByText(/Successful Steam observations\./);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-28T12:00:30.000Z'));
+      const button = screen.getByRole('button', { name: 'Check price now' });
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.getByRole('button', { name: 'Check price in 60s' })).toBeDisabled();
+      expect(
+        screen.getByText(
+          status === 'cached'
+            ? /Used the recorded price from/
+            : /Recorded a successful price observation at/,
+        ),
+      ).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Check price in 60s' }));
+      expect(posts).toBe(1);
+      expect(statusReads).toBe(0);
+      expect(itemReads).toBe(2);
+      expect(historyReads).toBe(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(59_000);
+      });
+      expect(screen.getByRole('button', { name: 'Check price in 1s' })).toBeDisabled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(screen.getByRole('button', { name: 'Check price now' })).toBeEnabled();
+      expect(posts).toBe(1);
+      expect(statusReads).toBe(0);
+    },
+  );
+  it('does not carry a completed refresh cooldown or notice to another tracker', async () => {
+    const other = {
+      ...item,
+      id: 'tracker_other',
+      product: { ...product, id: 'product_other', title: 'Half-Life 2' },
+    };
     const cached = refreshFixture('cached');
     open(`/watchlist/${item.id}`, (path, init) => {
-      if (path === `/api/tracked-items/${item.id}`) {
-        itemReads++;
-        return json(item);
+      if (path === '/api/tracked-items' || path.startsWith('/api/tracked-items?'))
+        return json({ items: [item, other], page });
+      if (path === `/api/tracked-items/${item.id}`) return json(item);
+      if (path === `/api/tracked-items/${other.id}`) return json(other);
+      if (path.startsWith('/api/tracked-items/') && path.includes('/history?')) {
+        const owner = path.includes(other.id) ? other : item;
+        return json({ ...history, trackedItemId: owner.id, product: owner.product });
       }
-      if (path.startsWith(`/api/tracked-items/${item.id}/history?`)) {
-        historyReads++;
-        return json(history);
-      }
-      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST') {
-        posts++;
+      if (path === `/api/tracked-items/${item.id}/refresh` && init.method === 'POST')
         return json(cached, 202, {
           Location: `/api/tracked-item-refreshes/${cached.id}`,
           'Retry-After': '5',
         });
-      }
-      if (path === `/api/tracked-item-refreshes/${cached.id}`) {
-        statusReads++;
-        return json(cached);
-      }
     });
     await screen.findByRole('heading', { name: 'Portal 2' });
     await screen.findByText(/Successful Steam observations\./);
@@ -737,11 +798,14 @@ describe('live tracker screens', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByText(/Used the recorded price from/)).toBeVisible();
-    expect(posts).toBe(1);
-    expect(statusReads).toBe(0);
-    expect(itemReads).toBe(2);
-    expect(historyReads).toBe(2);
+    expect(screen.getByRole('button', { name: 'Check price in 60s' })).toBeDisabled();
+    vi.useRealTimers();
+    fireEvent.click(screen.getByRole('link', { name: 'Back to watchlist' }));
+    expect(await screen.findByRole('list', { name: 'Saved games' })).toHaveTextContent('Half-Life 2');
+    fireEvent.click(screen.getByRole('link', { name: 'Details for Half-Life 2' }));
+    expect(await screen.findByRole('heading', { name: 'Half-Life 2' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Check price now' })).toBeEnabled();
+    expect(screen.queryByText(/Used the recorded price from/)).not.toBeInTheDocument();
   });
   it('shows an immediate failed 202 honestly and preserves the last known data', async () => {
     let historyReads = 0, posts = 0, statusReads = 0;
